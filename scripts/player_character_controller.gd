@@ -1,21 +1,40 @@
-extends Camera3D
+extends Node3D
+
+signal local_state_changed(peer_id: int, character_position: Vector3, yaw: float, pitch: float)
 
 @export var move_speed: float = 1200.0
 @export var mouse_sensitivity: float = 0.002
 
 const MAX_PITCH := deg_to_rad(89.0)
 
+@onready var _camera: Camera3D = %Camera3D
+
+var peer_id := 1
+var is_local_player := false
 var _yaw := 0.0
 var _pitch := 0.0
 
 
 func _ready() -> void:
+	add_to_group("player_character")
 	_yaw = rotation.y
-	_pitch = clamp(rotation.x, -MAX_PITCH, MAX_PITCH)
-	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	_pitch = clamp(_camera.rotation.x, -MAX_PITCH, MAX_PITCH)
+	_apply_look_rotation()
+	_apply_local_player_mode()
+
+
+func configure(new_peer_id: int, local_player: bool) -> void:
+	peer_id = new_peer_id
+	is_local_player = local_player
+
+	if is_node_ready():
+		_apply_local_player_mode()
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not is_local_player:
+		return
+
 	if _is_game_menu_open():
 		return
 
@@ -30,10 +49,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		_yaw -= event.relative.x * mouse_sensitivity
 		_pitch = clamp(_pitch - event.relative.y * mouse_sensitivity, -MAX_PITCH, MAX_PITCH)
-		rotation = Vector3(_pitch, _yaw, 0.0)
+		_apply_look_rotation()
+		_emit_local_state()
 
 
 func _process(delta: float) -> void:
+	if not is_local_player:
+		return
+
 	if _is_game_menu_open() or Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
 		return
 
@@ -63,6 +86,47 @@ func _process(delta: float) -> void:
 		- yaw_basis.z * input_vector.z
 	)
 	global_position += world_direction * move_speed * delta
+	_emit_local_state()
+
+
+func apply_remote_state(character_position: Vector3, yaw: float, pitch: float) -> void:
+	global_position = character_position
+	_yaw = yaw
+	_pitch = clamp(pitch, -MAX_PITCH, MAX_PITCH)
+	_apply_look_rotation()
+
+
+func apply_spawn_state(character_position: Vector3, yaw: float) -> void:
+	global_position = character_position
+	_yaw = yaw
+
+	if is_node_ready():
+		_apply_look_rotation()
+	else:
+		rotation.y = _yaw
+
+
+func _apply_look_rotation() -> void:
+	rotation.y = _yaw
+	_camera.rotation = Vector3(_pitch, 0.0, 0.0)
+
+
+func _apply_local_player_mode() -> void:
+	_camera.current = is_local_player
+
+	if is_local_player:
+		call_deferred("_capture_mouse")
+
+
+func _capture_mouse() -> void:
+	if not is_local_player or _is_game_menu_open() or not DisplayServer.window_is_focused():
+		return
+
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+
+func _emit_local_state() -> void:
+	local_state_changed.emit(peer_id, global_position, _yaw, _pitch)
 
 
 func _is_game_menu_open() -> bool:

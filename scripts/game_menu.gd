@@ -15,7 +15,7 @@ func _ready() -> void:
 	_restart_button.pressed.connect(_on_restart_pressed)
 	_main_menu_button.pressed.connect(_on_main_menu_pressed)
 	_exit_button.pressed.connect(_on_exit_pressed)
-	_set_open(false)
+	_set_open(false, false)
 
 
 func _input(event: InputEvent) -> void:
@@ -28,15 +28,25 @@ func is_open() -> bool:
 	return _is_open
 
 
-func _set_open(value: bool) -> void:
+func _set_open(value: bool, update_mouse_mode := true) -> void:
 	_is_open = value
 	_menu_root.visible = value
+
+	if not update_mouse_mode:
+		return
 
 	if value:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		_restart_button.grab_focus()
 	else:
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		call_deferred("_capture_mouse")
+
+
+func _capture_mouse() -> void:
+	if _is_open or not DisplayServer.window_is_focused():
+		return
+
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 
 func _on_restart_pressed() -> void:
@@ -44,6 +54,7 @@ func _on_restart_pressed() -> void:
 
 
 func _on_main_menu_pressed() -> void:
+	get_node("/root/Lobby").disconnect_session()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	get_tree().change_scene_to_file(MAIN_MENU_SCENE)
 

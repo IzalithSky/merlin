@@ -4,7 +4,7 @@
 
 [ext_resource type="Texture2D" uid="uid://262c1fhqd110" path="res://textures/kloppenheim_05_puresky_1k.hdr" id="2_v0qym"]
 
-[ext_resource type="Script" path="res://scripts/editor_camera_controller.gd" id="3_fhkym"]
+[ext_resource type="Script" path="res://scripts/world_character_spawner.gd" id="3_fhkym"]
 [ext_resource type="Script" path="res://scripts/game_menu.gd" id="4_fhkym"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dihnr"]
@@ -73,6 +73,7 @@ fog_sky_affect = 0.8
 fog_depth_end = 10000.0
 
 [node name="world" type="Node3D"]
+script = ExtResource("3_fhkym")
 
 [node name="level" type="Node3D" parent="."]
 
@@ -96,12 +97,7 @@ environment = SubResource("Environment_7oua0")
 transform = Transform3D(0.803192, 0.303667, -0.512513, 0, 0.860324, 0.509747, 0.59572, -0.409425, 0.691005, 0, 0, 0)
 shadow_enabled = true
 
-[node name="Camera3D" type="Camera3D" parent="env"]
-transform = Transform3D(1, 0, 0, 0, 0.894427, 0.447214, 0, -0.447214, 0.894427, -4000, 7000, 18000)
-current = true
-fov = 65.0
-far = 200000.0
-script = ExtResource("3_fhkym")
+[node name="characters" type="Node3D" parent="."]
 
 [node name="ui" type="CanvasLayer" parent="."]
 script = ExtResource("4_fhkym")
