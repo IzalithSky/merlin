@@ -16,6 +16,9 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _is_game_menu_open():
+		return
+
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		return
@@ -31,6 +34,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	if _is_game_menu_open() or Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+		return
+
 	var input_vector := Vector3.ZERO
 
 	if Input.is_physical_key_pressed(KEY_D):
@@ -57,3 +63,10 @@ func _process(delta: float) -> void:
 		- yaw_basis.z * input_vector.z
 	)
 	global_position += world_direction * move_speed * delta
+
+
+func _is_game_menu_open() -> bool:
+	for menu in get_tree().get_nodes_in_group("game_menu"):
+		if menu.has_method("is_open") and menu.is_open():
+			return true
+	return false

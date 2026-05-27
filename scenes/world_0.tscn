@@ -1,10 +1,11 @@
-[gd_scene load_steps=12 format=4 uid="uid://dj47wc5nnm06h"]
+[gd_scene load_steps=13 format=4 uid="uid://dj47wc5nnm06h"]
 
 [ext_resource type="Texture2D" uid="uid://c8iuitgcercyk" path="res://textures/256x256/Grass/Grass_03-256x256.png" id="1_fhkym"]
 
 [ext_resource type="Texture2D" uid="uid://262c1fhqd110" path="res://textures/kloppenheim_05_puresky_1k.hdr" id="2_v0qym"]
 
 [ext_resource type="Script" path="res://scripts/editor_camera_controller.gd" id="3_fhkym"]
+[ext_resource type="Script" path="res://scripts/game_menu.gd" id="4_fhkym"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dihnr"]
 albedo_texture = ExtResource("1_fhkym")
@@ -101,3 +102,72 @@ current = true
 fov = 65.0
 far = 200000.0
 script = ExtResource("3_fhkym")
+
+[node name="ui" type="CanvasLayer" parent="."]
+script = ExtResource("4_fhkym")
+
+[node name="MenuRoot" type="Control" parent="ui"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Scrim" type="ColorRect" parent="ui/MenuRoot"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.45)
+
+[node name="CenterContainer" type="CenterContainer" parent="ui/MenuRoot"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="ui/MenuRoot/CenterContainer"]
+custom_minimum_size = Vector2(360, 270)
+layout_mode = 2
+
+[node name="Margin" type="MarginContainer" parent="ui/MenuRoot/CenterContainer/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 34
+theme_override_constants/margin_top = 30
+theme_override_constants/margin_right = 34
+theme_override_constants/margin_bottom = 30
+
+[node name="VBox" type="VBoxContainer" parent="ui/MenuRoot/CenterContainer/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="ui/MenuRoot/CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 30
+text = "Game Menu"
+horizontal_alignment = 1
+
+[node name="RestartButton" type="Button" parent="ui/MenuRoot/CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Restart"
+
+[node name="MainMenuButton" type="Button" parent="ui/MenuRoot/CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Main Menu"
+
+[node name="ExitButton" type="Button" parent="ui/MenuRoot/CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Exit"
