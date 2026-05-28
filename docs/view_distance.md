@@ -62,12 +62,12 @@ Suggested tile layout:
 ```text
 terrain/
   region_x_y/
-    lod0/
-      tile_x_y.tscn
-    lod1/
-      tile_x_y.tscn
-    lod2/
-      tile_x_y.tscn
+	lod0/
+	  tile_x_y.tscn
+	lod1/
+	  tile_x_y.tscn
+	lod2/
+	  tile_x_y.tscn
 ```
 
 Each tile should have:

@@ -1,6 +1,6 @@
 extends Node3D
 
-signal local_state_changed(peer_id: int, character_position: Vector3, yaw: float, pitch: float)
+signal local_state_changed(peer_id: int, character_position: Vector3, yaw: float, pitch: float, roll: float)
 
 @export var move_speed: float = 1200.0
 @export var mouse_sensitivity: float = 0.002
@@ -102,7 +102,7 @@ func _process(delta: float) -> void:
 	_emit_local_state()
 
 
-func apply_remote_state(character_position: Vector3, yaw: float, pitch: float) -> void:
+func apply_remote_state(character_position: Vector3, yaw: float, pitch: float, _roll: float) -> void:
 	global_position = character_position
 	_yaw = yaw
 	_pitch = clamp(pitch, -MAX_PITCH, MAX_PITCH)
@@ -139,7 +139,7 @@ func _capture_mouse() -> void:
 
 
 func _emit_local_state() -> void:
-	local_state_changed.emit(peer_id, global_position, _yaw, _pitch)
+	local_state_changed.emit(peer_id, global_position, _yaw, _pitch, 0.0)
 
 
 func _is_game_menu_open() -> bool:

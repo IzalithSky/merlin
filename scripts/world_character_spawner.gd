@@ -1,18 +1,29 @@
 extends Node3D
 
 const PLAYER_CHARACTER_SCENE := preload("res://scenes/player_character.tscn")
+const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
+const LOCAL_PLANE_CAMERA_RIG_SCENE := preload("res://scenes/local_plane_camera_rig.tscn")
+const PLANE_TELEMETRY_HUD_SCENE := preload("res://scenes/plane_telemetry_hud.tscn")
 const CHARACTER_NAME_PREFIX := "PlayerCharacter_"
+
+enum CharacterType {
+	CAMERA_CUBE,
+	PLANE,
+}
 
 @export var spawn_center := Vector3(-4000.0, 7000.0, 18000.0)
 @export var spawn_radius := 240.0
 @export var late_join_spawn_min_radius := 300.0
 @export var late_join_spawn_max_radius := 600.0
+@export var character_type := CharacterType.PLANE
 
 @onready var _characters: Node3D = $characters
 
 var _peer_spawn_states: Dictionary = {}
 var _world_ready_peers: Dictionary = {}
 var _spawn_random := RandomNumberGenerator.new()
+var _local_plane_camera_rig: Node3D
+var _local_plane_hud: CanvasLayer
 
 
 func _ready() -> void:
@@ -29,7 +40,7 @@ func _ready() -> void:
 		_register_initial_peers()
 		_spawn_registered_characters_locally()
 	else:
-		request_world_sync.rpc_id(1)
+		call_deferred("_request_world_sync")
 
 
 func _register_initial_peers() -> void:
@@ -59,22 +70,35 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	if existing != null:
 		existing.configure(peer_id, local_player)
 		_set_character_local_binding(existing, local_player)
+		if local_player:
+			_bind_local_plane_presentation(existing)
 		return existing
 
-	var character := PLAYER_CHARACTER_SCENE.instantiate() as Node3D
+	var character := _get_character_scene().instantiate() as Node3D
 	character.name = _character_name(peer_id)
 	character.position = character_position
 	character.rotation.y = yaw
 	character.configure(peer_id, local_player)
 	_set_character_local_binding(character, local_player)
 	_characters.add_child(character, true)
+	if local_player:
+		_bind_local_plane_presentation(character)
 	return character
 
 
 func _despawn_character(peer_id: int) -> void:
+	var is_local_character := false
+	if multiplayer.multiplayer_peer == null:
+		is_local_character = peer_id == 1
+	else:
+		is_local_character = peer_id == multiplayer.get_unique_id()
+
 	var character := _characters.get_node_or_null(_character_name(peer_id))
 	if character != null:
 		character.queue_free()
+
+	if is_local_character:
+		_clear_local_plane_presentation_target()
 
 
 func _character_name(peer_id: int) -> String:
@@ -91,14 +115,21 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	_broadcast_despawn(peer_id)
 
 
-func _on_local_character_state_changed(peer_id: int, character_position: Vector3, yaw: float, pitch: float) -> void:
+func _on_local_character_state_changed(peer_id: int, character_position: Vector3, yaw: float, pitch: float, roll: float) -> void:
 	if multiplayer.multiplayer_peer == null:
 		return
 
 	if multiplayer.is_server():
-		_broadcast_character_state(peer_id, character_position, yaw, pitch)
+		_broadcast_character_state(peer_id, character_position, yaw, pitch, roll)
 	else:
-		submit_character_state.rpc_id(1, character_position, yaw, pitch)
+		submit_character_state.rpc_id(1, character_position, yaw, pitch, roll)
+
+
+func _request_world_sync() -> void:
+	if multiplayer.multiplayer_peer == null or multiplayer.is_server():
+		return
+
+	request_world_sync.rpc_id(1)
 
 
 @rpc("any_peer", "reliable")
@@ -128,29 +159,29 @@ func despawn_character(peer_id: int) -> void:
 
 
 @rpc("any_peer", "call_remote", "unreliable", 1)
-func submit_character_state(character_position: Vector3, yaw: float, pitch: float) -> void:
+func submit_character_state(character_position: Vector3, yaw: float, pitch: float, roll: float) -> void:
 	if not multiplayer.is_server():
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	_apply_character_state_locally(sender_id, character_position, yaw, pitch)
-	_broadcast_character_state(sender_id, character_position, yaw, pitch)
+	_apply_character_state_locally(sender_id, character_position, yaw, pitch, roll)
+	_broadcast_character_state(sender_id, character_position, yaw, pitch, roll)
 
 
 @rpc("authority", "call_remote", "unreliable", 2)
-func apply_character_state(peer_id: int, character_position: Vector3, yaw: float, pitch: float) -> void:
+func apply_character_state(peer_id: int, character_position: Vector3, yaw: float, pitch: float, roll: float) -> void:
 	if peer_id == multiplayer.get_unique_id():
 		return
 
-	_apply_character_state_locally(peer_id, character_position, yaw, pitch)
+	_apply_character_state_locally(peer_id, character_position, yaw, pitch, roll)
 
 
-func _apply_character_state_locally(peer_id: int, character_position: Vector3, yaw: float, pitch: float) -> void:
+func _apply_character_state_locally(peer_id: int, character_position: Vector3, yaw: float, pitch: float, roll: float) -> void:
 	var character := _characters.get_node_or_null(_character_name(peer_id))
 	if character == null:
 		return
 
-	character.apply_remote_state(character_position, yaw, pitch)
+	character.apply_remote_state(character_position, yaw, pitch, roll)
 
 
 func _spawn_registered_characters_locally() -> void:
@@ -271,6 +302,11 @@ func _enforce_local_ownership() -> void:
 		character.configure(character_peer_id, local_player)
 		_set_character_local_binding(character, local_player)
 
+		if local_player:
+			_bind_local_plane_presentation(character)
+
+	_update_local_plane_presentation_binding()
+
 
 func _is_peer_world_ready(peer_id: int) -> bool:
 	if peer_id == multiplayer.get_unique_id():
@@ -279,12 +315,12 @@ func _is_peer_world_ready(peer_id: int) -> bool:
 	return bool(_world_ready_peers.get(peer_id, false))
 
 
-func _broadcast_character_state(peer_id: int, character_position: Vector3, yaw: float, pitch: float) -> void:
+func _broadcast_character_state(peer_id: int, character_position: Vector3, yaw: float, pitch: float, roll: float) -> void:
 	for target_peer_id in multiplayer.get_peers():
 		if target_peer_id == peer_id or not _is_peer_world_ready(target_peer_id):
 			continue
 
-		apply_character_state.rpc_id(target_peer_id, peer_id, character_position, yaw, pitch)
+		apply_character_state.rpc_id(target_peer_id, peer_id, character_position, yaw, pitch, roll)
 
 
 func _broadcast_despawn(peer_id: int) -> void:
@@ -303,3 +339,63 @@ func _yaw_towards(character_position: Vector3, target_position: Vector3) -> floa
 
 	direction = direction.normalized()
 	return atan2(-direction.x, -direction.z)
+
+
+func _get_character_scene() -> PackedScene:
+	match character_type:
+		CharacterType.PLANE:
+			return PLANE_CHARACTER_SCENE
+		_:
+			return PLAYER_CHARACTER_SCENE
+
+
+func _update_local_plane_presentation_binding() -> void:
+	var local_character := _find_local_character()
+	if local_character == null:
+		_clear_local_plane_presentation_target()
+		return
+
+	_bind_local_plane_presentation(local_character)
+
+
+func _find_local_character() -> Node3D:
+	var local_peer_id := 1
+	if multiplayer.multiplayer_peer != null:
+		local_peer_id = multiplayer.get_unique_id()
+
+	for character in _characters.get_children():
+		if int(character.get("peer_id")) == local_peer_id:
+			return character
+
+	return null
+
+
+func _bind_local_plane_presentation(character: Node3D) -> void:
+	if character_type != CharacterType.PLANE:
+		return
+
+	_ensure_local_plane_presentation()
+
+	if _local_plane_camera_rig != null and _local_plane_camera_rig.has_method("set_target"):
+		_local_plane_camera_rig.call("set_target", character)
+
+	if _local_plane_hud != null and _local_plane_hud.has_method("set_target"):
+		_local_plane_hud.call("set_target", character)
+
+
+func _ensure_local_plane_presentation() -> void:
+	if _local_plane_camera_rig == null:
+		_local_plane_camera_rig = LOCAL_PLANE_CAMERA_RIG_SCENE.instantiate() as Node3D
+		add_child(_local_plane_camera_rig)
+
+	if _local_plane_hud == null:
+		_local_plane_hud = PLANE_TELEMETRY_HUD_SCENE.instantiate() as CanvasLayer
+		add_child(_local_plane_hud)
+
+
+func _clear_local_plane_presentation_target() -> void:
+	if _local_plane_camera_rig != null and _local_plane_camera_rig.has_method("set_target"):
+		_local_plane_camera_rig.call("set_target", null)
+
+	if _local_plane_hud != null and _local_plane_hud.has_method("set_target"):
+		_local_plane_hud.call("set_target", null)

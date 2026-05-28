@@ -127,8 +127,8 @@ func start_game() -> Error:
 
 	is_game_in_progress = true
 	_broadcast_session_options()
-	begin_game.rpc()
 	_load_world_scene()
+	get_tree().process_frame.connect(_broadcast_begin_game, CONNECT_ONE_SHOT)
 	return OK
 
 
@@ -225,6 +225,13 @@ func _emit_status() -> void:
 
 func _load_world_scene() -> void:
 	get_tree().change_scene_to_file(WORLD_SCENE)
+
+
+func _broadcast_begin_game() -> void:
+	if not is_server_peer():
+		return
+
+	begin_game.rpc()
 
 
 func _disconnect_peer(peer_id: int) -> void:
