@@ -4,8 +4,11 @@ signal local_state_changed(peer_id: int, character_position: Vector3, yaw: float
 
 @export var move_speed: float = 1200.0
 @export var mouse_sensitivity: float = 0.002
+@export var acceleration: float = 2400.0
+@export var deceleration: float = 36.0
 
 const MAX_PITCH := deg_to_rad(89.0)
+const MIN_VELOCITY_SQ := 0.0001
 
 @onready var _camera: Camera3D = %Camera3D
 
@@ -13,6 +16,7 @@ var peer_id := 1
 var is_local_player := false
 var _yaw := 0.0
 var _pitch := 0.0
+var _velocity := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -57,35 +61,44 @@ func _process(delta: float) -> void:
 	if not is_local_player:
 		return
 
-	if _is_game_menu_open() or Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+	var can_move := not _is_game_menu_open() and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED
+
+	var desired_velocity := Vector3.ZERO
+
+	if can_move:
+		var input_vector := Vector3.ZERO
+		if Input.is_physical_key_pressed(KEY_D):
+			input_vector.x += 1.0
+		if Input.is_physical_key_pressed(KEY_A):
+			input_vector.x -= 1.0
+		if Input.is_physical_key_pressed(KEY_R):
+			input_vector.y += 1.0
+		if Input.is_physical_key_pressed(KEY_F):
+			input_vector.y -= 1.0
+		if Input.is_physical_key_pressed(KEY_W):
+			input_vector.z += 1.0
+		if Input.is_physical_key_pressed(KEY_S):
+			input_vector.z -= 1.0
+
+		if input_vector != Vector3.ZERO:
+			input_vector = input_vector.normalized()
+			var yaw_basis := Basis(Vector3.UP, _yaw)
+			var world_direction := (
+				yaw_basis.x * input_vector.x
+				+ Vector3.UP * input_vector.y
+				- yaw_basis.z * input_vector.z
+			)
+			desired_velocity = world_direction * move_speed
+
+	var accel_rate := acceleration if desired_velocity != Vector3.ZERO else deceleration
+	_velocity = _velocity.move_toward(desired_velocity, accel_rate * delta)
+	if _velocity.length_squared() < MIN_VELOCITY_SQ and desired_velocity == Vector3.ZERO:
+		_velocity = Vector3.ZERO
+
+	if _velocity == Vector3.ZERO:
 		return
 
-	var input_vector := Vector3.ZERO
-
-	if Input.is_physical_key_pressed(KEY_D):
-		input_vector.x += 1.0
-	if Input.is_physical_key_pressed(KEY_A):
-		input_vector.x -= 1.0
-	if Input.is_physical_key_pressed(KEY_R):
-		input_vector.y += 1.0
-	if Input.is_physical_key_pressed(KEY_F):
-		input_vector.y -= 1.0
-	if Input.is_physical_key_pressed(KEY_W):
-		input_vector.z += 1.0
-	if Input.is_physical_key_pressed(KEY_S):
-		input_vector.z -= 1.0
-
-	if input_vector == Vector3.ZERO:
-		return
-
-	input_vector = input_vector.normalized()
-	var yaw_basis := Basis(Vector3.UP, _yaw)
-	var world_direction := (
-		yaw_basis.x * input_vector.x
-		+ Vector3.UP * input_vector.y
-		- yaw_basis.z * input_vector.z
-	)
-	global_position += world_direction * move_speed * delta
+	global_position += _velocity * delta
 	_emit_local_state()
 
 

@@ -11,6 +11,7 @@ const CHARACTER_NAME_PREFIX := "PlayerCharacter_"
 @onready var _characters: Node3D = $characters
 
 var _peer_spawn_states: Dictionary = {}
+var _world_ready_peers: Dictionary = {}
 var _spawn_random := RandomNumberGenerator.new()
 
 
@@ -24,6 +25,7 @@ func _ready() -> void:
 
 	if multiplayer.is_server():
 		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+		_world_ready_peers[multiplayer.get_unique_id()] = true
 		_register_initial_peers()
 		_spawn_registered_characters_locally()
 	else:
@@ -85,7 +87,8 @@ func _on_peer_disconnected(peer_id: int) -> void:
 
 	_despawn_character(peer_id)
 	_peer_spawn_states.erase(peer_id)
-	despawn_character.rpc(peer_id)
+	_world_ready_peers.erase(peer_id)
+	_broadcast_despawn(peer_id)
 
 
 func _on_local_character_state_changed(peer_id: int, character_position: Vector3, yaw: float, pitch: float) -> void:
@@ -93,7 +96,7 @@ func _on_local_character_state_changed(peer_id: int, character_position: Vector3
 		return
 
 	if multiplayer.is_server():
-		apply_character_state.rpc(peer_id, character_position, yaw, pitch)
+		_broadcast_character_state(peer_id, character_position, yaw, pitch)
 	else:
 		submit_character_state.rpc_id(1, character_position, yaw, pitch)
 
@@ -105,6 +108,7 @@ func request_world_sync() -> void:
 
 	var sender_id := multiplayer.get_remote_sender_id()
 	var is_new_peer := _register_peer(sender_id)
+	_world_ready_peers[sender_id] = true
 	_spawn_peer_character_locally(sender_id)
 	_sync_spawn_states_to_peer(sender_id)
 
@@ -130,7 +134,7 @@ func submit_character_state(character_position: Vector3, yaw: float, pitch: floa
 
 	var sender_id := multiplayer.get_remote_sender_id()
 	_apply_character_state_locally(sender_id, character_position, yaw, pitch)
-	apply_character_state.rpc(sender_id, character_position, yaw, pitch)
+	_broadcast_character_state(sender_id, character_position, yaw, pitch)
 
 
 @rpc("authority", "call_remote", "unreliable", 2)
@@ -178,7 +182,7 @@ func _sync_spawn_states_to_peer(target_peer_id: int) -> void:
 func _broadcast_spawn_state(peer_id: int, excluded_peer_id: int) -> void:
 	var spawn_state: Dictionary = _peer_spawn_states[peer_id]
 	for target_peer_id in multiplayer.get_peers():
-		if target_peer_id == excluded_peer_id:
+		if target_peer_id == excluded_peer_id or not _is_peer_world_ready(target_peer_id):
 			continue
 
 		spawn_character.rpc_id(
@@ -266,6 +270,29 @@ func _enforce_local_ownership() -> void:
 		var local_player := character_peer_id == local_peer_id
 		character.configure(character_peer_id, local_player)
 		_set_character_local_binding(character, local_player)
+
+
+func _is_peer_world_ready(peer_id: int) -> bool:
+	if peer_id == multiplayer.get_unique_id():
+		return true
+
+	return bool(_world_ready_peers.get(peer_id, false))
+
+
+func _broadcast_character_state(peer_id: int, character_position: Vector3, yaw: float, pitch: float) -> void:
+	for target_peer_id in multiplayer.get_peers():
+		if target_peer_id == peer_id or not _is_peer_world_ready(target_peer_id):
+			continue
+
+		apply_character_state.rpc_id(target_peer_id, peer_id, character_position, yaw, pitch)
+
+
+func _broadcast_despawn(peer_id: int) -> void:
+	for target_peer_id in multiplayer.get_peers():
+		if not _is_peer_world_ready(target_peer_id):
+			continue
+
+		despawn_character.rpc_id(target_peer_id, peer_id)
 
 
 func _yaw_towards(character_position: Vector3, target_position: Vector3) -> float:
