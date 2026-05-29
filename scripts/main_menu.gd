@@ -1,10 +1,13 @@
 extends Control
 
+const PLANE_AERO_EDITOR_SCENE := "res://scenes/plane_aero_editor.tscn"
+
 @onready var _new_game_button: Button = %NewGameButton
 @onready var _host_button: Button = %HostButton
 @onready var _join_button: Button = %JoinButton
 @onready var _address_edit: LineEdit = %AddressEdit
 @onready var _status_label: Label = %StatusLabel
+@onready var _plane_editor_button: Button = %PlaneEditorButton
 @onready var _exit_button: Button = %ExitButton
 @onready var _lobby: Node = get_node("/root/Lobby")
 
@@ -14,6 +17,7 @@ func _ready() -> void:
 	_new_game_button.pressed.connect(_on_new_game_pressed)
 	_host_button.pressed.connect(_on_host_pressed)
 	_join_button.pressed.connect(_on_join_pressed)
+	_plane_editor_button.pressed.connect(_on_plane_editor_pressed)
 	_exit_button.pressed.connect(_on_exit_pressed)
 	_address_edit.text = _lobby.DEFAULT_ADDRESS
 	_status_label.text = _lobby.last_error
@@ -39,3 +43,7 @@ func _on_join_pressed() -> void:
 
 func _on_exit_pressed() -> void:
 	get_tree().quit()
+
+
+func _on_plane_editor_pressed() -> void:
+	get_tree().change_scene_to_file(PLANE_AERO_EDITOR_SCENE)

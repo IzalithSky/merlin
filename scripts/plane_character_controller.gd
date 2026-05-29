@@ -2,6 +2,8 @@ extends RigidBody3D
 
 signal local_state_changed(peer_id: int, character_position: Vector3, yaw: float, pitch: float, roll: float)
 
+const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
+
 @export var rot_rate: float = 2.4
 @export var rot_decay: float = 3.0
 @export var thr_rate: float = 1.2
@@ -16,16 +18,50 @@ signal local_state_changed(peer_id: int, character_position: Vector3, yaw: float
 @export var base_control_torque: float = 4000.0
 @export var dynamic_torque_scale: float = 3.0
 
-@export var lift_coefficient: float = 0.0
-@export var stall_aoa_deg: float = 30.0
-@export var drag_forward: float = 0.005
-@export var drag_up: float = 0.05
-@export var drag_side: float = 0.025
+@export var air_density: float = 1.225
+@export var reference_area: float = 12.0
+@export var ambient_wind_velocity_world: Vector3 = Vector3.ZERO
+@export var lift_coefficient_table: Array[Vector2] = [
+	Vector2(-30.0, -0.65),
+	Vector2(-20.0, -0.40),
+	Vector2(-10.0, -0.15),
+	Vector2(-5.0, -0.05),
+	Vector2(0.0, 0.00),
+	Vector2(5.0, 0.35),
+	Vector2(10.0, 0.75),
+	Vector2(15.0, 1.00),
+	Vector2(20.0, 0.85),
+	Vector2(25.0, 0.55),
+	Vector2(30.0, 0.25),
+	Vector2(40.0, 0.00),
+]
+@export var drag_coefficient_table: Array[Vector2] = [
+	Vector2(-30.0, 0.30),
+	Vector2(-20.0, 0.16),
+	Vector2(-10.0, 0.07),
+	Vector2(-5.0, 0.04),
+	Vector2(0.0, 0.02),
+	Vector2(5.0, 0.04),
+	Vector2(10.0, 0.07),
+	Vector2(15.0, 0.11),
+	Vector2(20.0, 0.18),
+	Vector2(25.0, 0.26),
+	Vector2(30.0, 0.36),
+	Vector2(40.0, 0.55),
+]
+@export var side_force_coefficient_table: Array[Vector2] = [
+	Vector2(-40.0, 0.0),
+	Vector2(0.0, 0.0),
+	Vector2(40.0, 0.0),
+]
 @export var alignment_strength: float = 5.0
 @export var alignment_max_torque: float = 1000.0
 @export var network_sync_interval: float = 0.033
 
 const G_BUFFER_SIZE := 10
+const TABLE_SORT_EPSILON := 0.0001
+const MIN_AERODYNAMIC_SPEED_SQUARED := 0.0001
+const MIN_DIRECTION_VECTOR_LENGTH_SQUARED := 0.000001
 
 var peer_id := 1
 var is_local_player := false
@@ -37,7 +73,7 @@ var throttle_input := 0.0
 
 var smoothed_g := 0.0
 var aoa_deg := 0.0
-var horizontal_aoa_deg := 0.0
+var sideslip_deg := 0.0
 var throttle_percent := 0.0
 var lift_ok := true
 
@@ -51,6 +87,8 @@ var _control_half_extents_dirty := true
 func _ready() -> void:
 	add_to_group("player_character")
 	throttle_input = -1.0
+	_sanitize_aero_tables()
+	_apply_persisted_aero_tables()
 	_ensure_control_geometry_cache_connections()
 	_refresh_control_half_extents_cache()
 	_apply_local_player_mode()
@@ -68,15 +106,11 @@ func _physics_process(delta: float) -> void:
 	if not is_local_player:
 		return
 
-	if _is_game_menu_open():
-		return
-
 	_collect_inputs(delta)
 	compute_control_state(delta)
 	apply_thrust()
 	apply_plane_torque()
-	apply_lift()
-	apply_air_drag()
+	apply_aerodynamic_forces()
 	apply_directional_alignment()
 
 	_sync_timer += delta
@@ -158,19 +192,21 @@ func update_g_force(delta: float) -> void:
 
 
 func compute_aoa() -> void:
-	var velocity := linear_velocity
-	if velocity.length() < 0.001:
+	var air_velocity_world := _get_air_relative_velocity_world()
+	if air_velocity_world.length_squared() < MIN_AERODYNAMIC_SPEED_SQUARED:
 		aoa_deg = 0.0
-		horizontal_aoa_deg = 0.0
+		sideslip_deg = 0.0
 		return
 
-	var forward := -transform.basis.z
-	var up := transform.basis.y
-	var right := transform.basis.x
-	var velocity_direction := velocity.normalized()
+	var body_basis := global_transform.basis.orthonormalized()
+	var air_velocity_local := body_basis.transposed() * air_velocity_world
+	var flow_forward := -air_velocity_local.z
+	var flow_up := air_velocity_local.y
+	var flow_right := air_velocity_local.x
+	var forward_plane_speed := maxf(sqrt(flow_forward * flow_forward + flow_up * flow_up), 0.0001)
 
-	aoa_deg = rad_to_deg(-atan2(velocity_direction.dot(up), velocity_direction.dot(forward)))
-	horizontal_aoa_deg = rad_to_deg(atan2(velocity_direction.dot(right), velocity_direction.dot(forward)))
+	aoa_deg = rad_to_deg(-atan2(flow_up, flow_forward))
+	sideslip_deg = rad_to_deg(atan2(flow_right, forward_plane_speed))
 
 
 func apply_thrust() -> void:
@@ -182,8 +218,7 @@ func apply_thrust() -> void:
 
 
 func apply_plane_torque() -> void:
-	var forward_speed := linear_velocity.dot(-transform.basis.z)
-	var q := 0.5 * forward_speed * forward_speed
+	var forward_speed := _get_air_relative_velocity_world().dot(-transform.basis.z)
 
 	var t := maxf(0.0, forward_speed) / maxf(control_effectiveness_speed, 0.001)
 	var speed_factor := 1.0
@@ -196,7 +231,7 @@ func apply_plane_torque() -> void:
 	var y_in := yaw_input * speed_factor
 	var r_in := roll_input * speed_factor
 
-	var control_torque := base_control_torque + (q * dynamic_torque_scale)
+	var control_torque := base_control_torque + (0.5 * forward_speed * forward_speed * dynamic_torque_scale)
 	var pitch_torque := p_in * control_torque * max_pitch
 	var yaw_torque := y_in * control_torque * max_yaw
 	var roll_torque := r_in * control_torque * max_roll
@@ -373,50 +408,63 @@ func _get_shape_half_extents(shape_resource: Shape3D) -> Vector3:
 	return Vector3.ZERO
 
 
-func apply_lift() -> void:
-	var velocity := linear_velocity
-	if velocity.length() < 0.001:
+func apply_aerodynamic_forces() -> void:
+	var air_velocity_world := _get_air_relative_velocity_world()
+	var airspeed_squared := air_velocity_world.length_squared()
+	if airspeed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
 		return
 
-	var dynamic_pressure := 0.5 * velocity.length_squared()
-	var vertical_cl := lift_coefficient + (2.0 * PI * deg_to_rad(aoa_deg))
-	var lateral_cl := -2.0 * PI * deg_to_rad(horizontal_aoa_deg)
-
-	lift_ok = absf(aoa_deg) < stall_aoa_deg and absf(horizontal_aoa_deg) < stall_aoa_deg
-	if not lift_ok:
+	var airspeed := sqrt(airspeed_squared)
+	if airspeed <= 0.0:
 		return
+	var airflow_direction := air_velocity_world / airspeed
+	var dynamic_pressure := 0.5 * air_density * airspeed_squared
 
-	apply_central_force(transform.basis.y * dynamic_pressure * vertical_cl)
-	apply_central_force(transform.basis.x * dynamic_pressure * lateral_cl)
+	var lift_coefficient := _sample_aero_table(lift_coefficient_table, aoa_deg)
+	var drag_coefficient := maxf(_sample_aero_table(drag_coefficient_table, aoa_deg), 0.0)
+	var side_force_coefficient := _sample_aero_table(side_force_coefficient_table, sideslip_deg)
 
+	var drag_force_magnitude := dynamic_pressure * reference_area * drag_coefficient
+	var lift_force_magnitude := dynamic_pressure * reference_area * lift_coefficient
+	var side_force_magnitude := dynamic_pressure * reference_area * side_force_coefficient
 
-func apply_air_drag() -> void:
-	var velocity := linear_velocity
-	if velocity.length_squared() < 0.0001:
-		return
+	var right_axis := transform.basis.x
+	var lift_axis := right_axis.cross(airflow_direction)
+	if lift_axis.length_squared() < MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		lift_axis = transform.basis.y
+	else:
+		lift_axis = lift_axis.normalized()
 
-	var local_basis := transform.basis
-	var drag := Vector3.ZERO
-	drag += -local_basis.z * velocity.dot(local_basis.z) * absf(velocity.dot(local_basis.z)) * drag_forward
-	drag += -local_basis.y * velocity.dot(local_basis.y) * absf(velocity.dot(local_basis.y)) * drag_up
-	drag += -local_basis.x * velocity.dot(local_basis.x) * absf(velocity.dot(local_basis.x)) * drag_side
+	var side_axis := airflow_direction.cross(lift_axis)
+	if side_axis.length_squared() < MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		side_axis = right_axis
+	else:
+		side_axis = side_axis.normalized()
 
-	if drag.is_finite():
-		apply_central_force(drag)
+	var aerodynamic_force := (
+		(-airflow_direction * drag_force_magnitude) +
+		(lift_axis * lift_force_magnitude) +
+		(side_axis * side_force_magnitude)
+	)
+
+	if aerodynamic_force.is_finite():
+		apply_central_force(aerodynamic_force)
+
+	lift_ok = true
 
 
 func apply_directional_alignment() -> void:
-	var velocity := linear_velocity
-	if velocity.length() < 0.001:
+	var air_velocity_world := _get_air_relative_velocity_world()
+	if air_velocity_world.length_squared() < MIN_AERODYNAMIC_SPEED_SQUARED:
 		return
 
 	var forward := -transform.basis.z
-	var velocity_direction := velocity.normalized()
+	var velocity_direction := air_velocity_world.normalized()
 	var axis := forward.cross(velocity_direction)
 	var angle := forward.angle_to(velocity_direction)
 
 	if angle > 0.01:
-		var torque := axis.normalized() * angle * alignment_strength * velocity.length()
+		var torque := axis.normalized() * angle * alignment_strength * air_velocity_world.length()
 		if alignment_max_torque > 0.0:
 			torque = torque.limit_length(alignment_max_torque)
 		apply_torque(torque)
@@ -455,13 +503,6 @@ func _emit_local_state() -> void:
 	local_state_changed.emit(peer_id, global_position, euler.y, euler.x, euler.z)
 
 
-func _is_game_menu_open() -> bool:
-	for menu in get_tree().get_nodes_in_group("game_menu"):
-		if menu.has_method("is_open") and menu.is_open():
-			return true
-	return false
-
-
 func get_throttle_percent() -> float:
 	return throttle_percent
 
@@ -484,3 +525,103 @@ func get_roll_input() -> float:
 
 func get_throttle_input() -> float:
 	return throttle_input
+
+
+func get_lift_table() -> Array[Vector2]:
+	return lift_coefficient_table.duplicate()
+
+
+func get_drag_table() -> Array[Vector2]:
+	return drag_coefficient_table.duplicate()
+
+
+func get_side_force_table() -> Array[Vector2]:
+	return side_force_coefficient_table.duplicate()
+
+
+func set_lift_table(points: Array[Vector2]) -> void:
+	lift_coefficient_table = _normalize_table(points)
+
+
+func set_drag_table(points: Array[Vector2]) -> void:
+	drag_coefficient_table = _normalize_table(points)
+
+
+func set_side_force_table(points: Array[Vector2]) -> void:
+	side_force_coefficient_table = _normalize_table(points)
+
+
+func get_sideslip_deg() -> float:
+	return sideslip_deg
+
+
+func _get_air_relative_velocity_world() -> Vector3:
+	return linear_velocity - ambient_wind_velocity_world
+
+
+func _sample_aero_table(points: Array[Vector2], x_value: float) -> float:
+	if points.is_empty():
+		return 0.0
+
+	if points.size() == 1:
+		return points[0].y
+
+	if x_value <= points[0].x:
+		return points[0].y
+
+	var last_index := points.size() - 1
+	if x_value >= points[last_index].x:
+		return points[last_index].y
+
+	for index in range(last_index):
+		var left := points[index]
+		var right := points[index + 1]
+		if x_value > right.x:
+			continue
+
+		var span := right.x - left.x
+		if absf(span) <= TABLE_SORT_EPSILON:
+			return right.y
+
+		var t := (x_value - left.x) / span
+		return lerpf(left.y, right.y, t)
+
+	return points[last_index].y
+
+
+func _sanitize_aero_tables() -> void:
+	lift_coefficient_table = _normalize_table(lift_coefficient_table)
+	drag_coefficient_table = _normalize_table(drag_coefficient_table)
+	side_force_coefficient_table = _normalize_table(side_force_coefficient_table)
+
+
+func _normalize_table(points: Array[Vector2]) -> Array[Vector2]:
+	var normalized := points.duplicate()
+	normalized.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
+
+	var deduped: Array[Vector2] = []
+	for point in normalized:
+		if deduped.is_empty():
+			deduped.append(point)
+			continue
+
+		if absf(point.x - deduped[deduped.size() - 1].x) <= TABLE_SORT_EPSILON:
+			deduped[deduped.size() - 1] = point
+		else:
+			deduped.append(point)
+
+	return deduped
+
+
+func _apply_persisted_aero_tables() -> void:
+	var payload: Dictionary = AERO_TABLES_STORE.load_payload()
+	if payload.is_empty():
+		return
+
+	var lift_points := AERO_TABLES_STORE.decode_points(payload.get("lift_table", []))
+	if not lift_points.is_empty():
+		set_lift_table(lift_points)
+
+	var drag_points := AERO_TABLES_STORE.decode_points(payload.get("drag_table", []))
+	if not drag_points.is_empty():
+		set_drag_table(drag_points)

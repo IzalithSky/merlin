@@ -1,0 +1,150 @@
+[gd_scene load_steps=3 format=4]
+
+[ext_resource type="Script" path="res://scripts/plane_aero_editor.gd" id="1_editor"]
+[ext_resource type="Script" path="res://scripts/curve_graph_editor.gd" id="2_graph"]
+
+[node name="PlaneAeroEditor" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_editor")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.004, 0.011, 0.016, 1)
+
+[node name="HorizonGlow" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 0.62
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 0
+color = Color(0.118, 0.302, 0.353, 0.38)
+
+[node name="CenterContainer" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="CenterContainer"]
+custom_minimum_size = Vector2(1180, 820)
+layout_mode = 2
+
+[node name="Margin" type="MarginContainer" parent="CenterContainer/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 20
+
+[node name="VBox" type="VBoxContainer" parent="CenterContainer/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="TitleLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 32
+text = "Plane Aerodynamics Editor"
+
+[node name="HintLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "Double-click add, drag point to move, right-click remove. Drag empty graph space (left or middle) to pan. Wheel zoom, Shift+Wheel X-only, Alt+Wheel Y-only, middle-double-click reset."
+autowrap_mode = 3
+
+[node name="StatusLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = ""
+
+[node name="Graphs" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 16
+
+[node name="LiftColumn" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/Graphs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="LiftTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/Graphs/LiftColumn"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Lift Coefficient (CL) vs AoA (deg)"
+
+[node name="LiftGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/Graphs/LiftColumn"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(520, 600)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("2_graph")
+x_min = -40.0
+x_max = 40.0
+y_min = -1.0
+y_max = 1.3
+edit_x_min = -720.0
+edit_x_max = 720.0
+edit_y_min = -20.0
+edit_y_max = 20.0
+x_axis_label = "AoA (deg)"
+y_axis_label = "CL"
+tick_decimals = 2
+
+[node name="DragColumn" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/Graphs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="DragTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/Graphs/DragColumn"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Drag Coefficient (CD) vs AoA (deg)"
+
+[node name="DragGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/Graphs/DragColumn"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(520, 600)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("2_graph")
+x_min = -40.0
+x_max = 40.0
+y_min = 0.0
+y_max = 0.7
+edit_x_min = -720.0
+edit_x_max = 720.0
+edit_y_min = -20.0
+edit_y_max = 20.0
+x_axis_label = "AoA (deg)"
+y_axis_label = "CD"
+tick_decimals = 3
+
+[node name="Footer" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+
+[node name="Spacer" type="Control" parent="CenterContainer/Panel/Margin/VBox/Footer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BackButton" type="Button" parent="CenterContainer/Panel/Margin/VBox/Footer"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(170, 46)
+layout_mode = 2
+text = "Back To Main Menu"

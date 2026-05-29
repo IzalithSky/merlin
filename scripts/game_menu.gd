@@ -11,6 +11,7 @@ var _is_open := false
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("game_menu")
 	_restart_button.pressed.connect(_on_restart_pressed)
 	_main_menu_button.pressed.connect(_on_main_menu_pressed)
@@ -31,6 +32,7 @@ func is_open() -> bool:
 func _set_open(value: bool, update_mouse_mode := true) -> void:
 	_is_open = value
 	_menu_root.visible = value
+	_apply_single_player_pause_state(value)
 
 	if not update_mouse_mode:
 		return
@@ -50,14 +52,26 @@ func _capture_mouse() -> void:
 
 
 func _on_restart_pressed() -> void:
+	_set_open(false)
 	get_tree().reload_current_scene()
 
 
 func _on_main_menu_pressed() -> void:
+	_set_open(false)
 	get_node("/root/Lobby").disconnect_session()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	get_tree().change_scene_to_file(MAIN_MENU_SCENE)
 
 
 func _on_exit_pressed() -> void:
+	_set_open(false)
 	get_tree().quit()
+
+
+func _apply_single_player_pause_state(menu_open: bool) -> void:
+	if multiplayer.multiplayer_peer != null:
+		if get_tree().paused:
+			get_tree().paused = false
+		return
+
+	get_tree().paused = menu_open
