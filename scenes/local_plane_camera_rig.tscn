@@ -10,11 +10,11 @@ unique_name_in_owner = true
 
 [node name="CameraPitchPivot" type="Node3D" parent="CameraYawPivot"]
 unique_name_in_owner = true
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 36, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
 
 [node name="Camera3D" type="Camera3D" parent="CameraYawPivot/CameraPitchPivot"]
 unique_name_in_owner = true
-transform = Transform3D(1, 0, 0, 0, 0.970296, -0.241922, 0, 0.241922, 0.970296, 0, 0, 210)
+transform = Transform3D(1, 0, 0, 0, 0.970296, -0.241922, 0, 0.241922, 0.970296, 0, 0, 14)
 current = true
 fov = 65.0
 far = 200000.0

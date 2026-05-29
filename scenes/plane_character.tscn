@@ -1,24 +1,20 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene format=3 uid="uid://bio3tkswfltrc"]
 
-[ext_resource type="Script" path="res://scripts/plane_character_controller.gd" id="1_plane"]
+[ext_resource type="Script" uid="uid://cga1tya6tia2b" path="res://scripts/plane_character_controller.gd" id="1_plane"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_plane_collision"]
+size = Vector3(10, 1, 10)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_plane_body"]
 albedo_color = Color(0.98, 0.5, 0.08, 1)
 roughness = 0.7
 
-[sub_resource type="BoxMesh" id="BoxMesh_plane_body"]
-size = Vector3(120, 36, 280)
+[sub_resource type="PrismMesh" id="PrismMesh_plane_body"]
 material = SubResource("StandardMaterial3D_plane_body")
+size = Vector3(10, 10, 0.6)
 
-[sub_resource type="BoxShape3D" id="BoxShape3D_plane_collision"]
-size = Vector3(120, 36, 280)
-
-[sub_resource type="BoxMesh" id="BoxMesh_plane_wing"]
-size = Vector3(280, 10, 48)
-material = SubResource("StandardMaterial3D_plane_body")
-
-[node name="PlaneCharacter" type="RigidBody3D"]
-mass = 100.0
+[node name="PlaneCharacter" type="RigidBody3D" unique_id=721828023]
+mass = 500.0
 continuous_cd = true
 contact_monitor = true
 max_contacts_reported = 4
@@ -26,11 +22,9 @@ linear_damp = 0.05
 angular_damp = 0.8
 script = ExtResource("1_plane")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=251207333]
 shape = SubResource("BoxShape3D_plane_collision")
 
-[node name="BodyMesh" type="MeshInstance3D" parent="."]
-mesh = SubResource("BoxMesh_plane_body")
-
-[node name="WingMesh" type="MeshInstance3D" parent="."]
-mesh = SubResource("BoxMesh_plane_wing")
+[node name="BodyMesh" type="MeshInstance3D" parent="." unique_id=219576509]
+transform = Transform3D(-1, -8.742278e-08, 3.821371e-15, 0, -4.371139e-08, -1, 8.742278e-08, -1, 4.371139e-08, 0, 0, 0)
+mesh = SubResource("PrismMesh_plane_body")

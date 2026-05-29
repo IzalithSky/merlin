@@ -16,7 +16,7 @@ layout_mode = 0
 offset_left = 22.0
 offset_top = 20.0
 offset_right = 300.0
-offset_bottom = 140.0
+offset_bottom = 340.0
 
 [node name="Margin" type="MarginContainer" parent="Root/Panel"]
 layout_mode = 2
@@ -60,3 +60,72 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "--"
 horizontal_alignment = 2
+
+[node name="ThrottleLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Throttle"
+
+[node name="ThrottleValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
+[node name="AoaLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "AoA"
+
+[node name="AoaValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
+[node name="PitchInputLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Pitch Input"
+
+[node name="PitchInputBar" type="ProgressBar" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(155, 0)
+layout_mode = 2
+min_value = -100.0
+max_value = 100.0
+show_percentage = false
+
+[node name="YawInputLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Yaw Input"
+
+[node name="YawInputBar" type="ProgressBar" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(155, 0)
+layout_mode = 2
+min_value = -100.0
+max_value = 100.0
+show_percentage = false
+
+[node name="RollInputLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Roll Input"
+
+[node name="RollInputBar" type="ProgressBar" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(155, 0)
+layout_mode = 2
+min_value = -100.0
+max_value = 100.0
+show_percentage = false
+
+[node name="ThrottleInputLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Throttle Input"
+
+[node name="ThrottleInputBar" type="ProgressBar" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(155, 0)
+layout_mode = 2
+min_value = -100.0
+max_value = 100.0
+value = -100.0
+show_percentage = false
