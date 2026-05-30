@@ -4,7 +4,9 @@ const PLAYER_CHARACTER_SCENE := preload("res://scenes/player_character.tscn")
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const LOCAL_PLANE_CAMERA_RIG_SCENE := preload("res://scenes/local_plane_camera_rig.tscn")
 const PLANE_TELEMETRY_HUD_SCENE := preload("res://scenes/plane_telemetry_hud.tscn")
+const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
 const CHARACTER_NAME_PREFIX := "PlayerCharacter_"
+const BOT_PEER_ID_BASE := 1000000
 
 enum CharacterType {
 	CAMERA_CUBE,
@@ -16,6 +18,11 @@ enum CharacterType {
 @export var late_join_spawn_min_radius := 300.0
 @export var late_join_spawn_max_radius := 600.0
 @export var character_type := CharacterType.PLANE
+@export var bot_count := 1
+@export var bot_spawn_radius := 1200.0
+@export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
+@export var bot_orbit_range := 900.0
+@export var bot_orbit_tolerance := 140.0
 
 @onready var _characters: Node3D = $characters
 
@@ -24,14 +31,19 @@ var _world_ready_peers: Dictionary = {}
 var _spawn_random := RandomNumberGenerator.new()
 var _local_plane_camera_rig: Node3D
 var _local_plane_hud: CanvasLayer
+var _bot_follow_target: Node3D
 
 
 func _ready() -> void:
 	_spawn_random.randomize()
+	_resolve_bot_follow_target()
 
 	if multiplayer.multiplayer_peer == null:
 		var spawn_state := _build_radial_spawn_state(0, 1)
 		_spawn_character(1, true, spawn_state["character_position"], spawn_state["yaw"])
+		if bot_count < 1:
+			bot_count = 1
+		_spawn_bots(false)
 		return
 
 	if multiplayer.is_server():
@@ -39,6 +51,7 @@ func _ready() -> void:
 		_world_ready_peers[multiplayer.get_unique_id()] = true
 		_register_initial_peers()
 		_spawn_registered_characters_locally()
+		_spawn_bots(true)
 	else:
 		call_deferred("_request_world_sync")
 
@@ -65,11 +78,81 @@ func _register_peer(peer_id: int) -> bool:
 	return true
 
 
+func _spawn_bots(broadcast_to_clients: bool) -> void:
+	if bot_count <= 0:
+		return
+
+	var resolved_bot_count: int = max(bot_count, 0)
+	for bot_index in range(resolved_bot_count):
+		var bot_peer_id := BOT_PEER_ID_BASE + bot_index
+		if _peer_spawn_states.has(bot_peer_id):
+			continue
+
+		var bot_spawn_state := _build_bot_spawn_state(bot_index, resolved_bot_count)
+		_peer_spawn_states[bot_peer_id] = bot_spawn_state
+		_spawn_character(
+			bot_peer_id,
+			false,
+			bot_spawn_state["character_position"],
+			bot_spawn_state["yaw"]
+		)
+
+		if broadcast_to_clients and multiplayer.multiplayer_peer != null and multiplayer.is_server():
+			_broadcast_spawn_state(bot_peer_id, -1)
+
+
+func _resolve_bot_follow_target() -> void:
+	_bot_follow_target = null
+	if bot_follow_target_path.is_empty():
+		return
+
+	_bot_follow_target = get_node_or_null(bot_follow_target_path) as Node3D
+
+
+func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
+	if character_type != CharacterType.PLANE:
+		return
+
+	var bot_peer := _is_bot_peer(peer_id)
+	var bot_active := bot_peer and (multiplayer.multiplayer_peer == null or multiplayer.is_server())
+	if character.has_method("set_bot_controlled"):
+		character.call("set_bot_controlled", bot_active)
+
+	if not bot_active:
+		var active_pilot := character.get_node_or_null("PlaneBotPilot")
+		if active_pilot != null:
+			active_pilot.queue_free()
+		return
+
+	if _bot_follow_target == null:
+		_resolve_bot_follow_target()
+
+	var pilot_node := character.get_node_or_null("PlaneBotPilot")
+	if pilot_node == null:
+		pilot_node = PLANE_BOT_PILOT_SCRIPT.new()
+		pilot_node.name = "PlaneBotPilot"
+		character.add_child(pilot_node)
+
+	pilot_node.set("desired_range", bot_orbit_range)
+	pilot_node.set("range_tolerance", bot_orbit_tolerance)
+
+	if pilot_node.has_method("set_follow_target"):
+		pilot_node.call("set_follow_target", _bot_follow_target)
+
+
+func _is_bot_peer(peer_id: int) -> bool:
+	if bot_count <= 0:
+		return false
+
+	return peer_id >= BOT_PEER_ID_BASE and peer_id < BOT_PEER_ID_BASE + bot_count
+
+
 func _spawn_character(peer_id: int, local_player: bool, character_position: Vector3, yaw: float) -> Node3D:
 	var existing := _characters.get_node_or_null(_character_name(peer_id))
 	if existing != null:
 		existing.configure(peer_id, local_player)
 		_set_character_local_binding(existing, local_player)
+		_configure_bot_behavior(existing, peer_id)
 		if local_player:
 			_bind_local_plane_presentation(existing)
 		return existing
@@ -80,6 +163,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	character.rotation.y = yaw
 	character.configure(peer_id, local_player)
 	_set_character_local_binding(character, local_player)
+	_configure_bot_behavior(character, peer_id)
 	_characters.add_child(character, true)
 	if local_player:
 		_bind_local_plane_presentation(character)
@@ -274,6 +358,22 @@ func _build_late_join_spawn_state() -> Dictionary:
 	}
 
 
+func _build_bot_spawn_state(index: int, total_bots: int) -> Dictionary:
+	var count: int = max(total_bots, 1)
+	var radius := maxf(bot_spawn_radius, 0.0)
+	var angle := TAU * float(index) / float(count)
+	var bot_position := spawn_center + Vector3(sin(angle) * radius, 0.0, cos(angle) * radius)
+
+	var target_position := spawn_center
+	if _bot_follow_target != null:
+		target_position = _bot_follow_target.global_position
+
+	return {
+		"character_position": bot_position,
+		"yaw": _yaw_towards(bot_position, target_position)
+	}
+
+
 func _is_local_peer(peer_id: int) -> bool:
 	if multiplayer.multiplayer_peer == null:
 		return false
@@ -284,10 +384,15 @@ func _is_local_peer(peer_id: int) -> bool:
 func _set_character_local_binding(character: Node3D, local_player: bool) -> void:
 	var local_state_callback := Callable(self, "_on_local_character_state_changed")
 	var signal_connected: bool = character.local_state_changed.is_connected(local_state_callback)
+	var character_peer_id := int(character.get("peer_id"))
+	var local_bot_authority := _is_bot_peer(character_peer_id) and (
+		multiplayer.multiplayer_peer == null or multiplayer.is_server()
+	)
+	var should_bind := local_player or local_bot_authority
 
-	if local_player and not signal_connected:
+	if should_bind and not signal_connected:
 		character.local_state_changed.connect(local_state_callback)
-	elif not local_player and signal_connected:
+	elif not should_bind and signal_connected:
 		character.local_state_changed.disconnect(local_state_callback)
 
 
@@ -301,6 +406,7 @@ func _enforce_local_ownership() -> void:
 		var local_player := character_peer_id == local_peer_id
 		character.configure(character_peer_id, local_player)
 		_set_character_local_binding(character, local_player)
+		_configure_bot_behavior(character, character_peer_id)
 
 		if local_player:
 			_bind_local_plane_presentation(character)

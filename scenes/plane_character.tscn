@@ -18,7 +18,8 @@ mass = 500.0
 continuous_cd = true
 contact_monitor = true
 max_contacts_reported = 4
-linear_damp = 0.05
+linear_damp_mode = 1
+linear_damp = 0.0
 angular_damp = 0.8
 script = ExtResource("1_plane")
 

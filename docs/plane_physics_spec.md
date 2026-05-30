@@ -1,253 +1,315 @@
 # Plane Physics Spec (Current Implementation)
 
 ## Scope
-This document specifies the current flight/physics behavior implemented by:
+This document describes the current flight model implemented by:
 
 - `res://scripts/plane_character_controller.gd`
 - `res://scenes/plane_character.tscn`
+- `res://scripts/plane_aero_tables_store.gd` (table persistence)
 
-It describes what the system does now, not an idealized aerodynamics model.
+It documents actual runtime behavior, not an idealized aircraft model.
 
 ## Physical Setup
-
 From `plane_character.tscn`:
 
 - Body type: `RigidBody3D`
 - Mass: `500 kg`
-- Collider: `BoxShape3D.size = Vector3(10, 1, 10)` (meters)
-- Damping:
-  - `linear_damp = 0.05`
-  - `angular_damp = 0.8`
+- Collision shape: `BoxShape3D.size = Vector3(10, 1, 10)` (Godot units, typically meters)
+- `linear_damp_mode = REPLACE`
+- `linear_damp = 0.0`
+- `angular_damp = 0.8`
 
-Coordinate conventions in script:
+Axis conventions:
 
-- Forward axis: `-transform.basis.z`
-- Up axis: `transform.basis.y`
-- Right axis: `transform.basis.x`
+- Forward: `-transform.basis.z`
+- Up: `transform.basis.y`
+- Right: `transform.basis.x`
 
-## Authority Model
+Gravity is not custom-applied by script; engine `RigidBody3D` gravity is used.
 
-- Local player plane (`is_local_player = true`) runs full physics/control in `_physics_process`.
-- Remote planes do not simulate local control physics; they are snap-updated by `apply_remote_state(...)` (position + Euler rotation), with linear/angular velocity zeroed.
+## Engine-Level Speed Limit (Observed Finding)
+Current project physics backend is Jolt (`project.godot`: `physics/3d/physics_engine="Jolt Physics"`).
 
-## Per-Frame Execution Order
+Jolt applies a global linear velocity clamp:
 
-For local player only, each physics tick:
+- `physics/jolt_physics_3d/limits/max_linear_velocity = 500.0`
 
-1. Collect and smooth inputs (`_collect_inputs`)
-2. Compute derived state (`compute_aoa`, `update_g_force`)
-3. Apply thrust (`apply_thrust`)
-4. Apply control torques via offset force-pairs (`apply_plane_torque`)
-5. Apply lift (`apply_lift`)
-6. Apply drag (`apply_air_drag`)
-7. Apply velocity-alignment torque (`apply_directional_alignment`)
-8. Emit network state at `network_sync_interval`
+This means `|linear_velocity|` cannot exceed `500.0 m/s` regardless of positive net force.
+
+Practical consequence:
+
+- Plane can show positive forward net force (`Net . vhat > 0`) while speed stays at `500.0 m/s`.
+- In this state, the limiter is engine-side velocity clamping, not aerodynamic equilibrium.
+
+## Simulation Modes and Authority
+`plane_character_controller.gd` can run in three modes:
+
+1. Local player simulated:
+- `is_local_player = true`
+- Reads keyboard input (`_collect_inputs`) and simulates full forces/torques.
+
+2. Bot-simulated authority:
+- `is_bot_controlled = true`
+- Reads bot target inputs (`_apply_bot_inputs`) and simulates full forces/torques.
+
+3. Remote replica:
+- Neither local player nor bot-controlled.
+- No local force simulation in `_physics_process`.
+- Transform is snap-updated through `apply_remote_state(position, yaw, pitch, roll)`.
+
+`freeze` is toggled from `_apply_local_player_mode()`:
+
+- Simulated locally: unfreezes body and disables sleeping.
+- Non-simulated replicas: frozen.
+
+## Per-Tick Update Order
+When the plane is locally simulated (`is_local_player` or `is_bot_controlled`), physics tick flow is:
+
+1. Input step:
+- Player: `_collect_inputs(delta)`
+- Bot: `_apply_bot_inputs(delta)`
+
+2. Derived state:
+- `compute_aoa()`
+- `update_g_force(delta)`
+
+3. Forces and torques:
+- `apply_thrust()`
+- `apply_plane_torque()`
+- `apply_aerodynamic_forces()`
+- `apply_directional_alignment()`
+
+4. Network output:
+- Emit `local_state_changed` every `network_sync_interval` seconds.
 
 ## Input Model
+### Player Input
+Roll:
 
-### Rotational Inputs
+- `D` decreases roll input
+- `A` increases roll input
+- Else decays toward zero
 
-- Roll:
-  - `D` decreases roll input
-  - `A` increases roll input
-  - no key: decays toward 0
-- Pitch:
-  - `W` increases pitch input
-  - `S` decreases pitch input
-  - no key: decays toward 0
-- Yaw:
-  - `Q` increases yaw input
-  - `E` decreases yaw input
-  - no key: decays toward 0
+Pitch raw input:
 
-Smoothing:
+- `W` increases `pitch_input`
+- `S` decreases `pitch_input`
 
-- Ramp rate: `rot_rate` (default `2.4`)
-- Return-to-zero decay: `rot_decay` (default `3.0`)
-- Clamped to `[-1, 1]`
+Pitch command sign is inverted in torque conversion (`p_in = -pitch_input`), which matches the current tuned behavior where `W` commands nose-down and `S` commands nose-up.
 
-### Throttle Input
+Yaw:
 
-- `Space`: increase throttle
-- `Shift`: decrease throttle
-- No auto-decay to idle; throttle holds last value.
+- `Q` increases yaw input
+- `E` decreases yaw input
 
-Throttle signal:
+Throttle:
 
-- `throttle_input` is clamped `[-1, 1]`
-- Physical throttle fraction is `(throttle_input + 1) * 0.5`
-- HUD throttle percent is `((throttle_input + 1) * 0.5) * 100`
+- `Space` increases `throttle_input`
+- `Shift` decreases `throttle_input`
+- No auto-decay; throttle holds last value
+
+Smoothing/limits:
+
+- Rotation input ramp: `rot_rate * delta`
+- Rotation return-to-center: `rot_decay * delta`
+- Throttle ramp: `thr_rate * delta`
+- All command channels clamp to `[-1, 1]`
+
+### Bot Input
+Bot script calls:
+
+- `set_bot_control_inputs(roll, pitch, yaw, throttle)`
+
+The controller does not apply values instantly. It moves current channels toward bot targets with the same rate limits (`rot_rate`, `thr_rate`) via `_apply_bot_inputs(delta)`.
 
 ## Derived State
+### Air-Relative Velocity
+Air-relative velocity is:
 
-### AoA
+- `v_air = linear_velocity - ambient_wind_velocity_world`
 
-When speed is above epsilon:
+All aerodynamic calculations use `v_air`.
 
-- `aoa_deg = rad_to_deg(-atan2(v_dir·up, v_dir·forward))`
-- `horizontal_aoa_deg = rad_to_deg(atan2(v_dir·right, v_dir·forward))`
+### Angle of Attack and Sideslip
+When `|v_air|^2 >= MIN_AERODYNAMIC_SPEED_SQUARED`:
 
-### Smoothed G-force
+- Convert `v_air` to local space.
+- `aoa_deg = rad_to_deg(-atan2(flow_up, flow_forward))`
+- `sideslip_deg = rad_to_deg(atan2(flow_right, forward_plane_speed))`
 
-- Instantaneous: `|((v - v_prev)/dt - gravity)| / 9.80665`
-- Moving average over `G_BUFFER_SIZE = 10` samples.
+When speed is below threshold:
+
+- `aoa_deg = 0`
+- `sideslip_deg = 0`
+
+### Smoothed G
+Instantaneous g:
+
+- `|((v - v_prev) / dt - gravity)| / 9.80665`
+
+`smoothed_g` is average of the last `G_BUFFER_SIZE` samples.
 
 ## Force and Torque Model
+### Thrust
+Throttle fraction:
 
-## 1) Thrust
+- `throttle = (throttle_input + 1) * 0.5`
 
-Applied each tick:
+If `throttle > 0`:
 
 - `F_thrust = forward * throttle * max_thrust`
-- Default `max_thrust = 8000 N`
-
-No thrust if throttle fraction is `<= 0`.
-
-## 2) Pilot Control Torque (Pitch/Yaw/Roll)
-
-### Speed scaling
-
-- Forward speed: `v_fwd = linear_velocity · forward`
-- Dynamic term: `q = 0.5 * v_fwd^2`
-- `t = max(0, v_fwd) / control_effectiveness_speed`
-- If `aoa_limiter`:
-  - `speed_factor = 1 / (1 + t^(2*speed_assist))`
-- Else:
-  - `speed_factor = 1 / (1 + t^1.6)`
-
-### Commanded torques
-
-- `control_torque = base_control_torque + q * dynamic_torque_scale`
-- `pitch_torque = (-pitch_input * speed_factor) * control_torque * max_pitch`
-- `yaw_torque = (yaw_input * speed_factor) * control_torque * max_yaw`
-- `roll_torque = (roll_input * speed_factor) * control_torque * max_roll`
 
 Defaults:
 
-- `base_control_torque = 4000`
-- `dynamic_torque_scale = 3.0`
-- `max_pitch = 0.8`, `max_yaw = 0.1`, `max_roll = 1.0`
+- `max_thrust = 8000 N`
 
-### Torque application method (offset force pairs)
+### Control Torque (Roll/Pitch/Yaw)
+Forward speed:
 
-Pilot torques are not applied at COM via `apply_torque`.  
-They are converted into a force couple at `+/-offset`:
+- `v_fwd = dot(v_air, forward)`
 
-- Roll torque applied at side edges (`X` lever arm)
-- Pitch+yaw torque applied at rear (`Z` lever arm)
+Speed attenuation:
 
-Force-pair solver used:
+- `t = max(0, v_fwd) / control_effectiveness_speed`
+- If `aoa_limiter` is `true`: `speed_factor = 1 / (1 + t^(2 * speed_assist))`
+- Else: `speed_factor = 1 / (1 + t^(2 * 0.8))`
+
+Command shaping:
+
+- `p_in = -pitch_input * speed_factor`
+- `y_in = yaw_input * speed_factor`
+- `r_in = roll_input * speed_factor`
+
+Torque magnitude base:
+
+- `control_torque = base_control_torque + 0.5 * v_fwd^2 * dynamic_torque_scale`
+
+Axis torques:
+
+- `pitch_torque = p_in * control_torque * max_pitch`
+- `yaw_torque = y_in * control_torque * max_yaw`
+- `roll_torque = r_in * control_torque * max_roll`
+
+### Torque Application Method
+Torques are applied as force couples, not direct COM torque for control surfaces:
+
+- Roll couple lever arm on local X (`roll_offset`)
+- Pitch/yaw couple lever arm on local Z (`tail_offset`)
+
+Force-pair solver:
 
 - `tau = 2 * (r x F)`
 - `F = (tau x r) / (2 * |r|^2)`
 
-Then applied as:
+Applied as `+F@+r` and `-F@-r`.
 
-- `apply_force(+F, +r)`
-- `apply_force(-F, -r)`
-
-### Lever arm derivation from rigidbody size
-
-Lever arms are derived from collision half-extents:
+### Lever Arm Size Derivation
+`roll_offset` and `tail_offset` are derived from collision bounds:
 
 - `roll_offset = max(half_extents.x, 0.05)`
 - `tail_offset = max(half_extents.z, 0.05)`
 
-So actuator leverage tracks body size automatically.
+Half extents are cached and invalidated when collision shape nodes/resources change.
 
-## 3) Lift
+## Aerodynamic Force Model
+### Dynamic Pressure
 
-Only when speed > epsilon and not stalled.
+- `q = 0.5 * air_density * |v_air|^2`
 
-- `dynamic_pressure = 0.5 * |v|^2`
-- `vertical_cl = lift_coefficient + 2π * deg_to_rad(aoa_deg)`
-- `lateral_cl = -2π * deg_to_rad(horizontal_aoa_deg)`
-- Stall gate:
-  - `abs(aoa_deg) < stall_aoa_deg`
-  - `abs(horizontal_aoa_deg) < stall_aoa_deg`
+### Coefficients
+Coefficients are sampled from exported tables:
 
-Applied forces:
+- Lift coefficient from `lift_coefficient_table` using `aoa_deg`
+- Drag coefficient from `drag_coefficient_table` using `aoa_deg` (clamped to `>= 0`)
+- Side-force coefficient from `side_force_coefficient_table` using `sideslip_deg`
 
-- Vertical: `up * dynamic_pressure * vertical_cl`
-- Lateral: `right * dynamic_pressure * lateral_cl`
+Table sampling behavior (`_sample_aero_table`):
 
-Defaults:
+- Sort/dedup handled separately by `_normalize_table`
+- Linear interpolation between bracketing points
+- Below first point: return first point value
+- Above last point: return last point value
 
-- `lift_coefficient = 0.0`
-- `stall_aoa_deg = 30.0`
+### Force Directions
+With `airflow_direction = normalize(v_air)`:
 
-## 4) Drag
+- Drag direction: `-airflow_direction`
+- Lift axis: `right_axis.cross(airflow_direction)` (fallback to body up if degenerate)
+- Side axis: `airflow_direction.cross(lift_axis)` (fallback to body right if degenerate)
 
-Quadratic drag per local axis:
+Force magnitudes:
 
-- Forward drag coefficient: `drag_forward = 0.005`
-- Up drag coefficient: `drag_up = 0.05`
-- Side drag coefficient: `drag_side = 0.025`
+- `F_drag = q * reference_area * CD`
+- `F_lift = q * reference_area * CL`
+- `F_side = q * reference_area * CY`
 
-Form:
+Total aerodynamic force:
 
-- `F_axis = -axis * (v·axis) * abs(v·axis) * coeff`
+- `F_aero = drag_dir * F_drag + lift_axis * F_lift + side_axis * F_side`
 
-Summed and applied centrally.
+Current default `side_force_coefficient_table` is flat zero, so side force is effectively disabled unless tuned.
 
-## 5) Directional Alignment Torque
+### Directional Alignment Torque
+Additional alignment torque nudges nose toward flight path:
 
-Separate from pilot control torques; still applied directly with `apply_torque`.
+- axis = `forward x velocity_direction`
+- angle = `angle(forward, velocity_direction)`
+- torque magnitude scales with `angle * alignment_strength * |v_air|`
+- capped by `alignment_max_torque`
 
-- Axis: `forward x velocity_direction`
-- Angle: `angle(forward, velocity_direction)`
-- Torque magnitude: `angle * alignment_strength * |v|`
-- Capped by `alignment_max_torque`
+This is the dart-like nose alignment behavior.
 
-Defaults:
+## Networking Behavior
+### Outgoing State
+Locally simulated planes emit:
 
-- `alignment_strength = 5.0`
-- `alignment_max_torque = 1000.0`
+- `peer_id`
+- `global_position`
+- `yaw`, `pitch`, `roll` (from Euler basis)
 
-This is the “nose tends to align with velocity” behavior.
+at `network_sync_interval` (default `0.033`).
 
-## Control Geometry Cache
+### Incoming State
+`apply_remote_state(...)` on non-local planes:
 
-Collision-size-derived lever arms are cached and refreshed only when needed.
+- snaps position and Euler rotation
+- zeroes linear and angular velocity
 
-Cache fields:
+So remote representation is transform-snapshot replication, not deterministic replay.
 
-- `_cached_control_half_extents`
-- `_control_half_extents_dirty`
+## Persistence of Aero Tables
+On ready, controller loads persisted tables from:
 
-Invalidation triggers:
+- `user://plane_aero_tables.json`
 
-- `CollisionShape3D` child enters/exits tree
-- Observed shape resource emits `changed`
+Persistence currently includes:
 
-Refresh path:
+- Lift table
+- Drag table
 
-1. Ensure shape-resource watches are connected
-2. Recompute combined local AABB half-extents from all active `CollisionShape3D`s
+Side-force table is not persisted by `plane_aero_tables_store.gd` in current implementation.
 
-Supported shape types for extents:
-
-- `BoxShape3D`, `SphereShape3D`, `CapsuleShape3D`, `CylinderShape3D`
-- `ConvexPolygonShape3D`, `ConcavePolygonShape3D`
-
-Fallback if no valid bounds:
-
-- `Vector3(1, 1, 1)`
-
-## Network Coupling
-
-- Local authoritative state is emitted every `network_sync_interval` (default `0.033 s`).
-- Emitted state: `position`, `yaw`, `pitch`, `roll`.
-- Remote application is teleport/snap style (`apply_remote_state`), not force-based reconciliation.
-
-## HUD Interface
-
-The physics controller exposes getters used by HUD:
+## HUD-Exposed Signals/Getters
+HUD-facing getters:
 
 - `get_throttle_percent()`
 - `get_aoa_deg()`
+- `get_sideslip_deg()`
 - `get_pitch_input()`
 - `get_yaw_input()`
 - `get_roll_input()`
 - `get_throttle_input()`
+- `get_force_balance_snapshot()`:
+  - `speed`
+  - `thrust_along_velocity`
+  - `drag_along_velocity`
+  - `gravity_along_velocity`
+  - `damping_along_velocity`
+  - `net_along_velocity`
 
+`*_along_velocity` values are dot products on `vhat` (velocity direction), so they represent accelerate/decelerate contribution along the current flight path.
+
+## Current Simplifications
+- No explicit stall model in force application.
+- `lift_ok` is currently set `true` in `apply_aerodynamic_forces()` and not used as a real stall gate.
+- No per-surface wing/tail model; forces are lumped at rigidbody center.

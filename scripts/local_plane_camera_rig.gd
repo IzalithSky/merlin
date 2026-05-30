@@ -5,7 +5,7 @@ extends Node3D
 @export var camera_zoom_step: float = 4.0
 @export var camera_min_fov: float = 20.0
 @export var camera_max_fov: float = 90.0
-@export var follow_lerp_speed: float = 12.0
+@export var follow_lerp_speed: float = 0.0
 
 @onready var _camera: Camera3D = %Camera3D
 @onready var _camera_yaw_pivot: Node3D = %CameraYawPivot
@@ -69,8 +69,11 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var target_position := _target.global_position
-	var blend := clampf(follow_lerp_speed * delta, 0.0, 1.0)
-	global_position = global_position.lerp(target_position, blend)
+	if follow_lerp_speed <= 0.0:
+		global_position = target_position
+	else:
+		var blend := clampf(follow_lerp_speed * delta, 0.0, 1.0)
+		global_position = global_position.lerp(target_position, blend)
 	global_transform.basis = _target.global_transform.basis.orthonormalized()
 
 

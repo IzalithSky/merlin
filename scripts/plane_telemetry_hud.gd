@@ -9,6 +9,12 @@ extends CanvasLayer
 @onready var _yaw_input_bar: ProgressBar = %YawInputBar
 @onready var _roll_input_bar: ProgressBar = %RollInputBar
 @onready var _throttle_input_bar: ProgressBar = %ThrottleInputBar
+@onready var _force_axis_speed_value: Label = %ForceAxisSpeedValue
+@onready var _thrust_along_value: Label = %ThrustAlongValue
+@onready var _drag_along_value: Label = %DragAlongValue
+@onready var _gravity_along_value: Label = %GravityAlongValue
+@onready var _damping_along_value: Label = %DampingAlongValue
+@onready var _net_along_value: Label = %NetAlongValue
 
 var _target: RigidBody3D
 
@@ -65,6 +71,7 @@ func _process(_delta: float) -> void:
 	_yaw_input_bar.value = yaw_input * 100.0
 	_roll_input_bar.value = roll_input * 100.0
 	_throttle_input_bar.value = throttle_input * 100.0
+	_update_force_balance_debug()
 
 
 func _reset_labels() -> void:
@@ -77,3 +84,41 @@ func _reset_labels() -> void:
 	_yaw_input_bar.value = 0.0
 	_roll_input_bar.value = 0.0
 	_throttle_input_bar.value = -100.0
+	_force_axis_speed_value.text = "--"
+	_thrust_along_value.text = "--"
+	_drag_along_value.text = "--"
+	_gravity_along_value.text = "--"
+	_damping_along_value.text = "--"
+	_net_along_value.text = "--"
+
+
+func _update_force_balance_debug() -> void:
+	if _target == null or not _target.has_method("get_force_balance_snapshot"):
+		_reset_force_balance_debug()
+		return
+
+	var snapshot_variant: Variant = _target.call("get_force_balance_snapshot")
+	if not (snapshot_variant is Dictionary):
+		_reset_force_balance_debug()
+		return
+
+	var snapshot: Dictionary = snapshot_variant
+	_force_axis_speed_value.text = "%.1f m/s" % _read_snapshot_float(snapshot, "speed")
+	_thrust_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "thrust_along_velocity")
+	_drag_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "drag_along_velocity")
+	_gravity_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "gravity_along_velocity")
+	_damping_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "damping_along_velocity")
+	_net_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "net_along_velocity")
+
+
+func _reset_force_balance_debug() -> void:
+	_force_axis_speed_value.text = "--"
+	_thrust_along_value.text = "--"
+	_drag_along_value.text = "--"
+	_gravity_along_value.text = "--"
+	_damping_along_value.text = "--"
+	_net_along_value.text = "--"
+
+
+func _read_snapshot_float(snapshot: Dictionary, key: String) -> float:
+	return float(snapshot.get(key, 0.0))

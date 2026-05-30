@@ -122,3 +122,35 @@ Major follow-up work was completed to migrate the flight-style character pipelin
   - local camera rig targets local peer character
   - local HUD targets local peer character
   - no cross-peer presentation binding
+
+---
+
+Date: May 30, 2026
+
+## Quirky Findings and Root Causes
+
+1. "Why does speed stop at exactly 500 m/s even when net forward force is positive?"
+- Root cause: Jolt global velocity limiter.
+- Setting: `physics/jolt_physics_3d/limits/max_linear_velocity = 500.0`.
+- Effect: plane can report `Net . vhat > 0` while speed stays pinned at 500.
+- This is engine-level clamping, not aerodynamic equilibrium.
+
+2. "Drag arrow looks small vs thrust at high speed"
+- Root cause: comparing raw vector magnitudes instead of along-velocity contribution.
+- Correct interpretation is projection on velocity direction (`.vhat`), not visual length alone.
+- Added HUD force-balance readout:
+  - `Thrust . vhat`
+  - `Drag . vhat`
+  - `Gravity . vhat`
+  - `Damping . vhat`
+  - `Net . vhat`
+
+3. "Camera appears to slide back during acceleration"
+- Root cause: camera rig root used positional lerp follow (`follow_lerp_speed = 12`) creating lag under acceleration.
+- Fix: camera follow now snaps to target by default (`follow_lerp_speed = 0`), with optional smoothing only if explicitly enabled.
+- Also centered camera pitch pivot to aircraft center (removed Y offset).
+
+4. "Hidden resistive terms vs shown forces"
+- Earlier debug arrows showed scripted forces but not all engine contributions.
+- Added damping force debug arrow using `PhysicsDirectBodyState3D.total_linear_damp`.
+- With current setup (`linear_damp_mode = REPLACE`, `linear_damp = 0`) damping is normally zero unless areas contribute.

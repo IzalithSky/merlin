@@ -16,7 +16,7 @@ layout_mode = 0
 offset_left = 22.0
 offset_top = 20.0
 offset_right = 300.0
-offset_bottom = 340.0
+offset_bottom = 500.0
 
 [node name="Margin" type="MarginContainer" parent="Root/Panel"]
 layout_mode = 2
@@ -129,3 +129,71 @@ min_value = -100.0
 max_value = 100.0
 value = -100.0
 show_percentage = false
+
+[node name="ForceSectionLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Force Balance (v-axis)"
+
+[node name="ForceSectionValueSpacer" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = ""
+
+[node name="ForceAxisSpeedLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Velocity |v|"
+
+[node name="ForceAxisSpeedValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
+[node name="ThrustAlongLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Thrust . vhat"
+
+[node name="ThrustAlongValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
+[node name="DragAlongLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Drag . vhat"
+
+[node name="DragAlongValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
+[node name="GravityAlongLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Gravity . vhat"
+
+[node name="GravityAlongValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
+[node name="DampingAlongLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Damping . vhat"
+
+[node name="DampingAlongValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
+[node name="NetAlongLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Net . vhat"
+
+[node name="NetAlongValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2

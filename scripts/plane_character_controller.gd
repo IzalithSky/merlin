@@ -3,6 +3,7 @@ extends RigidBody3D
 signal local_state_changed(peer_id: int, character_position: Vector3, yaw: float, pitch: float, roll: float)
 
 const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
+const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer_3d.gd")
 
 @export var rot_rate: float = 2.4
 @export var rot_decay: float = 3.0
@@ -15,7 +16,7 @@ const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 @export var max_roll: float = 1.0
 @export var speed_assist: float = 1.4
 @export var aoa_limiter: bool = true
-@export var base_control_torque: float = 4000.0
+@export var base_control_torque: float = 8000.0
 @export var dynamic_torque_scale: float = 3.0
 
 @export var air_density: float = 1.225
@@ -55,21 +56,36 @@ const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 	Vector2(40.0, 0.0),
 ]
 @export var alignment_strength: float = 5.0
-@export var alignment_max_torque: float = 1000.0
+@export var alignment_max_torque: float = 2000.0
 @export var network_sync_interval: float = 0.033
+@export var debug_force_vectors_enabled: bool = true
 
 const G_BUFFER_SIZE := 10
 const TABLE_SORT_EPSILON := 0.0001
 const MIN_AERODYNAMIC_SPEED_SQUARED := 0.0001
 const MIN_DIRECTION_VECTOR_LENGTH_SQUARED := 0.000001
+const DEBUG_COLOR_THRUST := Color(1.0, 0.58, 0.12, 1.0)
+const DEBUG_COLOR_LIFT := Color(0.2, 0.9, 0.2, 1.0)
+const DEBUG_COLOR_DRAG := Color(0.95, 0.23, 0.23, 1.0)
+const DEBUG_COLOR_GRAVITY := Color(0.35, 0.55, 1.0, 1.0)
+const DEBUG_COLOR_DAMPING := Color(0.8, 0.8, 0.8, 1.0)
+const DEBUG_COLOR_ROLL_FORCE := Color(0.97, 0.35, 0.95, 1.0)
+const DEBUG_COLOR_PITCH_YAW_FORCE := Color(0.1, 0.95, 0.95, 1.0)
+const DEBUG_COLOR_ALIGNMENT_TORQUE := Color(1.0, 0.95, 0.3, 1.0)
 
 var peer_id := 1
 var is_local_player := false
+var is_bot_controlled := false
 
 var roll_input := 0.0
 var pitch_input := 0.0
 var yaw_input := 0.0
 var throttle_input := 0.0
+
+var _bot_target_roll_input := 0.0
+var _bot_target_pitch_input := 0.0
+var _bot_target_yaw_input := 0.0
+var _bot_target_throttle_input := -1.0
 
 var smoothed_g := 0.0
 var aoa_deg := 0.0
@@ -82,6 +98,14 @@ var _prev_velocity := Vector3.ZERO
 var _sync_timer := 0.0
 var _cached_control_half_extents := Vector3.ONE
 var _control_half_extents_dirty := true
+var _force_debug_renderer: Node
+var _last_total_linear_damp := 0.0
+var _debug_last_thrust_force_world := Vector3.ZERO
+var _debug_last_lift_force_world := Vector3.ZERO
+var _debug_last_drag_force_world := Vector3.ZERO
+var _debug_last_side_force_world := Vector3.ZERO
+var _debug_last_gravity_force_world := Vector3.ZERO
+var _debug_last_damping_force_world := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -91,6 +115,7 @@ func _ready() -> void:
 	_apply_persisted_aero_tables()
 	_ensure_control_geometry_cache_connections()
 	_refresh_control_half_extents_cache()
+	_ensure_force_debug_renderer()
 	_apply_local_player_mode()
 
 
@@ -103,20 +128,52 @@ func configure(new_peer_id: int, local_player: bool) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if not is_local_player:
+	if not _is_simulated_locally():
+		_clear_force_debug_frame()
 		return
 
-	_collect_inputs(delta)
+	_begin_force_debug_frame()
+	if is_bot_controlled:
+		_apply_bot_inputs(delta)
+	else:
+		_collect_inputs(delta)
+
 	compute_control_state(delta)
 	apply_thrust()
 	apply_plane_torque()
 	apply_aerodynamic_forces()
 	apply_directional_alignment()
+	_end_force_debug_frame()
 
 	_sync_timer += delta
 	if _sync_timer >= max(network_sync_interval, 0.001):
 		_sync_timer = 0.0
 		_emit_local_state()
+
+
+func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	_last_total_linear_damp = maxf(state.total_linear_damp, 0.0)
+
+
+func _is_simulated_locally() -> bool:
+	return is_local_player or is_bot_controlled
+
+
+func _apply_bot_inputs(delta: float) -> void:
+	var rotation_step := maxf(rot_rate * delta, 0.0)
+	var throttle_step := maxf(thr_rate * delta, 0.0)
+
+	roll_input = move_toward(roll_input, _bot_target_roll_input, rotation_step)
+	pitch_input = move_toward(pitch_input, _bot_target_pitch_input, rotation_step)
+	yaw_input = move_toward(yaw_input, _bot_target_yaw_input, rotation_step)
+	throttle_input = move_toward(throttle_input, _bot_target_throttle_input, throttle_step)
+
+	roll_input = clampf(roll_input, -1.0, 1.0)
+	pitch_input = clampf(pitch_input, -1.0, 1.0)
+	yaw_input = clampf(yaw_input, -1.0, 1.0)
+	throttle_input = clampf(throttle_input, -1.0, 1.0)
+
+	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
 
 
 func _collect_inputs(delta: float) -> void:
@@ -214,7 +271,10 @@ func apply_thrust() -> void:
 	if throttle <= 0.0:
 		return
 
-	apply_central_force(-transform.basis.z * throttle * max_thrust)
+	var thrust_force := -transform.basis.z * throttle * max_thrust
+	apply_central_force(thrust_force)
+	_debug_last_thrust_force_world = thrust_force
+	_push_debug_force(global_position, thrust_force, DEBUG_COLOR_THRUST)
 
 
 func apply_plane_torque() -> void:
@@ -244,16 +304,18 @@ func apply_plane_torque() -> void:
 	# Roll: force couple at side edges.
 	_apply_local_torque_force_pair(
 		Vector3(0.0, 0.0, roll_torque),
-		Vector3(roll_offset, 0.0, 0.0)
+		Vector3(roll_offset, 0.0, 0.0),
+		DEBUG_COLOR_ROLL_FORCE
 	)
 	# Pitch + yaw: force couple anchored on rear lever arm.
 	_apply_local_torque_force_pair(
 		Vector3(pitch_torque, yaw_torque, 0.0),
-		Vector3(0.0, 0.0, tail_offset)
+		Vector3(0.0, 0.0, tail_offset),
+		DEBUG_COLOR_PITCH_YAW_FORCE
 	)
 
 
-func _apply_local_torque_force_pair(local_torque: Vector3, local_offset: Vector3) -> void:
+func _apply_local_torque_force_pair(local_torque: Vector3, local_offset: Vector3, debug_color: Color) -> void:
 	if local_torque.length_squared() < 0.000001:
 		return
 
@@ -275,6 +337,9 @@ func _apply_local_torque_force_pair(local_torque: Vector3, local_offset: Vector3
 
 	apply_force(world_force, world_offset)
 	apply_force(-world_force, -world_offset)
+	var world_center := global_position
+	_push_debug_force(world_center + world_offset, world_force, debug_color)
+	_push_debug_force(world_center - world_offset, -world_force, debug_color)
 
 
 func _ensure_control_geometry_cache_connections() -> void:
@@ -427,6 +492,7 @@ func apply_aerodynamic_forces() -> void:
 	var drag_force_magnitude := dynamic_pressure * reference_area * drag_coefficient
 	var lift_force_magnitude := dynamic_pressure * reference_area * lift_coefficient
 	var side_force_magnitude := dynamic_pressure * reference_area * side_force_coefficient
+	var drag_force := -airflow_direction * drag_force_magnitude
 
 	var right_axis := transform.basis.x
 	var lift_axis := right_axis.cross(airflow_direction)
@@ -440,15 +506,22 @@ func apply_aerodynamic_forces() -> void:
 		side_axis = right_axis
 	else:
 		side_axis = side_axis.normalized()
+	var lift_force := lift_axis * lift_force_magnitude
+	var side_force := side_axis * side_force_magnitude
 
 	var aerodynamic_force := (
-		(-airflow_direction * drag_force_magnitude) +
-		(lift_axis * lift_force_magnitude) +
-		(side_axis * side_force_magnitude)
+		drag_force +
+		lift_force +
+		side_force
 	)
+	_debug_last_drag_force_world = drag_force
+	_debug_last_lift_force_world = lift_force
+	_debug_last_side_force_world = side_force
 
 	if aerodynamic_force.is_finite():
 		apply_central_force(aerodynamic_force)
+		_push_debug_force(global_position, lift_force, DEBUG_COLOR_LIFT)
+		_push_debug_force(global_position, drag_force, DEBUG_COLOR_DRAG)
 
 	lift_ok = true
 
@@ -468,6 +541,7 @@ func apply_directional_alignment() -> void:
 		if alignment_max_torque > 0.0:
 			torque = torque.limit_length(alignment_max_torque)
 		apply_torque(torque)
+		_push_debug_torque(global_position, torque, DEBUG_COLOR_ALIGNMENT_TORQUE)
 
 
 func apply_remote_state(character_position: Vector3, yaw: float, pitch: float, roll: float) -> void:
@@ -486,9 +560,9 @@ func apply_spawn_state(character_position: Vector3, yaw: float) -> void:
 
 
 func _apply_local_player_mode() -> void:
-	freeze = not is_local_player
+	freeze = not _is_simulated_locally()
 
-	if is_local_player:
+	if _is_simulated_locally():
 		sleeping = false
 		can_sleep = false
 	else:
@@ -497,10 +571,149 @@ func _apply_local_player_mode() -> void:
 		yaw_input = 0.0
 		throttle_input = -1.0
 
+	_update_force_debug_renderer_state()
+
+
+func set_bot_controlled(enabled: bool) -> void:
+	is_bot_controlled = enabled
+	if not is_bot_controlled:
+		_bot_target_roll_input = 0.0
+		_bot_target_pitch_input = 0.0
+		_bot_target_yaw_input = 0.0
+		_bot_target_throttle_input = -1.0
+
+	if is_node_ready():
+		_apply_local_player_mode()
+
+
+func set_bot_control_inputs(roll_value: float, pitch_value: float, yaw_value: float, throttle_value: float) -> void:
+	if not is_bot_controlled:
+		set_bot_controlled(true)
+
+	_bot_target_roll_input = clampf(roll_value, -1.0, 1.0)
+	_bot_target_pitch_input = clampf(pitch_value, -1.0, 1.0)
+	_bot_target_yaw_input = clampf(yaw_value, -1.0, 1.0)
+	_bot_target_throttle_input = clampf(throttle_value, -1.0, 1.0)
+
 
 func _emit_local_state() -> void:
 	var euler := global_transform.basis.get_euler()
 	local_state_changed.emit(peer_id, global_position, euler.y, euler.x, euler.z)
+
+
+func _ensure_force_debug_renderer() -> void:
+	if not debug_force_vectors_enabled:
+		return
+
+	if _force_debug_renderer != null:
+		return
+
+	_force_debug_renderer = FORCE_DEBUG_RENDERER_SCRIPT.new()
+	_force_debug_renderer.name = "ForceDebugRenderer3D"
+	add_child(_force_debug_renderer)
+	_update_force_debug_renderer_state()
+
+
+func _update_force_debug_renderer_state() -> void:
+	if _force_debug_renderer == null:
+		return
+
+	var should_show := debug_force_vectors_enabled and _is_simulated_locally()
+	_force_debug_renderer.visible = should_show
+	if not should_show and _force_debug_renderer.has_method("clear_frame"):
+		_force_debug_renderer.call("clear_frame")
+
+
+func _begin_force_debug_frame() -> void:
+	_debug_last_thrust_force_world = Vector3.ZERO
+	_debug_last_lift_force_world = Vector3.ZERO
+	_debug_last_drag_force_world = Vector3.ZERO
+	_debug_last_side_force_world = Vector3.ZERO
+	_debug_last_gravity_force_world = Vector3.ZERO
+	_debug_last_damping_force_world = Vector3.ZERO
+
+	if _force_debug_renderer == null:
+		return
+
+	_force_debug_renderer.call("begin_frame")
+	var gravity_force := _get_gravity_force_world()
+	_debug_last_gravity_force_world = gravity_force
+	_push_debug_force(global_position, gravity_force, DEBUG_COLOR_GRAVITY)
+	var damping_force := _get_damping_force_world()
+	_debug_last_damping_force_world = damping_force
+	_push_debug_force(global_position, damping_force, DEBUG_COLOR_DAMPING)
+
+
+func _end_force_debug_frame() -> void:
+	if _force_debug_renderer == null:
+		return
+
+	_force_debug_renderer.call("end_frame")
+
+
+func _clear_force_debug_frame() -> void:
+	if _force_debug_renderer == null:
+		return
+
+	_force_debug_renderer.call("clear_frame")
+
+
+func _push_debug_force(origin_world: Vector3, force_world: Vector3, color: Color) -> void:
+	if _force_debug_renderer == null:
+		return
+
+	_force_debug_renderer.call("push_force", origin_world, force_world, color)
+
+
+func _push_debug_torque(origin_world: Vector3, torque_world: Vector3, color: Color) -> void:
+	if _force_debug_renderer == null:
+		return
+
+	_force_debug_renderer.call("push_torque", origin_world, torque_world, color)
+
+
+func _get_gravity_force_world() -> Vector3:
+	var gravity_direction: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector")
+	var gravity_magnitude: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+	return gravity_direction * gravity_magnitude * gravity_scale * mass
+
+
+func _get_damping_force_world() -> Vector3:
+	if _last_total_linear_damp <= 0.0:
+		return Vector3.ZERO
+
+	# Equivalent linear force for dv/dt = -damp * v.
+	return -linear_velocity * mass * _last_total_linear_damp
+
+
+func get_force_balance_snapshot() -> Dictionary:
+	var velocity := linear_velocity
+	var speed := velocity.length()
+	var velocity_dir := Vector3.ZERO
+	if speed > 0.001:
+		velocity_dir = velocity / speed
+
+	var thrust_force := _debug_last_thrust_force_world
+	var drag_force := _debug_last_drag_force_world
+	var gravity_force := _debug_last_gravity_force_world
+	var damping_force := _debug_last_damping_force_world
+	var net_force := (
+		thrust_force +
+		_debug_last_lift_force_world +
+		_debug_last_side_force_world +
+		drag_force +
+		gravity_force +
+		damping_force
+	)
+
+	return {
+		"speed": speed,
+		"thrust_along_velocity": thrust_force.dot(velocity_dir),
+		"drag_along_velocity": drag_force.dot(velocity_dir),
+		"gravity_along_velocity": gravity_force.dot(velocity_dir),
+		"damping_along_velocity": damping_force.dot(velocity_dir),
+		"net_along_velocity": net_force.dot(velocity_dir),
+	}
 
 
 func get_throttle_percent() -> float:
