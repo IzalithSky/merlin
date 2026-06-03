@@ -14,6 +14,7 @@ enum CharacterType {
 }
 
 @export var spawn_center := Vector3.ZERO
+@export var spawn_height_offset: float = 500.0
 @export var spawn_radius := 240.0
 @export var late_join_spawn_min_radius := 300.0
 @export var late_join_spawn_max_radius := 600.0
@@ -337,11 +338,12 @@ func _build_radial_spawn_state(index: int, player_count: int) -> Dictionary:
 	var radius: float = spawn_radius
 	if radius < 0.0:
 		radius = 0.0
-	var character_position := spawn_center + Vector3(sin(angle) * radius, 0.0, cos(angle) * radius)
+	var spawn_origin := _get_spawn_origin()
+	var character_position := spawn_origin + Vector3(sin(angle) * radius, 0.0, cos(angle) * radius)
 
 	return {
 		"character_position": character_position,
-		"yaw": _yaw_towards(character_position, spawn_center)
+		"yaw": _yaw_towards(character_position, spawn_origin)
 	}
 
 
@@ -350,11 +352,12 @@ func _build_late_join_spawn_state() -> Dictionary:
 	var max_radius: float = max(late_join_spawn_max_radius, min_radius)
 	var angle: float = _spawn_random.randf_range(0.0, TAU)
 	var radius: float = _spawn_random.randf_range(min_radius, max_radius)
-	var character_position := spawn_center + Vector3(sin(angle) * radius, 0.0, cos(angle) * radius)
+	var spawn_origin := _get_spawn_origin()
+	var character_position := spawn_origin + Vector3(sin(angle) * radius, 0.0, cos(angle) * radius)
 
 	return {
 		"character_position": character_position,
-		"yaw": _yaw_towards(character_position, spawn_center)
+		"yaw": _yaw_towards(character_position, spawn_origin)
 	}
 
 
@@ -362,9 +365,10 @@ func _build_bot_spawn_state(index: int, total_bots: int) -> Dictionary:
 	var count: int = max(total_bots, 1)
 	var radius := maxf(bot_spawn_radius, 0.0)
 	var angle := TAU * float(index) / float(count)
-	var bot_position := spawn_center + Vector3(sin(angle) * radius, 0.0, cos(angle) * radius)
+	var spawn_origin := _get_spawn_origin()
+	var bot_position := spawn_origin + Vector3(sin(angle) * radius, 0.0, cos(angle) * radius)
 
-	var target_position := spawn_center
+	var target_position := spawn_origin
 	if _bot_follow_target != null:
 		target_position = _bot_follow_target.global_position
 
@@ -372,6 +376,10 @@ func _build_bot_spawn_state(index: int, total_bots: int) -> Dictionary:
 		"character_position": bot_position,
 		"yaw": _yaw_towards(bot_position, target_position)
 	}
+
+
+func _get_spawn_origin() -> Vector3:
+	return spawn_center + Vector3(0.0, spawn_height_offset, 0.0)
 
 
 func _is_local_peer(peer_id: int) -> bool:

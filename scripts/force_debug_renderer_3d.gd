@@ -58,11 +58,11 @@ func clear_frame() -> void:
 	_immediate_mesh.clear_surfaces()
 
 
-func _push_arrow_scaled(origin_world: Vector3, world_vector: Vector3, color: Color, scale: float) -> void:
+func _push_arrow_scaled(origin_world: Vector3, world_vector: Vector3, color: Color, vector_scale: float) -> void:
 	if world_vector.length_squared() < MIN_VECTOR_LENGTH_SQUARED:
 		return
 
-	var scaled_vector := world_vector * scale
+	var scaled_vector := world_vector * vector_scale
 	var length := scaled_vector.length()
 	if length <= 0.0:
 		return

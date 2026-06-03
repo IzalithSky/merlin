@@ -34,6 +34,7 @@ const TICK_TEXT_GAP_PX := 6.0
 const X_LABEL_GAP_PX := 8.0
 const Y_LABEL_GAP_PX := 12.0
 const MIN_FONT_SIZE := 10
+const MAX_AXIS_TICKS := 128
 
 const COLOR_BACKGROUND := Color(0.05, 0.07, 0.09, 0.92)
 const COLOR_BORDER := Color(0.47, 0.68, 0.78, 0.8)
@@ -176,11 +177,15 @@ func _insert_point_at_screen_position(screen_position: Vector2) -> void:
 
 
 func _draw_grid(plot_rect: Rect2) -> void:
-	for step in range(GRID_DIVISIONS + 1):
-		var blend := float(step) / float(GRID_DIVISIONS)
-		var x_pos := lerpf(plot_rect.position.x, plot_rect.end.x, blend)
-		var y_pos := lerpf(plot_rect.position.y, plot_rect.end.y, blend)
+	var x_ticks := _build_axis_ticks(_view_x_min, _view_x_max, GRID_DIVISIONS)
+	var y_ticks := _build_axis_ticks(_view_y_min, _view_y_max, GRID_DIVISIONS)
+
+	for x_value in x_ticks:
+		var x_pos := _graph_to_screen(Vector2(x_value, _view_y_min)).x
 		draw_line(Vector2(x_pos, plot_rect.position.y), Vector2(x_pos, plot_rect.end.y), COLOR_GRID, 1.0)
+
+	for y_value in y_ticks:
+		var y_pos := _graph_to_screen(Vector2(_view_x_min, y_value)).y
 		draw_line(Vector2(plot_rect.position.x, y_pos), Vector2(plot_rect.end.x, y_pos), COLOR_GRID, 1.0)
 
 
@@ -245,29 +250,43 @@ func _draw_axis_text(plot_rect: Rect2) -> void:
 	var font_size: int = maxi(get_theme_default_font_size() - 1, MIN_FONT_SIZE)
 	var ascent: float = font.get_ascent(font_size)
 	var descent: float = font.get_descent(font_size)
+	var x_ticks := _build_axis_ticks(_view_x_min, _view_x_max, GRID_DIVISIONS)
+	var y_ticks := _build_axis_ticks(_view_y_min, _view_y_max, GRID_DIVISIONS)
 
-	for step in range(GRID_DIVISIONS + 1):
-		var blend := float(step) / float(GRID_DIVISIONS)
-		var x_value := lerpf(_view_x_min, _view_x_max, blend)
-		var y_value := lerpf(_view_y_min, _view_y_max, blend)
-		var x_screen := lerpf(plot_rect.position.x, plot_rect.end.x, blend)
-		var y_screen := lerpf(plot_rect.end.y, plot_rect.position.y, blend)
+	var x_tick_baseline := plot_rect.end.y + ascent + TICK_TEXT_GAP_PX
+	if _view_y_min <= 0.0 and _view_y_max >= 0.0:
+		var axis_y := _graph_to_screen(Vector2(0.0, 0.0)).y
+		x_tick_baseline = clampf(
+			axis_y + ascent + TICK_TEXT_GAP_PX,
+			plot_rect.position.y + ascent + 2.0,
+			plot_rect.end.y - 2.0
+		)
 
+	var y_axis_screen_x := plot_rect.position.x
+	var draw_y_left_of_axis := true
+	if _view_x_min <= 0.0 and _view_x_max >= 0.0:
+		y_axis_screen_x = _graph_to_screen(Vector2(0.0, 0.0)).x
+		draw_y_left_of_axis = y_axis_screen_x >= (plot_rect.position.x + plot_rect.size.x * 0.35)
+
+	for x_value in x_ticks:
+		var x_screen := _graph_to_screen(Vector2(x_value, _view_y_min)).x
 		var x_text := _format_tick(x_value)
 		var x_text_width := font.get_string_size(x_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		var x_pos := Vector2(
-			x_screen - x_text_width * 0.5,
-			plot_rect.end.y + ascent + TICK_TEXT_GAP_PX
-		)
+		var x_pos := Vector2(x_screen - x_text_width * 0.5, x_tick_baseline)
 		draw_string(font, x_pos, x_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, COLOR_TEXT)
 
+	for y_value in y_ticks:
+		var y_screen := _graph_to_screen(Vector2(_view_x_min, y_value)).y
 		var y_text := _format_tick(y_value)
 		var y_text_width := font.get_string_size(y_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		var y_baseline := y_screen + (ascent - descent) * 0.5
-		var y_pos := Vector2(
-			plot_rect.position.x - y_text_width - TICK_TEXT_GAP_PX,
-			y_baseline
-		)
+		var y_text_x := plot_rect.position.x - y_text_width - TICK_TEXT_GAP_PX
+		if _view_x_min <= 0.0 and _view_x_max >= 0.0:
+			if draw_y_left_of_axis:
+				y_text_x = y_axis_screen_x - y_text_width - TICK_TEXT_GAP_PX
+			else:
+				y_text_x = y_axis_screen_x + TICK_TEXT_GAP_PX
+		var y_pos := Vector2(y_text_x, y_baseline)
 		draw_string(font, y_pos, y_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, COLOR_TEXT)
 
 	if not x_axis_label.is_empty():
@@ -279,7 +298,6 @@ func _draw_axis_text(plot_rect: Rect2) -> void:
 		draw_string(font, x_label_pos, x_axis_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, COLOR_TEXT)
 
 	if not y_axis_label.is_empty():
-		var y_label_size := font.get_string_size(y_axis_label, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 		var y_label_pos := Vector2(
 			maxf(Y_LABEL_GAP_PX, plot_rect.position.x - PLOT_MARGIN_LEFT_PX + Y_LABEL_GAP_PX),
 			plot_rect.position.y + ascent
@@ -290,7 +308,63 @@ func _draw_axis_text(plot_rect: Rect2) -> void:
 func _format_tick(value: float) -> String:
 	var decimals := maxi(tick_decimals, 0)
 	var format := "%." + str(decimals) + "f"
+	if absf(value) < pow(10.0, -float(decimals)) * 0.5:
+		value = 0.0
 	return format % value
+
+
+func _build_axis_ticks(range_min: float, range_max: float, target_divisions: int) -> Array[float]:
+	var ticks: Array[float] = []
+	var min_value: float = minf(range_min, range_max)
+	var max_value: float = maxf(range_min, range_max)
+	var span: float = maxf(max_value - min_value, SORT_EPSILON)
+	var step: float = _get_nice_tick_step(span / float(maxi(target_divisions, 1)))
+	var epsilon: float = step * 0.0005
+
+	var first_tick: float = floor((min_value + epsilon) / step) * step
+	var last_tick: float = ceil((max_value - epsilon) / step) * step
+	var tick_value: float = first_tick
+	var guard: int = 0
+	while tick_value <= last_tick + epsilon and guard < MAX_AXIS_TICKS:
+		var snapped_tick: float = tick_value
+		if absf(snapped_tick) <= epsilon:
+			snapped_tick = 0.0
+		if snapped_tick >= min_value - epsilon and snapped_tick <= max_value + epsilon:
+			if ticks.is_empty() or absf(snapped_tick - ticks[ticks.size() - 1]) > epsilon:
+				ticks.append(snapped_tick)
+		tick_value += step
+		guard += 1
+
+	if min_value <= 0.0 and max_value >= 0.0:
+		var has_zero := false
+		for existing_tick: float in ticks:
+			if absf(existing_tick) <= epsilon:
+				has_zero = true
+				break
+		if not has_zero:
+			ticks.append(0.0)
+			ticks.sort()
+
+	return ticks
+
+
+func _get_nice_tick_step(raw_step: float) -> float:
+	var safe_step: float = maxf(raw_step, SORT_EPSILON)
+	var exponent: float = floor(log(safe_step) / log(10.0))
+	var magnitude: float = pow(10.0, exponent)
+	var normalized: float = safe_step / magnitude
+
+	var nice_normalized: float = 1.0
+	if normalized <= 1.0:
+		nice_normalized = 1.0
+	elif normalized <= 2.0:
+		nice_normalized = 2.0
+	elif normalized <= 5.0:
+		nice_normalized = 5.0
+	else:
+		nice_normalized = 10.0
+
+	return nice_normalized * magnitude
 
 
 func _graph_to_screen(graph_point: Vector2) -> Vector2:

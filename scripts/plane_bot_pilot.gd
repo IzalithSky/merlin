@@ -10,6 +10,23 @@ extends Node
 @export var orbit_throttle_input: float = 0.45
 @export var retreat_throttle_input: float = 0.2
 @export var minimum_forward_speed: float = 35.0
+@export var speed_recovery_enter_speed: float = 100.0
+@export var speed_recovery_exit_speed: float = 150.0
+@export var speed_recovery_min_nose_down_input: float = 0.25
+@export var speed_recovery_max_nose_down_input: float = 0.95
+@export var speed_recovery_base_throttle_input: float = 0.55
+@export var speed_recovery_throttle_boost_input: float = 0.35
+@export var speed_recovery_pitch_response_rate: float = 1.2
+@export var speed_recovery_max_descent_speed: float = 35.0
+@export var speed_recovery_altitude_soft_floor: float = 240.0
+@export var speed_recovery_altitude_hard_floor: float = 150.0
+@export var speed_recovery_max_dive_angle_deg: float = 24.0
+@export var speed_recovery_flight_path_kp: float = 2.1
+@export var speed_recovery_flight_path_kd: float = 0.9
+@export var speed_recovery_pitch_rate_damping: float = 0.35
+@export var speed_recovery_speed_trend_damping: float = 0.15
+@export var speed_recovery_max_nose_up_input: float = 0.35
+@export var speed_recovery_accel_smoothing: float = 0.25
 
 @export var minimum_safe_altitude: float = 180.0
 @export var terrain_prediction_time: float = 2.4
@@ -28,6 +45,11 @@ var _plane: RigidBody3D
 var _follow_target: Node3D
 var _reacquire_timer := 0.0
 var _exclude_rids: Array[RID] = []
+var _speed_recovery_active := false
+var _speed_recovery_pitch_command := 0.0
+var _last_forward_speed := 0.0
+var _speed_recovery_forward_accel := 0.0
+var _speed_recovery_last_dive_angle := 0.0
 
 
 func _ready() -> void:
@@ -37,6 +59,7 @@ func _ready() -> void:
 		return
 
 	_exclude_rids = [_plane.get_rid()]
+	_last_forward_speed = _get_forward_speed()
 	_resolve_follow_target(true)
 
 
@@ -56,12 +79,12 @@ func _physics_process(delta: float) -> void:
 		_reacquire_timer = 0.0
 		_resolve_follow_target(false)
 
-	if _follow_target == null:
-		_apply_controls(0.0, 0.0, 0.0, 0.1)
-		return
+	var forward_speed := _get_forward_speed()
+	_update_forward_speed_trend(forward_speed, delta)
 
 	var terrain_response := _get_terrain_avoidance_response()
 	if terrain_response["active"]:
+		_speed_recovery_pitch_command = 0.0
 		var avoid_direction: Vector3 = terrain_response["direction"]
 		var avoid_controls := _controls_from_world_direction(avoid_direction)
 		var avoid_yaw: float = avoid_controls["yaw"] * terrain_escape_yaw_weight
@@ -71,6 +94,15 @@ func _physics_process(delta: float) -> void:
 			avoid_yaw,
 			0.9
 		)
+		return
+
+	_update_speed_recovery_state(forward_speed)
+	if _speed_recovery_active:
+		_apply_speed_recovery_controls(forward_speed, delta)
+		return
+
+	if _follow_target == null:
+		_apply_controls(0.0, 0.0, 0.0, 0.1)
 		return
 
 	var target_offset := _follow_target.global_position - _plane.global_position
@@ -113,6 +145,109 @@ func _physics_process(delta: float) -> void:
 
 	var controls := _controls_from_world_direction(target_direction)
 	_apply_controls(controls["roll"], controls["pitch"], controls["yaw"], target_throttle)
+
+
+func _update_speed_recovery_state(forward_speed: float) -> void:
+	if _speed_recovery_active:
+		if forward_speed >= speed_recovery_exit_speed:
+			_speed_recovery_active = false
+			_speed_recovery_pitch_command = 0.0
+			_speed_recovery_last_dive_angle = 0.0
+		return
+
+	if forward_speed < speed_recovery_enter_speed:
+		_speed_recovery_active = true
+		_speed_recovery_pitch_command = 0.0
+		_speed_recovery_last_dive_angle = _get_dive_angle_rad()
+
+
+func _apply_speed_recovery_controls(forward_speed: float, delta: float) -> void:
+	var span := maxf(speed_recovery_exit_speed - speed_recovery_enter_speed, 1.0)
+	var speed_deficit := maxf(speed_recovery_exit_speed - forward_speed, 0.0)
+	var recovery_ratio := clampf(speed_deficit / span, 0.0, 1.0)
+	var eased_ratio := _ease_in_out(recovery_ratio)
+
+	# Positive pitch input drives the plane nose down in this controller.
+	var target_dive_angle := deg_to_rad(maxf(speed_recovery_max_dive_angle_deg, 0.0)) * eased_ratio
+	var current_dive_angle := _get_dive_angle_rad()
+	var dive_rate := 0.0
+	if delta > 0.0:
+		dive_rate = (current_dive_angle - _speed_recovery_last_dive_angle) / delta
+	_speed_recovery_last_dive_angle = current_dive_angle
+
+	var dive_error := target_dive_angle - current_dive_angle
+	var local_pitch_rate := _get_local_pitch_rate_rad_per_s()
+	var pitch_command := (
+		dive_error * maxf(speed_recovery_flight_path_kp, 0.0) -
+		dive_rate * maxf(speed_recovery_flight_path_kd, 0.0) -
+		local_pitch_rate * maxf(speed_recovery_pitch_rate_damping, 0.0) -
+		_speed_recovery_forward_accel * maxf(speed_recovery_speed_trend_damping, 0.0)
+	)
+
+	var min_pitch_input := -maxf(speed_recovery_max_nose_up_input, 0.0)
+	var max_pitch_input := lerpf(
+		maxf(speed_recovery_min_nose_down_input, 0.0),
+		maxf(speed_recovery_max_nose_down_input, 0.0),
+		eased_ratio
+	)
+	pitch_command = clampf(pitch_command, min_pitch_input, max_pitch_input)
+
+	# Reduce nose-down authority if already descending hard.
+	var downward_speed := maxf(-_plane.linear_velocity.y, 0.0)
+	if downward_speed > speed_recovery_max_descent_speed:
+		var descent_excess := downward_speed - speed_recovery_max_descent_speed
+		var descent_scale := 1.0 / (1.0 + (descent_excess / maxf(speed_recovery_max_descent_speed, 1.0)))
+		if pitch_command > 0.0:
+			pitch_command *= clampf(descent_scale, 0.0, 1.0)
+
+	# Fade nose-down command close to terrain.
+	var ground_clearance := _estimate_ground_clearance(maxf(speed_recovery_altitude_soft_floor, speed_recovery_altitude_hard_floor))
+	if ground_clearance <= speed_recovery_altitude_hard_floor:
+		pitch_command = minf(pitch_command, 0.0)
+	elif ground_clearance < speed_recovery_altitude_soft_floor:
+		var clearance_span := maxf(speed_recovery_altitude_soft_floor - speed_recovery_altitude_hard_floor, 1.0)
+		var clearance_t := (ground_clearance - speed_recovery_altitude_hard_floor) / clearance_span
+		if pitch_command > 0.0:
+			pitch_command *= clampf(clearance_t, 0.0, 1.0)
+
+	var pitch_step := maxf(speed_recovery_pitch_response_rate * delta, 0.0)
+	_speed_recovery_pitch_command = move_toward(_speed_recovery_pitch_command, pitch_command, pitch_step)
+	var throttle_ratio := clampf(recovery_ratio * (1.0 - maxf(current_dive_angle, 0.0) / deg_to_rad(45.0)), 0.0, 1.0)
+	var throttle_value := speed_recovery_base_throttle_input + (speed_recovery_throttle_boost_input * throttle_ratio)
+
+	_apply_controls(0.0, _speed_recovery_pitch_command, 0.0, throttle_value)
+
+
+func _update_forward_speed_trend(forward_speed: float, delta: float) -> void:
+	if delta <= 0.0:
+		_last_forward_speed = forward_speed
+		return
+
+	var accel := (forward_speed - _last_forward_speed) / delta
+	var smoothing := clampf(speed_recovery_accel_smoothing, 0.0, 1.0)
+	_speed_recovery_forward_accel = lerpf(_speed_recovery_forward_accel, accel, smoothing)
+	_last_forward_speed = forward_speed
+
+
+func _get_dive_angle_rad() -> float:
+	var velocity := _plane.linear_velocity
+	var speed := velocity.length()
+	if speed <= 0.1:
+		return 0.0
+
+	var flight_path_angle := asin(clampf(velocity.y / speed, -1.0, 1.0))
+	return -flight_path_angle
+
+
+func _get_local_pitch_rate_rad_per_s() -> float:
+	var basis := _plane.global_transform.basis.orthonormalized()
+	var local_angular_velocity := basis.transposed() * _plane.angular_velocity
+	return local_angular_velocity.x
+
+
+func _ease_in_out(value: float) -> float:
+	var t := clampf(value, 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
 
 
 func _controls_from_world_direction(world_direction: Vector3) -> Dictionary:
@@ -182,6 +317,23 @@ func _intersect_ray(from_point: Vector3, to_point: Vector3) -> Dictionary:
 	query.exclude = _exclude_rids
 	query.collide_with_areas = false
 	return world_ref.direct_space_state.intersect_ray(query)
+
+
+func _estimate_ground_clearance(max_distance: float) -> float:
+	var sample_distance := maxf(max_distance, 1.0)
+	var from_point := _plane.global_position
+	var to_point := from_point + Vector3.DOWN * sample_distance
+	var hit := _intersect_ray(from_point, to_point)
+	if hit.is_empty():
+		return sample_distance
+
+	var hit_position: Vector3 = hit.get("position", to_point)
+	return from_point.distance_to(hit_position)
+
+
+func _get_forward_speed() -> float:
+	var forward_axis := -_plane.global_transform.basis.z
+	return _plane.linear_velocity.dot(forward_axis)
 
 
 func _resolve_follow_target(force: bool) -> void:

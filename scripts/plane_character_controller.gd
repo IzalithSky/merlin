@@ -10,13 +10,13 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var thr_rate: float = 1.2
 @export var control_effectiveness_speed: float = 50.0
 
-@export var max_thrust: float = 8000.0
+@export var max_thrust: float = 14_000.0
 @export var max_pitch: float = 0.8
 @export var max_yaw: float = 0.1
 @export var max_roll: float = 1.0
 @export var speed_assist: float = 1.4
-@export var aoa_limiter: bool = true
-@export var base_control_torque: float = 8000.0
+@export var aoa_limiter: bool = false
+@export var base_control_torque: float = 40_000.0
 @export var dynamic_torque_scale: float = 3.0
 
 @export var air_density: float = 1.225
@@ -56,7 +56,11 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 	Vector2(40.0, 0.0),
 ]
 @export var alignment_strength: float = 5.0
-@export var alignment_max_torque: float = 2000.0
+@export var alignment_max_torque: float = 0.0
+@export var extra_linear_drag_linear_coefficient: float = 0.0
+@export var extra_linear_drag_quadratic_coefficient: float = 0.06
+@export var extra_angular_drag_linear_coefficients: Vector3 = Vector3(20000.0, 12000.0, 20000.0)
+@export var extra_angular_drag_quadratic_coefficients: Vector3 = Vector3(2500.0, 1200.0, 2500.0)
 @export var network_sync_interval: float = 0.033
 @export var debug_force_vectors_enabled: bool = true
 
@@ -64,6 +68,7 @@ const G_BUFFER_SIZE := 10
 const TABLE_SORT_EPSILON := 0.0001
 const MIN_AERODYNAMIC_SPEED_SQUARED := 0.0001
 const MIN_DIRECTION_VECTOR_LENGTH_SQUARED := 0.000001
+const MIN_ANGULAR_SPEED_SQUARED := 0.000001
 const DEBUG_COLOR_THRUST := Color(1.0, 0.58, 0.12, 1.0)
 const DEBUG_COLOR_LIFT := Color(0.2, 0.9, 0.2, 1.0)
 const DEBUG_COLOR_DRAG := Color(0.95, 0.23, 0.23, 1.0)
@@ -100,6 +105,7 @@ var _cached_control_half_extents := Vector3.ONE
 var _control_half_extents_dirty := true
 var _force_debug_renderer: Node
 var _last_total_linear_damp := 0.0
+var _aoa_toggle_key_was_pressed := false
 var _debug_last_thrust_force_world := Vector3.ZERO
 var _debug_last_lift_force_world := Vector3.ZERO
 var _debug_last_drag_force_world := Vector3.ZERO
@@ -110,7 +116,7 @@ var _debug_last_damping_force_world := Vector3.ZERO
 
 func _ready() -> void:
 	add_to_group("player_character")
-	throttle_input = -1.0
+	_apply_spawn_control_defaults()
 	_sanitize_aero_tables()
 	_apply_persisted_aero_tables()
 	_ensure_control_geometry_cache_connections()
@@ -120,10 +126,13 @@ func _ready() -> void:
 
 
 func configure(new_peer_id: int, local_player: bool) -> void:
+	var was_local_player := is_local_player
 	peer_id = new_peer_id
 	is_local_player = local_player
 
 	if is_node_ready():
+		if is_local_player and not was_local_player:
+			_apply_spawn_control_defaults()
 		_apply_local_player_mode()
 
 
@@ -142,6 +151,7 @@ func _physics_process(delta: float) -> void:
 	apply_thrust()
 	apply_plane_torque()
 	apply_aerodynamic_forces()
+	apply_extra_drag_forces()
 	apply_directional_alignment()
 	_end_force_debug_frame()
 
@@ -157,6 +167,16 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 
 func _is_simulated_locally() -> bool:
 	return is_local_player or is_bot_controlled
+
+
+func _apply_spawn_control_defaults() -> void:
+	roll_input = 0.0
+	pitch_input = 0.0
+	yaw_input = 0.0
+	throttle_input = 0.0
+	throttle_percent = 50.0
+	aoa_limiter = false
+	_aoa_toggle_key_was_pressed = false
 
 
 func _apply_bot_inputs(delta: float) -> void:
@@ -222,6 +242,11 @@ func _collect_inputs(delta: float) -> void:
 	if Input.is_physical_key_pressed(KEY_SHIFT):
 		throttle_input -= throttle_rate
 	throttle_input = clamp(throttle_input, -1.0, 1.0)
+
+	var aoa_toggle_pressed := Input.is_physical_key_pressed(KEY_G)
+	if aoa_toggle_pressed and not _aoa_toggle_key_was_pressed:
+		aoa_limiter = not aoa_limiter
+	_aoa_toggle_key_was_pressed = aoa_toggle_pressed
 
 	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
 
@@ -544,6 +569,21 @@ func apply_directional_alignment() -> void:
 		_push_debug_torque(global_position, torque, DEBUG_COLOR_ALIGNMENT_TORQUE)
 
 
+func apply_extra_drag_forces() -> void:
+	var extra_linear_drag_force := _get_extra_linear_drag_force_world()
+	if extra_linear_drag_force.length_squared() > 0.0 and extra_linear_drag_force.is_finite():
+		apply_central_force(extra_linear_drag_force)
+
+	var angular_drag_torque := _get_extra_angular_drag_torque_world()
+	if angular_drag_torque.length_squared() > 0.0 and angular_drag_torque.is_finite():
+		apply_torque(angular_drag_torque)
+		_push_debug_torque(global_position, angular_drag_torque, DEBUG_COLOR_DAMPING)
+
+	_debug_last_damping_force_world = _get_engine_damping_force_world() + extra_linear_drag_force
+	if _debug_last_damping_force_world.length_squared() > 0.0 and _debug_last_damping_force_world.is_finite():
+		_push_debug_force(global_position, _debug_last_damping_force_world, DEBUG_COLOR_DAMPING)
+
+
 func apply_remote_state(character_position: Vector3, yaw: float, pitch: float, roll: float) -> void:
 	if is_local_player:
 		return
@@ -639,9 +679,6 @@ func _begin_force_debug_frame() -> void:
 	var gravity_force := _get_gravity_force_world()
 	_debug_last_gravity_force_world = gravity_force
 	_push_debug_force(global_position, gravity_force, DEBUG_COLOR_GRAVITY)
-	var damping_force := _get_damping_force_world()
-	_debug_last_damping_force_world = damping_force
-	_push_debug_force(global_position, damping_force, DEBUG_COLOR_DAMPING)
 
 
 func _end_force_debug_frame() -> void:
@@ -678,12 +715,55 @@ func _get_gravity_force_world() -> Vector3:
 	return gravity_direction * gravity_magnitude * gravity_scale * mass
 
 
-func _get_damping_force_world() -> Vector3:
+func _get_engine_damping_force_world() -> Vector3:
 	if _last_total_linear_damp <= 0.0:
 		return Vector3.ZERO
 
 	# Equivalent linear force for dv/dt = -damp * v.
 	return -linear_velocity * mass * _last_total_linear_damp
+
+
+func _get_extra_linear_drag_force_world() -> Vector3:
+	var air_velocity_world := _get_air_relative_velocity_world()
+	var speed_squared := air_velocity_world.length_squared()
+	if speed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
+		return Vector3.ZERO
+
+	var speed := sqrt(speed_squared)
+	if speed <= 0.0:
+		return Vector3.ZERO
+
+	var direction := air_velocity_world / speed
+	var linear_component := maxf(extra_linear_drag_linear_coefficient, 0.0) * speed
+	var quadratic_component := maxf(extra_linear_drag_quadratic_coefficient, 0.0) * speed_squared
+	return -direction * (linear_component + quadratic_component)
+
+
+func _get_extra_angular_drag_torque_world() -> Vector3:
+	if angular_velocity.length_squared() < MIN_ANGULAR_SPEED_SQUARED:
+		return Vector3.ZERO
+
+	var body_basis := global_transform.basis.orthonormalized()
+	var local_angular_velocity := body_basis.transposed() * angular_velocity
+	var local_drag_torque := Vector3(
+		_compute_axis_drag_torque_component(local_angular_velocity.x, extra_angular_drag_linear_coefficients.x, extra_angular_drag_quadratic_coefficients.x),
+		_compute_axis_drag_torque_component(local_angular_velocity.y, extra_angular_drag_linear_coefficients.y, extra_angular_drag_quadratic_coefficients.y),
+		_compute_axis_drag_torque_component(local_angular_velocity.z, extra_angular_drag_linear_coefficients.z, extra_angular_drag_quadratic_coefficients.z)
+	)
+
+	return body_basis * local_drag_torque
+
+
+func _compute_axis_drag_torque_component(axis_rate: float, linear_coefficient: float, quadratic_coefficient: float) -> float:
+	var rate_magnitude := absf(axis_rate)
+	if rate_magnitude <= 0.000001:
+		return 0.0
+
+	var torque_magnitude := (
+		maxf(linear_coefficient, 0.0) * rate_magnitude +
+		maxf(quadratic_coefficient, 0.0) * rate_magnitude * rate_magnitude
+	)
+	return -sign(axis_rate) * torque_magnitude
 
 
 func get_force_balance_snapshot() -> Dictionary:
@@ -722,6 +802,10 @@ func get_throttle_percent() -> float:
 
 func get_aoa_deg() -> float:
 	return aoa_deg
+
+
+func get_aoa_limiter_enabled() -> bool:
+	return aoa_limiter
 
 
 func get_pitch_input() -> float:
