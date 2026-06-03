@@ -6,6 +6,7 @@ const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 
 @onready var _lift_graph: Node = %LiftGraph
 @onready var _drag_graph: Node = %DragGraph
+@onready var _control_authority_graph: Node = %ControlAuthorityGraph
 @onready var _status_label: Label = %StatusLabel
 @onready var _back_button: Button = %BackButton
 
@@ -19,6 +20,7 @@ func _ready() -> void:
 	_back_button.pressed.connect(_on_back_pressed)
 	_lift_graph.points_changed.connect(_on_lift_points_changed)
 	_drag_graph.points_changed.connect(_on_drag_points_changed)
+	_control_authority_graph.points_changed.connect(_on_control_authority_points_changed)
 
 	_create_model_plane()
 	_apply_saved_tables_to_model()
@@ -50,6 +52,11 @@ func _apply_saved_tables_to_model() -> void:
 		if not drag_points.is_empty():
 			_model_plane.call("set_drag_table", drag_points)
 
+	if _model_plane.has_method("set_control_authority_table"):
+		var control_authority_points := AERO_TABLES_STORE.decode_points(payload.get("control_authority_table", []))
+		if not control_authority_points.is_empty():
+			_model_plane.call("set_control_authority_table", control_authority_points)
+
 
 func _refresh_graphs_from_model() -> void:
 	_suspend_graph_updates = true
@@ -57,6 +64,7 @@ func _refresh_graphs_from_model() -> void:
 	if _model_plane == null:
 		_lift_graph.set_points([])
 		_drag_graph.set_points([])
+		_control_authority_graph.set_points([])
 		_suspend_graph_updates = false
 		return
 
@@ -64,6 +72,8 @@ func _refresh_graphs_from_model() -> void:
 		_lift_graph.set_points(_model_plane.call("get_lift_table"))
 	if _model_plane.has_method("get_drag_table"):
 		_drag_graph.set_points(_model_plane.call("get_drag_table"))
+	if _model_plane.has_method("get_control_authority_table"):
+		_control_authority_graph.set_points(_model_plane.call("get_control_authority_table"))
 
 	_suspend_graph_updates = false
 
@@ -84,6 +94,14 @@ func _on_drag_points_changed(points: Array[Vector2]) -> void:
 	_queue_save()
 
 
+func _on_control_authority_points_changed(points: Array[Vector2]) -> void:
+	if _suspend_graph_updates or _model_plane == null:
+		return
+	if _model_plane.has_method("set_control_authority_table"):
+		_model_plane.call("set_control_authority_table", points)
+	_queue_save()
+
+
 func _queue_save() -> void:
 	if _save_queued:
 		return
@@ -98,12 +116,15 @@ func _save_tables() -> void:
 
 	var lift_points: Array[Vector2] = []
 	var drag_points: Array[Vector2] = []
+	var control_authority_points: Array[Vector2] = []
 	if _model_plane.has_method("get_lift_table"):
 		lift_points = _model_plane.call("get_lift_table")
 	if _model_plane.has_method("get_drag_table"):
 		drag_points = _model_plane.call("get_drag_table")
+	if _model_plane.has_method("get_control_authority_table"):
+		control_authority_points = _model_plane.call("get_control_authority_table")
 
-	var save_error: Error = AERO_TABLES_STORE.save_payload(lift_points, drag_points)
+	var save_error: Error = AERO_TABLES_STORE.save_payload(lift_points, drag_points, control_authority_points)
 	if save_error == OK:
 		_status_label.text = "Saved in user://plane_aero_tables.json"
 	else:

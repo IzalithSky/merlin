@@ -5,7 +5,6 @@ extends CanvasLayer
 @onready var _altitude_value: Label = %AltitudeValue
 @onready var _throttle_value: Label = %ThrottleValue
 @onready var _aoa_value: Label = %AoaValue
-@onready var _aoa_limiter_value: Label = %AoaLimiterValue
 @onready var _pitch_input_bar: ProgressBar = %PitchInputBar
 @onready var _yaw_input_bar: ProgressBar = %YawInputBar
 @onready var _roll_input_bar: ProgressBar = %RollInputBar
@@ -45,7 +44,6 @@ func _process(_delta: float) -> void:
 	var altitude := _target.global_position.y
 	var throttle_percent := 0.0
 	var aoa_deg := 0.0
-	var aoa_limiter_text := "--"
 	var pitch_input := 0.0
 	var yaw_input := 0.0
 	var roll_input := 0.0
@@ -55,8 +53,6 @@ func _process(_delta: float) -> void:
 		throttle_percent = float(_target.call("get_throttle_percent"))
 	if _target.has_method("get_aoa_deg"):
 		aoa_deg = float(_target.call("get_aoa_deg"))
-	if _target.has_method("get_aoa_limiter_enabled"):
-		aoa_limiter_text = "ON" if bool(_target.call("get_aoa_limiter_enabled")) else "OFF"
 	if _target.has_method("get_pitch_input"):
 		pitch_input = float(_target.call("get_pitch_input"))
 	if _target.has_method("get_yaw_input"):
@@ -71,7 +67,6 @@ func _process(_delta: float) -> void:
 	_altitude_value.text = "%.1f m" % altitude
 	_throttle_value.text = "%.0f %%" % throttle_percent
 	_aoa_value.text = "%.1f deg" % aoa_deg
-	_aoa_limiter_value.text = aoa_limiter_text
 	_pitch_input_bar.value = pitch_input * 100.0
 	_yaw_input_bar.value = yaw_input * 100.0
 	_roll_input_bar.value = roll_input * 100.0
@@ -85,7 +80,6 @@ func _reset_labels() -> void:
 	_altitude_value.text = "--"
 	_throttle_value.text = "--"
 	_aoa_value.text = "--"
-	_aoa_limiter_value.text = "--"
 	_pitch_input_bar.value = 0.0
 	_yaw_input_bar.value = 0.0
 	_roll_input_bar.value = 0.0

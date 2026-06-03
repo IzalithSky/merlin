@@ -1,7 +1,7 @@
 extends RefCounted
 
 const SAVE_PATH := "user://plane_aero_tables.json"
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2
 
 
 static func load_payload() -> Dictionary:
@@ -23,11 +23,12 @@ static func load_payload() -> Dictionary:
 	return payload.duplicate(true)
 
 
-static func save_payload(lift_points: Array[Vector2], drag_points: Array[Vector2]) -> Error:
+static func save_payload(lift_points: Array[Vector2], drag_points: Array[Vector2], control_authority_points: Array[Vector2]) -> Error:
 	var payload: Dictionary = {
 		"version": SAVE_VERSION,
 		"lift_table": encode_points(lift_points),
 		"drag_table": encode_points(drag_points),
+		"control_authority_table": encode_points(control_authority_points),
 	}
 
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)

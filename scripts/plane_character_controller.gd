@@ -8,16 +8,12 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var rot_rate: float = 2.4
 @export var rot_decay: float = 3.0
 @export var thr_rate: float = 1.2
-@export var control_effectiveness_speed: float = 50.0
 
 @export var max_thrust: float = 14_000.0
-@export var max_pitch: float = 0.8
-@export var max_yaw: float = 0.1
-@export var max_roll: float = 1.0
-@export var speed_assist: float = 1.4
-@export var aoa_limiter: bool = false
+@export var max_pitch: float = 2.0
+@export var max_yaw: float = 0.5
+@export var max_roll: float = 1.5
 @export var base_control_torque: float = 40_000.0
-@export var dynamic_torque_scale: float = 3.0
 
 @export var air_density: float = 1.225
 @export var reference_area: float = 12.0
@@ -55,16 +51,24 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 	Vector2(0.0, 0.0),
 	Vector2(40.0, 0.0),
 ]
-@export var alignment_strength: float = 5.0
-@export var alignment_max_torque: float = 0.0
+@export var control_authority_coefficient_table: Array[Vector2] = [
+	Vector2(0.0, 1.00),
+	Vector2(25.0, 0.77),
+	Vector2(50.0, 0.55),
+	Vector2(100.0, 0.34),
+	Vector2(150.0, 0.27),
+	Vector2(250.0, 0.24),
+	Vector2(500.0, 0.25),
+]
+@export var alignment_strength: float = 100.0
+@export var alignment_max_torque: float = 10_000.0
 @export var extra_linear_drag_linear_coefficient: float = 0.0
-@export var extra_linear_drag_quadratic_coefficient: float = 0.06
+@export var extra_linear_drag_quadratic_coefficient: float = 0.1
 @export var extra_angular_drag_linear_coefficients: Vector3 = Vector3(20000.0, 12000.0, 20000.0)
 @export var extra_angular_drag_quadratic_coefficients: Vector3 = Vector3(2500.0, 1200.0, 2500.0)
 @export var network_sync_interval: float = 0.033
 @export var debug_force_vectors_enabled: bool = true
 
-const G_BUFFER_SIZE := 10
 const TABLE_SORT_EPSILON := 0.0001
 const MIN_AERODYNAMIC_SPEED_SQUARED := 0.0001
 const MIN_DIRECTION_VECTOR_LENGTH_SQUARED := 0.000001
@@ -92,26 +96,29 @@ var _bot_target_pitch_input := 0.0
 var _bot_target_yaw_input := 0.0
 var _bot_target_throttle_input := -1.0
 
-var smoothed_g := 0.0
 var aoa_deg := 0.0
 var sideslip_deg := 0.0
 var throttle_percent := 0.0
-var lift_ok := true
 
-var _g_force_buffer: Array[float] = []
-var _prev_velocity := Vector3.ZERO
 var _sync_timer := 0.0
-var _cached_control_half_extents := Vector3.ONE
-var _control_half_extents_dirty := true
 var _force_debug_renderer: Node
 var _last_total_linear_damp := 0.0
-var _aoa_toggle_key_was_pressed := false
 var _debug_last_thrust_force_world := Vector3.ZERO
 var _debug_last_lift_force_world := Vector3.ZERO
 var _debug_last_drag_force_world := Vector3.ZERO
 var _debug_last_side_force_world := Vector3.ZERO
 var _debug_last_gravity_force_world := Vector3.ZERO
 var _debug_last_damping_force_world := Vector3.ZERO
+var _frame_body_basis := Basis.IDENTITY
+var _frame_forward_axis := Vector3.FORWARD
+var _frame_right_axis := Vector3.RIGHT
+var _frame_up_axis := Vector3.UP
+var _frame_air_velocity_world := Vector3.ZERO
+var _frame_air_velocity_local := Vector3.ZERO
+var _frame_air_speed_squared := 0.0
+var _frame_air_speed := 0.0
+var _frame_airflow_direction := Vector3.ZERO
+var _frame_dynamic_pressure := 0.0
 
 
 func _ready() -> void:
@@ -119,8 +126,6 @@ func _ready() -> void:
 	_apply_spawn_control_defaults()
 	_sanitize_aero_tables()
 	_apply_persisted_aero_tables()
-	_ensure_control_geometry_cache_connections()
-	_refresh_control_half_extents_cache()
 	_ensure_force_debug_renderer()
 	_apply_local_player_mode()
 
@@ -147,6 +152,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		_collect_inputs(delta)
 
+	_update_physics_frame_cache()
 	compute_control_state(delta)
 	apply_thrust()
 	apply_plane_torque()
@@ -169,14 +175,31 @@ func _is_simulated_locally() -> bool:
 	return is_local_player or is_bot_controlled
 
 
+func _update_physics_frame_cache() -> void:
+	_frame_body_basis = global_transform.basis.orthonormalized()
+	_frame_forward_axis = -_frame_body_basis.z
+	_frame_right_axis = _frame_body_basis.x
+	_frame_up_axis = _frame_body_basis.y
+
+	_frame_air_velocity_world = _get_air_relative_velocity_world()
+	_frame_air_speed_squared = _frame_air_velocity_world.length_squared()
+	_frame_air_speed = 0.0
+	_frame_airflow_direction = Vector3.ZERO
+	if _frame_air_speed_squared >= MIN_AERODYNAMIC_SPEED_SQUARED:
+		_frame_air_speed = sqrt(_frame_air_speed_squared)
+		if _frame_air_speed > 0.0:
+			_frame_airflow_direction = _frame_air_velocity_world / _frame_air_speed
+
+	_frame_air_velocity_local = _frame_body_basis.transposed() * _frame_air_velocity_world
+	_frame_dynamic_pressure = 0.5 * air_density * _frame_air_speed_squared
+
+
 func _apply_spawn_control_defaults() -> void:
 	roll_input = 0.0
 	pitch_input = 0.0
 	yaw_input = 0.0
 	throttle_input = 0.0
 	throttle_percent = 50.0
-	aoa_limiter = false
-	_aoa_toggle_key_was_pressed = false
 
 
 func _apply_bot_inputs(delta: float) -> void:
@@ -243,45 +266,20 @@ func _collect_inputs(delta: float) -> void:
 		throttle_input -= throttle_rate
 	throttle_input = clamp(throttle_input, -1.0, 1.0)
 
-	var aoa_toggle_pressed := Input.is_physical_key_pressed(KEY_G)
-	if aoa_toggle_pressed and not _aoa_toggle_key_was_pressed:
-		aoa_limiter = not aoa_limiter
-	_aoa_toggle_key_was_pressed = aoa_toggle_pressed
-
 	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
 
 
 func compute_control_state(delta: float) -> void:
 	compute_aoa()
-	update_g_force(delta)
-
-
-func update_g_force(delta: float) -> void:
-	if delta <= 0.0:
-		return
-
-	var gravity: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector")
-	var g_force := ((linear_velocity - _prev_velocity) / delta - gravity).length() / 9.80665
-	_g_force_buffer.append(g_force)
-	if _g_force_buffer.size() > G_BUFFER_SIZE:
-		_g_force_buffer.pop_front()
-
-	var sum := 0.0
-	for value in _g_force_buffer:
-		sum += value
-	smoothed_g = sum / float(max(_g_force_buffer.size(), 1))
-	_prev_velocity = linear_velocity
 
 
 func compute_aoa() -> void:
-	var air_velocity_world := _get_air_relative_velocity_world()
-	if air_velocity_world.length_squared() < MIN_AERODYNAMIC_SPEED_SQUARED:
+	if _frame_air_speed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
 		aoa_deg = 0.0
 		sideslip_deg = 0.0
 		return
 
-	var body_basis := global_transform.basis.orthonormalized()
-	var air_velocity_local := body_basis.transposed() * air_velocity_world
+	var air_velocity_local := _frame_air_velocity_local
 	var flow_forward := -air_velocity_local.z
 	var flow_up := air_velocity_local.y
 	var flow_right := air_velocity_local.x
@@ -296,219 +294,41 @@ func apply_thrust() -> void:
 	if throttle <= 0.0:
 		return
 
-	var thrust_force := -transform.basis.z * throttle * max_thrust
+	var thrust_force := _frame_forward_axis * throttle * max_thrust
 	apply_central_force(thrust_force)
 	_debug_last_thrust_force_world = thrust_force
 	_push_debug_force(global_position, thrust_force, DEBUG_COLOR_THRUST)
 
 
 func apply_plane_torque() -> void:
-	var forward_speed := _get_air_relative_velocity_world().dot(-transform.basis.z)
+	var control_coefficient := maxf(_sample_aero_table(control_authority_coefficient_table, _frame_air_speed), 0.0)
+	var p_in := -pitch_input
+	var y_in := yaw_input
+	var r_in := roll_input
 
-	var t := maxf(0.0, forward_speed) / maxf(control_effectiveness_speed, 0.001)
-	var speed_factor := 1.0
-	if aoa_limiter:
-		speed_factor = 1.0 / (1.0 + pow(t, 2.0 * speed_assist))
-	else:
-		speed_factor = 1.0 / (1.0 + pow(t, 2.0 * 0.8))
-
-	var p_in := -pitch_input * speed_factor
-	var y_in := yaw_input * speed_factor
-	var r_in := roll_input * speed_factor
-
-	var control_torque := base_control_torque + (0.5 * forward_speed * forward_speed * dynamic_torque_scale)
+	var control_torque := base_control_torque * control_coefficient
 	var pitch_torque := p_in * control_torque * max_pitch
 	var yaw_torque := y_in * control_torque * max_yaw
 	var roll_torque := r_in * control_torque * max_roll
-	if _control_half_extents_dirty:
-		_refresh_control_half_extents_cache()
-	var half_extents := _cached_control_half_extents
-	var roll_offset := maxf(half_extents.x, 0.05)
-	var tail_offset := maxf(half_extents.z, 0.05)
-
-	# Roll: force couple at side edges.
-	_apply_local_torque_force_pair(
-		Vector3(0.0, 0.0, roll_torque),
-		Vector3(roll_offset, 0.0, 0.0),
-		DEBUG_COLOR_ROLL_FORCE
-	)
-	# Pitch + yaw: force couple anchored on rear lever arm.
-	_apply_local_torque_force_pair(
-		Vector3(pitch_torque, yaw_torque, 0.0),
-		Vector3(0.0, 0.0, tail_offset),
-		DEBUG_COLOR_PITCH_YAW_FORCE
-	)
-
-
-func _apply_local_torque_force_pair(local_torque: Vector3, local_offset: Vector3, debug_color: Color) -> void:
-	if local_torque.length_squared() < 0.000001:
+	var pitch_yaw_torque_world := _frame_body_basis * Vector3(pitch_torque, yaw_torque, 0.0)
+	var roll_torque_world := _frame_body_basis * Vector3(0.0, 0.0, roll_torque)
+	var control_torque_world := pitch_yaw_torque_world + roll_torque_world
+	if control_torque_world.length_squared() <= 0.000001 or not control_torque_world.is_finite():
 		return
 
-	if local_offset.length_squared() < 0.000001:
-		return
-
-	var world_basis := global_transform.basis.orthonormalized()
-	var world_torque := world_basis * local_torque
-	var world_offset := world_basis * local_offset
-	var world_offset_len_sq := world_offset.length_squared()
-	if world_offset_len_sq < 0.000001:
-		return
-
-	# For a force pair at +/-r with +/-F:
-	# total torque = 2 * (r x F) => F = (tau x r) / (2 * |r|^2)
-	var world_force := world_torque.cross(world_offset) / (2.0 * world_offset_len_sq)
-	if not world_force.is_finite():
-		return
-
-	apply_force(world_force, world_offset)
-	apply_force(-world_force, -world_offset)
-	var world_center := global_position
-	_push_debug_force(world_center + world_offset, world_force, debug_color)
-	_push_debug_force(world_center - world_offset, -world_force, debug_color)
-
-
-func _ensure_control_geometry_cache_connections() -> void:
-	if not child_entered_tree.is_connected(_on_child_entered_tree):
-		child_entered_tree.connect(_on_child_entered_tree)
-	if not child_exiting_tree.is_connected(_on_child_exiting_tree):
-		child_exiting_tree.connect(_on_child_exiting_tree)
-
-	for child in get_children():
-		var collider := child as CollisionShape3D
-		if collider != null:
-			_watch_collision_shape_resource(collider)
-
-
-func _on_child_entered_tree(node: Node) -> void:
-	var collider := node as CollisionShape3D
-	if collider == null:
-		return
-	_watch_collision_shape_resource(collider)
-	_mark_control_half_extents_dirty()
-
-
-func _on_child_exiting_tree(node: Node) -> void:
-	if node is CollisionShape3D:
-		_mark_control_half_extents_dirty()
-
-
-func _watch_collision_shape_resource(collider: CollisionShape3D) -> void:
-	if collider.shape == null:
-		return
-	if not collider.shape.changed.is_connected(_on_collision_shape_resource_changed):
-		collider.shape.changed.connect(_on_collision_shape_resource_changed)
-
-
-func _on_collision_shape_resource_changed() -> void:
-	_mark_control_half_extents_dirty()
-
-
-func _mark_control_half_extents_dirty() -> void:
-	_control_half_extents_dirty = true
-
-
-func _refresh_control_half_extents_cache() -> void:
-	for child in get_children():
-		var collider := child as CollisionShape3D
-		if collider != null:
-			_watch_collision_shape_resource(collider)
-	_cached_control_half_extents = _get_body_half_extents_from_collision()
-	_control_half_extents_dirty = false
-
-
-func _get_body_half_extents_from_collision() -> Vector3:
-	var min_bounds := Vector3(1.0e20, 1.0e20, 1.0e20)
-	var max_bounds := Vector3(-1.0e20, -1.0e20, -1.0e20)
-	var has_bounds := false
-
-	for child in get_children():
-		var collider := child as CollisionShape3D
-		if collider == null or collider.disabled or collider.shape == null:
-			continue
-
-		var shape_half_extents := _get_shape_half_extents(collider.shape)
-		if shape_half_extents.length_squared() <= 0.0:
-			continue
-
-		var local_transform := collider.transform
-		var corners: Array[Vector3] = [
-			Vector3(-shape_half_extents.x, -shape_half_extents.y, -shape_half_extents.z),
-			Vector3(-shape_half_extents.x, -shape_half_extents.y, shape_half_extents.z),
-			Vector3(-shape_half_extents.x, shape_half_extents.y, -shape_half_extents.z),
-			Vector3(-shape_half_extents.x, shape_half_extents.y, shape_half_extents.z),
-			Vector3(shape_half_extents.x, -shape_half_extents.y, -shape_half_extents.z),
-			Vector3(shape_half_extents.x, -shape_half_extents.y, shape_half_extents.z),
-			Vector3(shape_half_extents.x, shape_half_extents.y, -shape_half_extents.z),
-			Vector3(shape_half_extents.x, shape_half_extents.y, shape_half_extents.z),
-		]
-
-		for corner: Vector3 in corners:
-			var local_point: Vector3 = local_transform * corner
-			min_bounds = min_bounds.min(local_point)
-			max_bounds = max_bounds.max(local_point)
-			has_bounds = true
-
-	if not has_bounds:
-		return Vector3(1.0, 1.0, 1.0)
-
-	return (max_bounds - min_bounds) * 0.5
-
-
-func _get_shape_half_extents(shape_resource: Shape3D) -> Vector3:
-	if shape_resource is BoxShape3D:
-		var box := shape_resource as BoxShape3D
-		return box.size * 0.5
-
-	if shape_resource is SphereShape3D:
-		var sphere := shape_resource as SphereShape3D
-		return Vector3.ONE * sphere.radius
-
-	if shape_resource is CapsuleShape3D:
-		var capsule := shape_resource as CapsuleShape3D
-		return Vector3(capsule.radius, capsule.height * 0.5, capsule.radius)
-
-	if shape_resource is CylinderShape3D:
-		var cylinder := shape_resource as CylinderShape3D
-		return Vector3(cylinder.radius, cylinder.height * 0.5, cylinder.radius)
-
-	if shape_resource is ConvexPolygonShape3D:
-		var convex := shape_resource as ConvexPolygonShape3D
-		var points := convex.points
-		if points.is_empty():
-			return Vector3.ZERO
-		var min_point := points[0]
-		var max_point := points[0]
-		for point in points:
-			min_point = min_point.min(point)
-			max_point = max_point.max(point)
-		return (max_point - min_point) * 0.5
-
-	if shape_resource is ConcavePolygonShape3D:
-		var concave := shape_resource as ConcavePolygonShape3D
-		var faces := concave.get_faces()
-		if faces.is_empty():
-			return Vector3.ZERO
-		var min_face := faces[0]
-		var max_face := faces[0]
-		for face_vertex in faces:
-			min_face = min_face.min(face_vertex)
-			max_face = max_face.max(face_vertex)
-		return (max_face - min_face) * 0.5
-
-	return Vector3.ZERO
+	apply_torque(control_torque_world)
+	_push_debug_torque(global_position, pitch_yaw_torque_world, DEBUG_COLOR_PITCH_YAW_FORCE)
+	_push_debug_torque(global_position, roll_torque_world, DEBUG_COLOR_ROLL_FORCE)
 
 
 func apply_aerodynamic_forces() -> void:
-	var air_velocity_world := _get_air_relative_velocity_world()
-	var airspeed_squared := air_velocity_world.length_squared()
-	if airspeed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
+	if _frame_air_speed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
 		return
 
-	var airspeed := sqrt(airspeed_squared)
-	if airspeed <= 0.0:
+	if _frame_air_speed <= 0.0:
 		return
-	var airflow_direction := air_velocity_world / airspeed
-	var dynamic_pressure := 0.5 * air_density * airspeed_squared
+	var airflow_direction := _frame_airflow_direction
+	var dynamic_pressure := _frame_dynamic_pressure
 
 	var lift_coefficient := _sample_aero_table(lift_coefficient_table, aoa_deg)
 	var drag_coefficient := maxf(_sample_aero_table(drag_coefficient_table, aoa_deg), 0.0)
@@ -519,10 +339,10 @@ func apply_aerodynamic_forces() -> void:
 	var side_force_magnitude := dynamic_pressure * reference_area * side_force_coefficient
 	var drag_force := -airflow_direction * drag_force_magnitude
 
-	var right_axis := transform.basis.x
+	var right_axis := _frame_right_axis
 	var lift_axis := right_axis.cross(airflow_direction)
 	if lift_axis.length_squared() < MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
-		lift_axis = transform.basis.y
+		lift_axis = _frame_up_axis
 	else:
 		lift_axis = lift_axis.normalized()
 
@@ -548,21 +368,17 @@ func apply_aerodynamic_forces() -> void:
 		_push_debug_force(global_position, lift_force, DEBUG_COLOR_LIFT)
 		_push_debug_force(global_position, drag_force, DEBUG_COLOR_DRAG)
 
-	lift_ok = true
-
-
 func apply_directional_alignment() -> void:
-	var air_velocity_world := _get_air_relative_velocity_world()
-	if air_velocity_world.length_squared() < MIN_AERODYNAMIC_SPEED_SQUARED:
+	if _frame_air_speed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
 		return
 
-	var forward := -transform.basis.z
-	var velocity_direction := air_velocity_world.normalized()
+	var forward := _frame_forward_axis
+	var velocity_direction := _frame_airflow_direction
 	var axis := forward.cross(velocity_direction)
 	var angle := forward.angle_to(velocity_direction)
 
 	if angle > 0.01:
-		var torque := axis.normalized() * angle * alignment_strength * air_velocity_world.length()
+		var torque := axis.normalized() * angle * alignment_strength * _frame_air_speed
 		if alignment_max_torque > 0.0:
 			torque = torque.limit_length(alignment_max_torque)
 		apply_torque(torque)
@@ -724,18 +540,15 @@ func _get_engine_damping_force_world() -> Vector3:
 
 
 func _get_extra_linear_drag_force_world() -> Vector3:
-	var air_velocity_world := _get_air_relative_velocity_world()
-	var speed_squared := air_velocity_world.length_squared()
-	if speed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
+	if _frame_air_speed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
 		return Vector3.ZERO
 
-	var speed := sqrt(speed_squared)
-	if speed <= 0.0:
+	if _frame_air_speed <= 0.0:
 		return Vector3.ZERO
 
-	var direction := air_velocity_world / speed
-	var linear_component := maxf(extra_linear_drag_linear_coefficient, 0.0) * speed
-	var quadratic_component := maxf(extra_linear_drag_quadratic_coefficient, 0.0) * speed_squared
+	var direction := _frame_airflow_direction
+	var linear_component := maxf(extra_linear_drag_linear_coefficient, 0.0) * _frame_air_speed
+	var quadratic_component := maxf(extra_linear_drag_quadratic_coefficient, 0.0) * _frame_air_speed_squared
 	return -direction * (linear_component + quadratic_component)
 
 
@@ -743,7 +556,7 @@ func _get_extra_angular_drag_torque_world() -> Vector3:
 	if angular_velocity.length_squared() < MIN_ANGULAR_SPEED_SQUARED:
 		return Vector3.ZERO
 
-	var body_basis := global_transform.basis.orthonormalized()
+	var body_basis := _frame_body_basis
 	var local_angular_velocity := body_basis.transposed() * angular_velocity
 	var local_drag_torque := Vector3(
 		_compute_axis_drag_torque_component(local_angular_velocity.x, extra_angular_drag_linear_coefficients.x, extra_angular_drag_quadratic_coefficients.x),
@@ -804,10 +617,6 @@ func get_aoa_deg() -> float:
 	return aoa_deg
 
 
-func get_aoa_limiter_enabled() -> bool:
-	return aoa_limiter
-
-
 func get_pitch_input() -> float:
 	return pitch_input
 
@@ -836,6 +645,10 @@ func get_side_force_table() -> Array[Vector2]:
 	return side_force_coefficient_table.duplicate()
 
 
+func get_control_authority_table() -> Array[Vector2]:
+	return control_authority_coefficient_table.duplicate()
+
+
 func set_lift_table(points: Array[Vector2]) -> void:
 	lift_coefficient_table = _normalize_table(points)
 
@@ -846,6 +659,10 @@ func set_drag_table(points: Array[Vector2]) -> void:
 
 func set_side_force_table(points: Array[Vector2]) -> void:
 	side_force_coefficient_table = _normalize_table(points)
+
+
+func set_control_authority_table(points: Array[Vector2]) -> void:
+	control_authority_coefficient_table = _normalize_table(points)
 
 
 func get_sideslip_deg() -> float:
@@ -890,6 +707,7 @@ func _sanitize_aero_tables() -> void:
 	lift_coefficient_table = _normalize_table(lift_coefficient_table)
 	drag_coefficient_table = _normalize_table(drag_coefficient_table)
 	side_force_coefficient_table = _normalize_table(side_force_coefficient_table)
+	control_authority_coefficient_table = _normalize_table(control_authority_coefficient_table)
 
 
 func _normalize_table(points: Array[Vector2]) -> Array[Vector2]:
@@ -922,3 +740,7 @@ func _apply_persisted_aero_tables() -> void:
 	var drag_points := AERO_TABLES_STORE.decode_points(payload.get("drag_table", []))
 	if not drag_points.is_empty():
 		set_drag_table(drag_points)
+
+	var control_authority_points := AERO_TABLES_STORE.decode_points(payload.get("control_authority_table", []))
+	if not control_authority_points.is_empty():
+		set_control_authority_table(control_authority_points)

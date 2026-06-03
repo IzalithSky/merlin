@@ -71,25 +71,24 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 14
 text = ""
 
-[node name="Graphs" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="GraphTabs" type="TabContainer" parent="CenterContainer/Panel/Margin/VBox"]
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_constants/separation = 16
 
-[node name="LiftColumn" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/Graphs"]
+[node name="Lift" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/GraphTabs"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="LiftTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/Graphs/LiftColumn"]
+[node name="LiftTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Lift"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Lift Coefficient (CL) vs AoA (deg)"
 
-[node name="LiftGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/Graphs/LiftColumn"]
+[node name="LiftGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Lift"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(520, 600)
+custom_minimum_size = Vector2(1040, 600)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -106,20 +105,20 @@ x_axis_label = "AoA (deg)"
 y_axis_label = "CL"
 tick_decimals = 2
 
-[node name="DragColumn" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/Graphs"]
+[node name="Drag" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/GraphTabs"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="DragTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/Graphs/DragColumn"]
+[node name="DragTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Drag"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Drag Coefficient (CD) vs AoA (deg)"
 
-[node name="DragGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/Graphs/DragColumn"]
+[node name="DragGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Drag"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(520, 600)
+custom_minimum_size = Vector2(1040, 600)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -135,6 +134,36 @@ edit_y_max = 20.0
 x_axis_label = "AoA (deg)"
 y_axis_label = "CD"
 tick_decimals = 3
+
+[node name="Control" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/GraphTabs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="ControlTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Control"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Control Authority Coefficient vs Airspeed (m/s)"
+
+[node name="ControlAuthorityGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Control"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(1040, 600)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("2_graph")
+x_min = 0.0
+x_max = 500.0
+y_min = 0.0
+y_max = 1.2
+edit_x_min = 0.0
+edit_x_max = 1000.0
+edit_y_min = 0.0
+edit_y_max = 5.0
+x_axis_label = "Airspeed (m/s)"
+y_axis_label = "Control coef"
+tick_decimals = 2
 
 [node name="Footer" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
 layout_mode = 2
