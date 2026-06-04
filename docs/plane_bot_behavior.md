@@ -1,143 +1,225 @@
-# Plane Bot Behavior (Current Implementation)
+# Plane Bot Behavior
 
 ## Scope
-This document describes the current plane bot implementation in:
+This document explains the principles behind the current plane bot implementation.
+
+Relevant implementation files:
 
 - `res://scripts/plane_bot_pilot.gd`
 - `res://scripts/world_character_spawner.gd`
-- `res://scripts/plane_character_controller.gd` (bot control interface)
+- `res://scripts/plane_character_controller.gd`
 
-It covers bot spawn/ownership and in-flight control logic.
+The bot is not a separate aircraft model. It is a pilot layer that writes control intentions into the same plane controller used by players.
 
-## Bot Lifecycle and Ownership
-### Bot identity
-Bots are represented as normal plane characters with reserved peer IDs:
+## Core Idea
+A bot plane is a normal plane character with a `PlaneBotPilot` child node attached on the authority side.
 
-- `BOT_PEER_ID_BASE = 1000000`
-- Bot ID = `BOT_PEER_ID_BASE + index`
+The bot pilot:
 
-This lets bots use the same spawn/state replication pipeline as players.
+- observes the plane's current state
+- resolves or reacquires a follow target
+- chooses a high-level behavior for the current tick
+- converts desired movement into roll, pitch, yaw, and throttle inputs
+- sends those inputs to the plane controller
 
-## Spawn configuration
-`world_character_spawner.gd` exports:
+The plane controller then smooths those inputs and applies the normal flight model. The bot does not apply forces, torques, velocity changes, or position changes directly.
 
-- `bot_count` (default `1`)
-- `bot_spawn_radius` (default `1200.0`)
-- `bot_follow_target_path` (default `level/BotFollowTarget`)
-- `bot_orbit_range` (default `900.0`)
-- `bot_orbit_tolerance` (default `140.0`)
+## Ownership and Networking
+Bots use reserved peer identifiers so they can reuse the same spawn and replication pipeline as player aircraft.
 
-Singleplayer behavior:
+Authority rules:
 
-- In no-network mode, spawner enforces at least one bot (`bot_count >= 1`).
+- In singleplayer, the local instance simulates bots.
+- In multiplayer, the server simulates bots.
+- Clients do not run bot decision logic for remote bots.
+- Remote clients receive bot transform snapshots like they receive player snapshots.
 
-Multiplayer behavior:
+This keeps bot behavior deterministic from the match authority and avoids each client simulating a different bot outcome.
 
-- Server creates bots in `_ready()` via `_spawn_bots(true)`.
-- Bot spawn states are inserted into `_peer_spawn_states`.
-- Bot spawns are broadcast to connected peers through the same `spawn_character` RPC.
+## Spawn and Target Setup
+`world_character_spawner.gd` is responsible for creating bot planes and attaching the bot pilot.
 
-## Who simulates bots
-Bots are simulated only on authority side:
+The spawner:
 
-- Singleplayer: local instance simulates bot.
-- Multiplayer: server simulates bot.
-- Clients do not simulate bot flight logic.
+- assigns reserved bot peer IDs
+- creates bot spawn states
+- spawns bot plane characters
+- attaches `PlaneBotPilot` only on the authority side
+- injects the follow target when available
+- passes orbit range and tolerance settings into the pilot
 
-In `_configure_bot_behavior(...)`:
+In singleplayer, bot spawn placement uses the same radial participant layout as player spawning. In multiplayer, the server owns bot spawn placement and broadcasts bot spawns to clients.
 
-- `set_bot_controlled(true)` is only set when `multiplayer == null` or `multiplayer.is_server()`.
-- On non-authority peers, any existing `PlaneBotPilot` node is removed.
+In singleplayer, the bot pilot periodically scans the character hierarchy for the nearest non-bot plane and uses it as a player target. This follows the same broad principle as Vimana's AI target acquisition: targets are reacquired from live scene objects rather than captured once and assumed valid forever.
 
-Result: clients receive bot movement through replicated transform snapshots, not local AI simulation.
+If no player plane can be found, the bot falls back to the configured world marker.
 
-## Follow Target Resolution
-World spawner resolves a follow target node from `bot_follow_target_path`:
+In multiplayer, the current bot target fallback remains the configured world marker. Player-targeting for multiplayer is intentionally not enabled yet, because target selection should be server-authoritative and explicit.
 
-- Default target is `level/BotFollowTarget` in `world_0.tscn`.
+The bot pilot can also periodically reacquire a target through its configured node path if the injected target is missing.
 
-When bot pilot is attached, spawner calls:
+## Decision Priority
+Each physics tick follows a fixed priority order.
 
-- `PlaneBotPilot.set_follow_target(target_node)`
+1. Validate or reacquire the follow target.
+2. Measure forward speed and update speed trend.
+3. Set the plane's sustain-turn limiter mode based on bot energy state.
+4. Check terrain avoidance.
+5. If terrain danger exists, run terrain escape and skip all lower-priority behaviors.
+6. Update speed recovery state.
+7. If speed recovery is active, run speed recovery and skip follow/orbit.
+8. If there is no target, hold simple neutral/low-throttle controls.
+9. If target is outside the orbit band, approach it.
+10. If target is inside the orbit band, orbit it.
 
-Bot pilot also supports a local fallback `follow_target_path` and periodic reacquire, but current flow primarily injects target from spawner.
+This priority order is intentional: terrain safety overrides energy recovery, and energy recovery overrides mission behavior.
 
-## Control Interface Between Bot and Plane
-Bot does not apply forces directly. It writes control intentions:
+## Terrain Avoidance
+Terrain avoidance is a reactive safety layer.
 
-- `set_bot_control_inputs(roll, pitch, yaw, throttle)`
+The bot uses ray probes against the physics world:
 
-Plane controller then smooths bot commands in `_apply_bot_inputs(delta)` using:
+- A forward probe looks ahead along the current movement direction, falling back to nose-forward if the plane is slow.
+- A downward probe checks whether ground clearance is below the safety threshold.
 
-- rotation channel ramp = `rot_rate * delta`
-- throttle channel ramp = `thr_rate * delta`
+Forward threat response:
 
-That means bot and player share the same downstream flight physics and control response.
+- Build an escape direction from the collision normal plus an upward bias.
+- Convert that escape direction into normal flight controls.
+- Apply a strong climb-biased pitch command.
+- Apply yaw only as part of the escape steering.
+- Use high throttle.
 
-## High-Level Flight State Machine
-Inside `PlaneBotPilot._physics_process(delta)`:
+Low-altitude response:
 
-1. Validate/reacquire follow target.
-2. If no target: hold neutral controls with low throttle.
-3. Run terrain-avoidance probes.
-4. If terrain threat detected: override with escape controls.
-5. Else, compute target distance and choose mode (approach outside range band, orbit inside range band).
-6. Convert desired world direction into roll/pitch/yaw inputs.
-7. Submit controls to plane controller.
+- Build a climb direction from nose-forward plus an upward bias.
+- Convert it into controls.
+- Skip target following for that tick.
 
-## Terrain Avoidance Logic
-Bot uses two ray tests through `PhysicsDirectSpaceState3D.intersect_ray()`:
+The terrain layer is not path planning. It is immediate obstacle avoidance intended to keep the bot from flying into terrain while the higher-level behavior remains simple.
 
-1. Forward probe:
-- Direction: velocity direction if moving, otherwise nose forward
-- Distance: `max(terrain_probe_min_distance, speed * terrain_prediction_time)`
-- If hit:
-- Avoid direction = normalized(hit normal + upward bias)
-- Apply strong pitch-up and weighted yaw escape
+## Speed Recovery
+Speed recovery is an energy-management override.
 
-2. Downward probe:
-- Cast straight down by `minimum_safe_altitude`
-- If hit:
-- Build climb direction from `nose_forward + upward boost`
+The bot enters speed recovery when forward speed falls below an entry threshold and exits only after speed rises above a higher exit threshold. The two-threshold design creates hysteresis, so the bot does not flicker in and out of recovery every frame.
 
-If either probe indicates danger, bot enters terrain escape branch and skips follow/orbit for that tick.
+While recovering speed, the bot abandons follow/orbit behavior and focuses on regaining airspeed.
 
-## Follow and Orbit Logic
-### Approach mode
-Used when outside orbit band (`distance > desired_range + tolerance`):
+The recovery controller uses:
 
-- Desired direction points toward target.
-- Throttle defaults to `approach_throttle_input`.
-- If too slow (`speed < minimum_forward_speed`), throttle is forced to `1.0`.
+- current forward speed
+- speed deficit relative to recovery target
+- smoothed forward acceleration trend
+- current dive angle
+- dive-angle rate
+- local pitch rate
+- vertical descent speed
+- estimated terrain clearance
 
-### Orbit mode
-Used when near target (`distance <= desired_range + tolerance`):
+The main recovery principle is that pitch controls energy more strongly than throttle. The bot therefore commands a controlled nose-down attitude when it needs speed, but the command is limited by descent rate and terrain clearance.
 
-- Build tangent around target using `up.cross(radial)`.
-- Apply `orbit_direction` sign for clockwise/counterclockwise motion.
-- Add radial correction term so bot converges toward desired ring radius.
-- Add altitude correction term to reduce vertical offset to target.
-- Normalize summed direction and fly it.
-- Throttle uses `orbit_throttle_input`.
-- If bot is too close (`distance < desired_range - tolerance`), use `retreat_throttle_input`.
+Recovery behavior:
 
-This is an orbit-like pursuit, not a strict orbital dynamics solver.
+- Larger speed deficit allows a stronger nose-down command.
+- Pitch command is smoothed over time.
+- Pitch-rate damping prevents oscillation.
+- Forward-acceleration trend damping reduces overcorrection.
+- If the aircraft is already descending too fast, nose-down command is reduced.
+- If terrain is close, nose-down command fades or is blocked.
+- Throttle is increased during recovery but is not treated as the only speed-control mechanism.
 
-## Direction-to-Input Conversion
-Given a desired world direction:
+This is a simple control loop, not a full autopilot energy model.
 
-1. Transform it into plane local space.
-2. Compute control channels:
-- roll from local X (`-x * roll_gain`)
-- pitch from local Y (`-y * pitch_gain`)
-- yaw from local X (`x * yaw_gain`)
-3. Clamp each to `[-1, 1]`.
+## Turn Limiter Interaction
+The bot can change the plane controller's sustain-turn limiter runtime mode.
 
-These are command inputs into the same flight controller used by players.
+Principle:
+
+- When the bot is slow or near speed recovery, sustain-turn limiting is enabled to preserve energy.
+- When the bot has enough speed, sustain-turn limiting can be disabled so the plane may use max-lift turns.
+- The max-lift AoA limiter remains part of the plane controller's normal limiter stack.
+
+The bot does not change forces to achieve this. It only chooses which pitch-input limiter mode the plane controller should use.
+
+## Follow and Orbit Behavior
+When no safety or speed-recovery override is active, the bot flies relative to a target.
+
+Player chase mode:
+
+- Used in singleplayer when a non-bot player plane is found.
+- Desired direction points directly at the player plane.
+- The bot does not orbit the player target in this first-pass behavior.
+- Throttle uses the approach setting, with extra throttle if the bot is below useful forward speed.
+
+Approach mode:
+
+- Used for the fallback marker when the marker is outside the orbit band.
+- Desired direction points toward the marker.
+- Throttle uses the approach setting.
+- If the plane is below its minimum useful forward speed, throttle is forced higher.
+
+Orbit mode:
+
+- Used for the fallback marker when the marker is inside the orbit band.
+- The bot computes a radial vector from the target to itself.
+- It computes a horizontal tangent from the radial vector and world up.
+- Orbit direction chooses clockwise or counterclockwise tangent travel.
+- A radial correction term pulls the bot toward the desired orbit radius.
+- A vertical correction term nudges the bot toward target altitude.
+- The combined direction becomes the desired flight direction.
+
+This is an orbit-like steering behavior, not a physically exact orbital controller.
+
+## Direction-to-Control Mapping
+The bot maps a desired world-space direction into aircraft-local controls.
+
+Process:
+
+1. Normalize the desired world direction.
+2. Transform it into plane-local space.
+3. Use local horizontal error for roll and yaw.
+4. Use local vertical error for pitch.
+5. Clamp each control input to the plane controller's input range.
+6. Submit roll, pitch, yaw, and throttle to the plane controller.
+
+This gives the bot simple steering without bypassing the flight model.
+
+## Control Interface
+The bot submits controls through:
+
+```gdscript
+set_bot_control_inputs(roll, pitch, yaw, throttle)
+```
+
+The plane controller then:
+
+- marks the plane as bot-controlled if needed
+- clamps target inputs
+- smooths current input channels toward target inputs
+- runs the same pitch limiters, torque model, drag model, and aerodynamic force model used by players
+
+This keeps bot and player aircraft behavior consistent.
 
 ## Networking Implications
-- Bot planes emit `local_state_changed` on authority side exactly like local player planes.
-- Server relays bot states to clients via existing `apply_character_state` RPC path.
-- Clients never own bot control; they only render replicated movement.
+Bot state replication uses the existing character replication path.
 
-This keeps bot behavior deterministic per match host and avoids client-side bot divergence.
+Authority side:
+
+- Simulates bot controls and physics.
+- Emits transform snapshots through the plane controller.
+- Relays snapshots to clients through the world spawner.
+
+Client side:
+
+- Does not run `PlaneBotPilot` for remote bots.
+- Applies received bot transforms as remote plane state.
+- Renders the bot like any other remote aircraft.
+
+The system does not currently replicate bot intent, target state, or deterministic physics inputs. It replicates resulting transform snapshots.
+
+## Current Simplifications
+- The bot is reactive and local-rule based, not a strategic AI planner.
+- Terrain avoidance is ray-probe based, not navmesh or pathfinding based.
+- Orbit steering is approximate and does not solve intercept geometry.
+- Speed recovery is a practical controller, not a full aircraft energy management autopilot.
+- Multiplayer bots are server-authoritative but remote clients do not predict bot physics.

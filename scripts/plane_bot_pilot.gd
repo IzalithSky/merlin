@@ -38,11 +38,15 @@ extends Node
 @export var pitch_gain: float = 1.2
 @export var yaw_gain: float = 1.0
 @export var target_reacquire_interval: float = 0.4
+@export var prefer_singleplayer_player_target := true
+@export var bot_peer_id_base := 1000000
 
 @export var follow_target_path: NodePath
 
 var _plane: RigidBody3D
 var _follow_target: Node3D
+var _fallback_follow_target: Node3D
+var _follow_target_is_player := false
 var _reacquire_timer := 0.0
 var _exclude_rids: Array[RID] = []
 var _speed_recovery_active := false
@@ -64,20 +68,16 @@ func _ready() -> void:
 
 
 func set_follow_target(target: Node3D = null) -> void:
+	_fallback_follow_target = target
 	_follow_target = target
+	_follow_target_is_player = false
 
 
 func _physics_process(delta: float) -> void:
 	if _plane == null:
 		return
 
-	if not is_instance_valid(_follow_target):
-		_follow_target = null
-
-	_reacquire_timer += delta
-	if _follow_target == null and _reacquire_timer >= target_reacquire_interval:
-		_reacquire_timer = 0.0
-		_resolve_follow_target(false)
+	_update_follow_target(delta)
 
 	var forward_speed := _get_forward_speed()
 	_update_forward_speed_trend(forward_speed, delta)
@@ -119,6 +119,9 @@ func _physics_process(delta: float) -> void:
 	var target_direction := target_offset / target_distance
 	var target_throttle: float = approach_throttle_input
 
+	if _follow_target_is_player:
+		control_mode = "approach"
+
 	if control_mode == "approach":
 		target_throttle = approach_throttle_input
 		if _plane.linear_velocity.length() < minimum_forward_speed:
@@ -146,6 +149,76 @@ func _physics_process(delta: float) -> void:
 
 	var controls := _controls_from_world_direction(target_direction)
 	_apply_controls(controls["roll"], controls["pitch"], controls["yaw"], target_throttle)
+
+
+func _update_follow_target(delta: float) -> void:
+	if not is_instance_valid(_follow_target):
+		_follow_target = null
+		_follow_target_is_player = false
+
+	if not is_instance_valid(_fallback_follow_target):
+		_fallback_follow_target = null
+
+	_reacquire_timer += delta
+	if _reacquire_timer < maxf(target_reacquire_interval, 0.0) and _follow_target != null:
+		return
+
+	_reacquire_timer = 0.0
+	var player_target := _find_singleplayer_player_target()
+	if player_target != null:
+		_follow_target = player_target
+		_follow_target_is_player = true
+		return
+
+	_follow_target_is_player = false
+	if _fallback_follow_target != null:
+		_follow_target = _fallback_follow_target
+		return
+
+	_resolve_follow_target(false)
+
+
+func _find_singleplayer_player_target() -> Node3D:
+	if not prefer_singleplayer_player_target:
+		return null
+
+	if multiplayer.multiplayer_peer != null:
+		return null
+
+	if _plane == null:
+		return null
+
+	var search_root := _plane.get_parent()
+	if search_root == null:
+		return null
+
+	var best_target: Node3D = null
+	var best_distance := INF
+	for candidate in search_root.get_children():
+		if candidate == _plane:
+			continue
+
+		if not candidate is Node3D:
+			continue
+
+		if _is_bot_character(candidate):
+			continue
+
+		var candidate_node := candidate as Node3D
+		var distance := candidate_node.global_position.distance_to(_plane.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best_target = candidate_node
+
+	return best_target
+
+
+func _is_bot_character(candidate: Node) -> bool:
+	var candidate_peer_id_value: Variant = candidate.get("peer_id")
+	if candidate_peer_id_value == null:
+		return false
+
+	return int(candidate_peer_id_value) >= bot_peer_id_base
 
 
 func _update_speed_recovery_state(forward_speed: float) -> void:

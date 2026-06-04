@@ -149,9 +149,6 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 			active_pilot.queue_free()
 		return
 
-	if _bot_follow_target == null:
-		_resolve_bot_follow_target()
-
 	var pilot_node := character.get_node_or_null("PlaneBotPilot")
 	if pilot_node == null:
 		pilot_node = PLANE_BOT_PILOT_SCRIPT.new()
@@ -160,6 +157,9 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 
 	pilot_node.set("desired_range", bot_orbit_range)
 	pilot_node.set("range_tolerance", bot_orbit_tolerance)
+
+	if _bot_follow_target == null:
+		_resolve_bot_follow_target()
 
 	if pilot_node.has_method("set_follow_target"):
 		pilot_node.call("set_follow_target", _bot_follow_target)
