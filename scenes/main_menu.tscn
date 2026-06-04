@@ -1,6 +1,7 @@
-[gd_scene format=3 uid="uid://p0pj6cjj84u"]
+[gd_scene load_steps=3 format=3 uid="uid://p0pj6cjj84u"]
 
 [ext_resource type="Script" uid="uid://0b7sliokqqvq" path="res://scripts/main_menu.gd" id="1_7wdu1"]
+[ext_resource type="Script" path="res://scripts/options_menu.gd" id="2_options"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_menu_panel"]
 bg_color = Color(0.0352941, 0.0470588, 0.0588235, 0.92)
@@ -136,9 +137,63 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Plane Aero Editor"
 
+[node name="OptionsButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Options"
+
 [node name="ExitButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=1071430461]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Exit"
+
+[node name="OptionsPanel" type="PanelContainer" parent="CenterContainer"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(460, 330)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
+script = ExtResource("2_options")
+
+[node name="Margin" type="MarginContainer" parent="CenterContainer/OptionsPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 40
+theme_override_constants/margin_top = 34
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 34
+
+[node name="VBox" type="VBoxContainer" parent="CenterContainer/OptionsPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Title" type="Label" parent="CenterContainer/OptionsPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.835294, 0.968627, 1, 1)
+theme_override_font_sizes/font_size = 36
+text = "Options"
+horizontal_alignment = 1
+
+[node name="DebugForceArrowsCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 46)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Show force debug arrows"
+
+[node name="AdvancedHudCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 46)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Show advanced HUD (AoA and below)"
+
+[node name="OptionsBackButton" type="Button" parent="CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Back"

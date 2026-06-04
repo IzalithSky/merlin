@@ -18,6 +18,7 @@ config/icon="res://textures/icon.svg"
 [autoload]
 
 Lobby="*res://scripts/lobby.gd"
+DisplaySettings="*res://scripts/display_settings.gd"
 
 [physics]
 

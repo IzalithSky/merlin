@@ -38,13 +38,16 @@ var _bot_follow_target: Node3D
 func _ready() -> void:
 	_spawn_random.randomize()
 	_resolve_bot_follow_target()
+	DisplaySettings.settings_changed.connect(_on_display_settings_changed)
 
 	if multiplayer.multiplayer_peer == null:
-		var spawn_state := _build_radial_spawn_state(0, 1)
-		_spawn_character(1, true, spawn_state["character_position"], spawn_state["yaw"])
 		if bot_count < 1:
 			bot_count = 1
-		_spawn_bots(false)
+
+		var participant_count: int = 1 + maxi(bot_count, 0)
+		var spawn_state := _build_radial_spawn_state(0, participant_count)
+		_spawn_character(1, true, spawn_state["character_position"], spawn_state["yaw"])
+		_spawn_single_player_bots(participant_count)
 		return
 
 	if multiplayer.is_server():
@@ -102,6 +105,27 @@ func _spawn_bots(broadcast_to_clients: bool) -> void:
 			_broadcast_spawn_state(bot_peer_id, -1)
 
 
+func _spawn_single_player_bots(total_participants: int) -> void:
+	if bot_count <= 0:
+		return
+
+	var resolved_bot_count: int = maxi(bot_count, 0)
+	var radial_count: int = maxi(total_participants, 1)
+	for bot_index in range(resolved_bot_count):
+		var bot_peer_id := BOT_PEER_ID_BASE + bot_index
+		if _peer_spawn_states.has(bot_peer_id):
+			continue
+
+		var bot_spawn_state := _build_radial_spawn_state(bot_index + 1, radial_count)
+		_peer_spawn_states[bot_peer_id] = bot_spawn_state
+		_spawn_character(
+			bot_peer_id,
+			false,
+			bot_spawn_state["character_position"],
+			bot_spawn_state["yaw"]
+		)
+
+
 func _resolve_bot_follow_target() -> void:
 	_bot_follow_target = null
 	if bot_follow_target_path.is_empty():
@@ -154,6 +178,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 		existing.configure(peer_id, local_player)
 		_set_character_local_binding(existing, local_player)
 		_configure_bot_behavior(existing, peer_id)
+		_apply_display_settings_to_character(existing)
 		if local_player:
 			_bind_local_plane_presentation(existing)
 		return existing
@@ -166,6 +191,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	_set_character_local_binding(character, local_player)
 	_configure_bot_behavior(character, peer_id)
 	_characters.add_child(character, true)
+	_apply_display_settings_to_character(character)
 	if local_player:
 		_bind_local_plane_presentation(character)
 	return character
@@ -513,3 +539,27 @@ func _clear_local_plane_presentation_target() -> void:
 
 	if _local_plane_hud != null and _local_plane_hud.has_method("set_target"):
 		_local_plane_hud.call("set_target", null)
+
+
+func _on_display_settings_changed() -> void:
+	for character in _characters.get_children():
+		_apply_display_settings_to_character(character)
+
+
+func _apply_display_settings_to_character(character: Node) -> void:
+	if _has_property(character, "debug_force_vectors_enabled"):
+		character.set("debug_force_vectors_enabled", DisplaySettings.debug_force_arrows_enabled)
+
+	if DisplaySettings.debug_force_arrows_enabled and character.has_method("_ensure_force_debug_renderer"):
+		character.call("_ensure_force_debug_renderer")
+
+	if character.has_method("_update_force_debug_renderer_state"):
+		character.call("_update_force_debug_renderer_state")
+
+
+func _has_property(object: Object, property_name: String) -> bool:
+	for property in object.get_property_list():
+		if String(property.get("name", "")) == property_name:
+			return true
+
+	return false

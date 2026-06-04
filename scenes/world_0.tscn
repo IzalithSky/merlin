@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=4 uid="uid://dj47wc5nnm06h"]
+[gd_scene load_steps=14 format=4 uid="uid://dj47wc5nnm06h"]
 
 [ext_resource type="Texture2D" uid="uid://c8iuitgcercyk" path="res://textures/256x256/Grass/Grass_03-256x256.png" id="1_fhkym"]
 
@@ -6,6 +6,7 @@
 
 [ext_resource type="Script" path="res://scripts/world_character_spawner.gd" id="3_fhkym"]
 [ext_resource type="Script" path="res://scripts/game_menu.gd" id="4_fhkym"]
+[ext_resource type="Script" path="res://scripts/options_menu.gd" id="5_options"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dihnr"]
 albedo_texture = ExtResource("1_fhkym")
@@ -164,8 +165,56 @@ custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "Main Menu"
 
+[node name="OptionsButton" type="Button" parent="ui/MenuRoot/CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Options"
+
 [node name="ExitButton" type="Button" parent="ui/MenuRoot/CenterContainer/Panel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "Exit"
+
+[node name="OptionsPanel" type="PanelContainer" parent="ui/MenuRoot/CenterContainer"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(430, 300)
+layout_mode = 2
+script = ExtResource("5_options")
+
+[node name="Margin" type="MarginContainer" parent="ui/MenuRoot/CenterContainer/OptionsPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 34
+theme_override_constants/margin_top = 30
+theme_override_constants/margin_right = 34
+theme_override_constants/margin_bottom = 30
+
+[node name="VBox" type="VBoxContainer" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 30
+text = "Options"
+horizontal_alignment = 1
+
+[node name="DebugForceArrowsCheck" type="CheckButton" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Show force debug arrows"
+
+[node name="AdvancedHudCheck" type="CheckButton" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Show advanced HUD (AoA and below)"
+
+[node name="OptionsBackButton" type="Button" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Back"

@@ -17,9 +17,16 @@ extends CanvasLayer
 @onready var _net_along_value: Label = %NetAlongValue
 
 var _target: RigidBody3D
+var _advanced_hud_nodes: Array[CanvasItem] = []
+var _advanced_hud_enabled := true
+var _base_root_size := Vector2.ZERO
 
 
 func _ready() -> void:
+	_base_root_size = $Root.size
+	_collect_advanced_hud_nodes()
+	DisplaySettings.settings_changed.connect(_apply_display_settings)
+	_apply_display_settings()
 	_reset_labels()
 
 
@@ -66,6 +73,11 @@ func _process(_delta: float) -> void:
 	_vertical_speed_value.text = "%.1f m/s" % vertical_speed
 	_altitude_value.text = "%.1f m" % altitude
 	_throttle_value.text = "%.0f %%" % throttle_percent
+
+	if not _advanced_hud_enabled:
+		_reset_advanced_labels()
+		return
+
 	_aoa_value.text = "%.1f deg" % aoa_deg
 	_pitch_input_bar.value = pitch_input * 100.0
 	_yaw_input_bar.value = yaw_input * 100.0
@@ -79,6 +91,15 @@ func _reset_labels() -> void:
 	_vertical_speed_value.text = "--"
 	_altitude_value.text = "--"
 	_throttle_value.text = "--"
+	_aoa_value.text = "--"
+	_pitch_input_bar.value = 0.0
+	_yaw_input_bar.value = 0.0
+	_roll_input_bar.value = 0.0
+	_throttle_input_bar.value = -100.0
+	_reset_force_balance_debug()
+
+
+func _reset_advanced_labels() -> void:
 	_aoa_value.text = "--"
 	_pitch_input_bar.value = 0.0
 	_yaw_input_bar.value = 0.0
@@ -122,3 +143,61 @@ func _reset_force_balance_debug() -> void:
 
 func _read_snapshot_float(snapshot: Dictionary, key: String) -> float:
 	return float(snapshot.get(key, 0.0))
+
+
+func _collect_advanced_hud_nodes() -> void:
+	var grid := get_node("Root/Panel/Margin/Grid")
+	var node_names: Array[String] = [
+		"AoaLabel",
+		"AoaValue",
+		"PitchInputLabel",
+		"PitchInputBar",
+		"YawInputLabel",
+		"YawInputBar",
+		"RollInputLabel",
+		"RollInputBar",
+		"ThrottleInputLabel",
+		"ThrottleInputBar",
+		"ForceSectionLabel",
+		"ForceSectionValueSpacer",
+		"ForceAxisSpeedLabel",
+		"ForceAxisSpeedValue",
+		"ThrustAlongLabel",
+		"ThrustAlongValue",
+		"DragAlongLabel",
+		"DragAlongValue",
+		"GravityAlongLabel",
+		"GravityAlongValue",
+		"DampingAlongLabel",
+		"DampingAlongValue",
+		"NetAlongLabel",
+		"NetAlongValue",
+	]
+
+	for node_name in node_names:
+		var hud_node := grid.get_node_or_null(node_name) as CanvasItem
+		if hud_node != null:
+			_advanced_hud_nodes.append(hud_node)
+
+
+func _apply_display_settings() -> void:
+	_advanced_hud_enabled = DisplaySettings.advanced_hud_enabled
+	for hud_node in _advanced_hud_nodes:
+		hud_node.visible = _advanced_hud_enabled
+
+	if not _advanced_hud_enabled:
+		_reset_advanced_labels()
+
+	call_deferred("_fit_to_contents")
+
+
+func _fit_to_contents() -> void:
+	var panel := $Root/Panel as PanelContainer
+	var root := $Root as Control
+	panel.reset_size()
+	var panel_size := panel.get_combined_minimum_size()
+	panel.size = panel_size
+	root.size = Vector2(
+		maxf(_base_root_size.x, panel.position.x + panel_size.x),
+		maxf(_base_root_size.y, panel.position.y + panel_size.y)
+	)

@@ -8,15 +8,16 @@ script = ExtResource("1_hud")
 [node name="Root" type="Control" parent="."]
 layout_mode = 3
 anchors_preset = 0
-offset_right = 420.0
-offset_bottom = 190.0
+offset_right = 322.0
+offset_bottom = 44.0
 
 [node name="Panel" type="PanelContainer" parent="Root"]
-layout_mode = 0
+layout_mode = 1
+anchors_preset = 0
 offset_left = 22.0
 offset_top = 20.0
 offset_right = 300.0
-offset_bottom = 500.0
+offset_bottom = 44.0
 
 [node name="Margin" type="MarginContainer" parent="Root/Panel"]
 layout_mode = 2

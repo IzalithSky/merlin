@@ -3,8 +3,11 @@ extends CanvasLayer
 const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 
 @onready var _menu_root: Control = %MenuRoot
+@onready var _menu_panel: Control = $MenuRoot/CenterContainer/Panel
+@onready var _options_panel: Control = %OptionsPanel
 @onready var _restart_button: Button = %RestartButton
 @onready var _main_menu_button: Button = %MainMenuButton
+@onready var _options_button: Button = %OptionsButton
 @onready var _exit_button: Button = %ExitButton
 
 var _is_open := false
@@ -15,7 +18,9 @@ func _ready() -> void:
 	add_to_group("game_menu")
 	_restart_button.pressed.connect(_on_restart_pressed)
 	_main_menu_button.pressed.connect(_on_main_menu_pressed)
+	_options_button.pressed.connect(_on_options_pressed)
 	_exit_button.pressed.connect(_on_exit_pressed)
+	_options_panel.connect("back_requested", Callable(self, "_on_options_back_requested"))
 	_set_open(false, false)
 
 
@@ -32,6 +37,7 @@ func is_open() -> bool:
 func _set_open(value: bool, update_mouse_mode := true) -> void:
 	_is_open = value
 	_menu_root.visible = value
+	_set_options_open(false)
 	_apply_single_player_pause_state(value)
 
 	if not update_mouse_mode:
@@ -66,6 +72,23 @@ func _on_main_menu_pressed() -> void:
 func _on_exit_pressed() -> void:
 	_set_open(false)
 	get_tree().quit()
+
+
+func _on_options_pressed() -> void:
+	_set_options_open(true)
+
+
+func _on_options_back_requested() -> void:
+	_set_options_open(false)
+	_options_button.grab_focus()
+
+
+func _set_options_open(open: bool) -> void:
+	_menu_panel.visible = not open
+	_options_panel.visible = open
+
+	if open and _options_panel.has_method("focus_first"):
+		_options_panel.call("focus_first")
 
 
 func _apply_single_player_pause_state(menu_open: bool) -> void:
