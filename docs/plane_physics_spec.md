@@ -1,140 +1,105 @@
 # Plane Physics Spec
 
 ## Scope
-This document describes the current flight model implemented by:
+This document explains the principles behind the current simplified aircraft physics model.
+
+Relevant implementation files:
 
 - `res://scripts/plane_character_controller.gd`
 - `res://scenes/plane_character.tscn`
 - `res://scripts/plane_aero_tables_store.gd`
 
-It documents actual runtime behavior, not an idealized aircraft model.
+The model is intentionally simplified. It is not a full rigid-airframe, per-wing, per-control-surface aerodynamic simulation. It uses a single `RigidBody3D`, central aerodynamic forces, direct control torques, and editable coefficient curves.
 
-## Physical Setup
-From `plane_character.tscn`:
+## Core Model
+The plane is a Godot `RigidBody3D`. Godot/Jolt integrates the body transform, velocity, angular velocity, collisions, and gravity. The controller script computes and applies the forces and torques that represent flight behavior.
 
-- Body type: `RigidBody3D`
-- Mass: `3000 kg`
-- Collision shape: `BoxShape3D.size = Vector3(10, 1, 10)`
-- Visual mesh: single orange `PrismMesh`, visually triangular from top view
-- `continuous_cd = true`
-- `linear_damp_mode = REPLACE`
-- `linear_damp = 0.0`
-- `angular_damp_mode = REPLACE`
-- `angular_damp = 0.0`
+The controller applies:
 
-Axis conventions:
+- engine thrust
+- lift from an angle-of-attack coefficient table
+- drag from an angle-of-attack coefficient table
+- optional side force from a sideslip coefficient table
+- extra linear drag to prevent indefinite acceleration
+- angular drag to make rotations naturally decay
+- control torque from player or bot inputs
+- directional stability torque that turns the nose toward the movement direction
 
-- Forward: `-global_transform.basis.z`
-- Right: `global_transform.basis.x`
-- Up: `global_transform.basis.y`
+The scene's numeric tuning, such as mass, thrust, drag, torque, and limiter thresholds, is treated as editable balancing data. The principles below describe how those values are used, not what their current values happen to be.
 
-Godot/Jolt owns rigid body integration and gravity. The script applies thrust, aerodynamic forces, extra drag, angular drag, control torque, and directional alignment torque.
+## Axis Conventions
+The aircraft axes come from the rigid body's transform:
 
-## Engine-Level Speed Limit
-The project uses Jolt:
+```text
+forward_axis = -global_transform.basis.z
+right_axis = global_transform.basis.x
+up_axis = global_transform.basis.y
+```
 
-- `physics/3d/physics_engine="Jolt Physics"`
-
-Observed behavior: linear velocity is clamped around `500 m/s` by the physics backend/default project setting. This means the HUD can show positive `Net . vhat` while speed remains pinned at `500 m/s`. In that case the speed cap is engine-side velocity limiting, not aerodynamic equilibrium.
+Player controls are mapped into local pitch, yaw, roll, and throttle commands. Pitch input is sign-adjusted so the desired gameplay mapping is preserved while still applying torque in Godot's local-axis convention.
 
 ## Simulation Authority
-`plane_character_controller.gd` runs in three authority modes.
+Planes run in one of three authority modes.
 
 Local player:
 
-- `is_local_player = true`
-- Reads keyboard input.
-- Simulates full forces and torques locally.
+- Reads local input.
+- Simulates forces and torques locally.
+- Emits network snapshots when multiplayer is active.
 
-Bot authority:
+Bot-controlled plane:
 
-- `is_bot_controlled = true`
 - Receives target inputs from `PlaneBotPilot`.
-- Simulates full forces and torques locally.
-- In multiplayer this is server-side only.
+- Uses the same physics path as a local player.
+- In multiplayer, bot authority is server-side.
 
 Remote replica:
 
-- Neither local player nor bot-controlled.
-- `_physics_process()` exits without applying forces.
-- Body is frozen.
-- `apply_remote_state()` snap-updates transform from network snapshots and clears local velocities.
+- Does not simulate flight forces locally.
+- Receives transform snapshots from the owning peer/server.
+- Applies received position and orientation as visual replication.
+
+This means multiplayer is snapshot replication, not deterministic lockstep physics replay.
 
 ## Per-Tick Flow
-When locally simulated, `_physics_process(delta)` runs:
+For a locally simulated plane, each physics tick follows this sequence:
 
-1. Reset force-debug frame.
-2. Collect player input or smooth bot target inputs.
-3. Update cached frame quantities:
-   - body basis
-   - local axes
-   - air-relative velocity
-   - airspeed and airspeed squared
-   - airflow direction
-   - dynamic pressure
-4. Compute AoA and sideslip.
-5. Apply thrust.
-6. Apply control torque after pitch limiters.
-7. Apply table-driven aerodynamic lift/drag/side force.
+1. Gather or smooth control inputs.
+2. Cache frame-local quantities such as body axes, air-relative velocity, airspeed, airflow direction, and dynamic pressure.
+3. Compute angle of attack and sideslip from the air-relative velocity in body-local space.
+4. Apply thrust.
+5. Apply pitch limiters to the requested pitch input.
+6. Apply control torque.
+7. Apply table-driven aerodynamic lift, drag, and optional side force.
 8. Apply extra linear drag and angular drag.
-9. Apply directional alignment torque.
-10. Emit network state on `network_sync_interval`.
+9. Apply directional stability torque.
+10. Emit a network state snapshot when the sync interval elapses.
+
+The controller caches quantities that are reused later in the tick so the same velocity, basis, speed, and dynamic-pressure values are not recomputed throughout the force model.
 
 ## Input Model
-Player controls:
+The player controls pitch, yaw, roll, and throttle. Input channels are smoothed so controls ramp rather than instantly snapping. Rotation inputs decay toward neutral when released. Throttle is persistent: it moves up or down when commanded, then holds its current setting.
 
-- `W`: positive `pitch_input`, commands nose-down after sign inversion
-- `S`: negative `pitch_input`, commands nose-up after sign inversion
-- `A`: positive `roll_input`
-- `D`: negative `roll_input`
-- `Q`: positive `yaw_input`
-- `E`: negative `yaw_input`
-- `Space`: increases throttle
-- `Shift`: decreases throttle
-- `Ctrl`: temporarily disables sustain-turn pitch limiting only
+The bot writes desired control inputs through the same input interface. The plane controller then smooths bot inputs and sends them through the same limiter, torque, drag, and aerodynamic force path used by the player.
 
-Throttle does not decay. It holds the last value.
-
-Input smoothing:
-
-- Rotation channels move at `rot_rate * delta`
-- Rotation channels decay toward zero at `rot_decay * delta`
-- Throttle moves at `thr_rate * delta`
-- All channels clamp to `[-1, 1]`
-
-Spawn defaults:
-
-- Pitch/yaw/roll input: `0`
-- `throttle_input = 0`
-- `throttle_percent = 50`
-
-Bot controls:
-
-- Bot calls `set_bot_control_inputs(roll, pitch, yaw, throttle)`.
-- Plane controller smooths current input channels toward bot targets.
-- Bot and player share the same downstream physics, torque, drag, and pitch limiter code.
+This is important: bots do not use a separate flight model.
 
 ## Air-Relative State
-Air-relative velocity:
+The aerodynamic model is based on aircraft motion relative to air, not just global velocity.
 
 ```text
 v_air = linear_velocity - ambient_wind_velocity_world
 ```
 
-Current wind defaults to zero.
+If wind is zero, air-relative velocity is the same as body velocity. If wind is added later, the same formulas continue to work because lift and drag depend on the plane's motion through the air mass.
 
-Dynamic pressure:
+Dynamic pressure is computed using the standard lift/drag relation:
 
 ```text
 q = 0.5 * air_density * |v_air|^2
 ```
 
-Default:
-
-- `air_density = 1.225`
-- `reference_area = 12.0`
-
-AoA and sideslip are computed from `v_air` transformed into body-local space:
+Angle of attack and sideslip are computed by transforming `v_air` into the aircraft's local frame:
 
 ```text
 flow_forward = -v_air_local.z
@@ -142,179 +107,121 @@ flow_up = v_air_local.y
 flow_right = v_air_local.x
 forward_plane_speed = sqrt(flow_forward^2 + flow_up^2)
 
-aoa_deg = -atan2(flow_up, flow_forward) in degrees
-sideslip_deg = atan2(flow_right, forward_plane_speed) in degrees
+angle_of_attack = -atan2(flow_up, flow_forward)
+sideslip = atan2(flow_right, forward_plane_speed)
 ```
 
-Below `MIN_AERODYNAMIC_SPEED_SQUARED`, AoA and sideslip are reset to zero.
+Below a minimum aerodynamic speed threshold, angle of attack and sideslip are treated as neutral so low-speed numerical noise does not create unstable forces.
 
 ## Thrust
-Throttle fraction:
+Throttle is converted into a normalized thrust fraction, then applied along the aircraft forward axis:
 
 ```text
-throttle = clamp((throttle_input + 1) * 0.5, 0, 1)
+throttle_fraction = normalized_throttle_input
+F_thrust = forward_axis * throttle_fraction * max_thrust
 ```
 
-Thrust force:
-
-```text
-F_thrust = forward_axis * throttle * max_thrust
-```
-
-Current default:
-
-- `max_thrust = 14000 N`
-
-Thrust is applied as a central force.
+Thrust is applied as a central force. The engine does not create an offset moment by itself.
 
 ## Control Torque
-Control authority is table-driven by total air-relative speed magnitude, not forward-axis speed:
+Control authority comes from an editable curve sampled by total air-relative speed magnitude:
 
 ```text
-control_coefficient = sample(control_authority_coefficient_table, |v_air|)
-control_torque = base_control_torque * max(control_coefficient, 0)
+control_coefficient = control_authority_curve(|v_air|)
+control_torque_scale = base_control_torque * max(control_coefficient, 0)
 ```
 
-Current defaults:
-
-- `base_control_torque = 40000`
-- `max_pitch = 2.0`
-- `max_yaw = 0.8`
-- `max_roll = 2.5`
-
-Axis commands:
+Pitch, yaw, and roll then use axis multipliers:
 
 ```text
-limited_pitch_input = max_lift_limiter_then_sustain_limiter(pitch_input)
-
-p_in = -limited_pitch_input
-y_in = yaw_input
-r_in = roll_input
-
-pitch_torque = p_in * control_torque * max_pitch
-yaw_torque = y_in * control_torque * max_yaw
-roll_torque = r_in * control_torque * max_roll
+pitch_torque = limited_pitch_input * control_torque_scale * pitch_axis_multiplier
+yaw_torque = yaw_input * control_torque_scale * yaw_axis_multiplier
+roll_torque = roll_input * control_torque_scale * roll_axis_multiplier
 ```
 
-Torque application:
+The torque vector is transformed from local aircraft axes into world space and applied directly at the rigid body's center of mass with `apply_torque()`.
 
-- Pitch/yaw torque is transformed from local `Vector3(pitch_torque, yaw_torque, 0)`.
-- Roll torque is transformed from local `Vector3(0, 0, roll_torque)`.
-- The sum is applied with `apply_torque()`.
-- Control torques are direct center-of-mass torques now. There are no offset force couples.
+Current design choice: control torques are not modeled as offset force couples at wings or tail. That avoids unnecessary complexity while keeping pitch, yaw, and roll behavior explicit and tunable.
 
 ## Pitch Limiters
-Pitch limiters are input/authority limiters only. They do not change lift, drag, thrust, gravity, velocity, position, or AoA directly.
+Pitch limiters only reduce requested pitch input. They do not directly change lift, drag, thrust, velocity, gravity, position, or angle of attack.
 
-Both player and bot go through the same limiter path:
+The limiter stack is:
 
 ```text
-_get_turn_limited_pitch_input()
-  -> _get_max_lift_limited_pitch_input()
-  -> _get_sustain_turn_limited_pitch_input()
+requested_pitch
+  -> max_lift_turn_limiter
+  -> sustain_turn_limiter
+  -> limited_pitch
 ```
 
+Both player and bot input pass through this path unless the caller explicitly changes limiter mode.
+
 ### Max-Lift Turn Limiter
-The max-lift limiter prevents pitch input from pushing AoA past the peak lift points in the lift table.
+The max-lift limiter prevents pitch input from commanding angle of attack beyond the peak lift region of the lift curve.
 
-Limit extraction:
+It derives positive and negative max-lift angle of attack from the lift coefficient table:
 
-- Positive max-lift AoA: positive `x` value with highest `CL`.
-- Negative max-lift AoA: negative `x` value with lowest `CL`.
-- Defaults fall back around `+/-15 deg` if the table lacks one side.
-
-Activation:
-
-- `max_lift_turn_limiter_enabled = true`
-- `_frame_air_speed >= max_lift_turn_limiter_min_airspeed`
-- current default minimum airspeed: `5 m/s`
+- Positive max-lift AoA is the positive table point with the highest lift coefficient.
+- Negative max-lift AoA is the negative table point with the strongest negative lift coefficient.
 
 Behavior:
 
-- If AoA is near/above positive max-lift AoA, nose-up pitch input is faded/blocked.
-- Nose-down recovery remains allowed.
-- If AoA is near/below negative max-lift AoA, nose-down pitch input is faded/blocked.
-- Nose-up recovery remains allowed.
+- Near the positive max-lift AoA, nose-up pitch authority fades out.
+- Nose-down recovery remains available.
+- Near the negative max-lift AoA, nose-down pitch authority fades out.
+- Nose-up recovery remains available.
 
-Fade:
-
-- `max_lift_turn_limiter_fade_deg = 3.0`
-- Within this band, authority scales from full to zero.
+The result is a control limiter, not a stall simulation. Stall-like behavior must come from the shape of the lift and drag tables.
 
 ### Sustain-Turn Limiter
-The sustain limiter further limits pitch input so the requested AoA should not require more drag force than current thrust plus gravity can support along the current flight path.
+The sustain limiter attempts to keep turns energy-sustainable by limiting pitch input to an angle of attack whose drag demand can be supported by available forward force.
 
-Activation:
-
-- `sustain_turn_limiter_enabled = true`
-- runtime sustain toggle is enabled
-- local player is not holding `Ctrl`
-- `_frame_air_speed >= max_lift_turn_limiter_min_airspeed`
-
-Available forward force:
+Available forward force is projected along the current airflow/movement direction:
 
 ```text
 available = dot(F_thrust, airflow_direction) + dot(F_gravity, airflow_direction)
 ```
 
-Consequences:
+This captures the key energy effect:
 
-- Descending flight: gravity can add available forward force.
-- Climbing flight: gravity subtracts available forward force.
+- In descending flight, gravity contributes to available forward force.
+- In climbing flight, gravity subtracts from available forward force.
 
-Target speed:
-
-```text
-target_speed = max(current_airspeed, sustain_turn_limiter_min_target_airspeed)
-```
-
-Current default:
-
-- `sustain_turn_limiter_min_target_airspeed = 100 m/s`
-
-Required force for candidate AoA:
+For candidate angles of attack, the limiter estimates required drag using the drag table and extra drag terms:
 
 ```text
-required = (
-  q_target * reference_area * CD(candidate_aoa)
-  + extra_linear_drag
-  + extra_quadratic_drag
-  + engine_damping_drag
-) * sustain_turn_limiter_drag_margin
+required = estimated_drag_at_candidate_aoa * drag_margin
 ```
 
-Current defaults:
+The limiter samples candidate AoA values from neutral toward the max-lift bound and keeps the largest candidate whose required force does not exceed available force.
 
-- `sustain_turn_limiter_samples = 48`
-- `sustain_turn_limiter_drag_margin = 1.05`
-- `sustain_turn_limiter_fade_deg = 3.0`
+The sustain limiter still only limits pitch input. It does not cheat by changing actual forces.
 
-The limiter samples candidate AoA values from `0` toward the max-lift bound and keeps the largest AoA whose `required <= available`.
+Bot policy:
 
-The sustain scan is optimized so target-speed terms and non-AoA drag terms are computed once per scan. Only drag coefficient sampling changes per candidate AoA.
+- While recovering low speed, the bot keeps sustain limiting active.
+- Once above its recovery exit speed, the bot can disable sustain limiting and rely on max-lift limiting only.
 
-Bot-specific policy:
+## Aerodynamic Coefficient Tables
+Aerodynamic behavior comes from editable tables:
 
-- Bot enables sustain limiting while forward speed is `<= speed_recovery_exit_speed`.
-- Bot disables sustain limiting above `speed_recovery_exit_speed`, so only max-lift AoA limiting applies.
-- Current bot recovery exit speed is `150 m/s`.
+- `lift_coefficient_table` sampled by angle of attack
+- `drag_coefficient_table` sampled by angle of attack
+- `side_force_coefficient_table` sampled by sideslip
+- `control_authority_coefficient_table` sampled by air-relative speed magnitude
+
+Sampling behavior:
+
+- Table points are sorted by input value.
+- Duplicate input values are collapsed.
+- Values linearly interpolate between neighboring points.
+- Values outside the table range use the nearest edge value.
+
+This gives designers editable curve behavior without requiring code changes.
 
 ## Aerodynamic Forces
-Aerodynamic coefficients are sampled from editable tables:
-
-- `lift_coefficient_table` by `aoa_deg`
-- `drag_coefficient_table` by `aoa_deg`, clamped to `>= 0`
-- `side_force_coefficient_table` by `sideslip_deg`
-
-Table sampling:
-
-- Tables are sorted and duplicate `x` values are deduped.
-- Values linearly interpolate between adjacent points.
-- Values outside the table use flat edge extrapolation:
-  - below first point: first value
-  - above last point: last value
-
-Force directions:
+The force directions are derived from the air-relative movement direction and aircraft orientation.
 
 ```text
 drag_direction = -airflow_direction
@@ -322,20 +229,17 @@ lift_axis = right_axis.cross(airflow_direction)
 side_axis = airflow_direction.cross(lift_axis)
 ```
 
-Fallbacks:
+If an axis degenerates because the vectors are nearly parallel, the controller falls back to body-local up or right axes.
 
-- If lift axis degenerates, use body up.
-- If side axis degenerates, use body right.
-
-Magnitudes:
+Force magnitudes use the standard coefficient form:
 
 ```text
-F_drag = q * reference_area * CD
-F_lift = q * reference_area * CL
-F_side = q * reference_area * CY
+F_drag = q * reference_area * CD(angle_of_attack)
+F_lift = q * reference_area * CL(angle_of_attack)
+F_side = q * reference_area * CY(sideslip)
 ```
 
-Total:
+The total aerodynamic force is:
 
 ```text
 F_aero = drag_direction * F_drag
@@ -343,51 +247,40 @@ F_aero = drag_direction * F_drag
        + side_axis * F_side
 ```
 
-Current side-force table is flat zero by default, so lateral aerodynamic force is effectively disabled unless tuned.
+Aerodynamic forces are currently central forces. The model does not simulate aerodynamic center offsets or pitching moments from lift placement.
 
-Aerodynamic forces are applied as central force.
-
-## Extra Drag
-AoA-table drag is not the only drag source.
-
-Extra linear drag:
+## Extra Linear Drag
+AoA-derived drag alone may not be enough to bound top speed cleanly, especially in simplified models. The controller therefore supports an extra linear-drag term based on total air-relative speed:
 
 ```text
 F_extra_drag = -airflow_direction * (
-  extra_linear_drag_linear_coefficient * |v_air|
-  + extra_linear_drag_quadratic_coefficient * |v_air|^2
+  linear_drag_coefficient * |v_air|
+  + quadratic_drag_coefficient * |v_air|^2
 )
 ```
 
-Current defaults:
+The linear term is useful for low-speed damping. The quadratic term dominates at high speed and is the more physically plausible approximation for air resistance at speed.
 
-- `extra_linear_drag_linear_coefficient = 0.0`
-- `extra_linear_drag_quadratic_coefficient = 0.12`
+This extra drag is not angle-of-attack drag. It is a coarse whole-aircraft drag term used to make the simplified model easier to tune.
 
-Extra angular drag:
+## Angular Drag
+Angular drag damps pitch, yaw, and roll rates so the aircraft does not spin indefinitely after torque input stops.
 
-1. Transform angular velocity into local body space.
-2. For each local axis:
+The controller transforms angular velocity into local aircraft space and applies per-axis damping:
 
 ```text
-torque = -sign(axis_rate) * (
-  linear_coefficient * abs(axis_rate)
-  + quadratic_coefficient * abs(axis_rate)^2
+axis_torque = -sign(axis_rate) * (
+  angular_linear_coefficient * abs(axis_rate)
+  + angular_quadratic_coefficient * abs(axis_rate)^2
 )
 ```
 
-3. Transform local torque back to world space.
-4. Apply with `apply_torque()`.
+The resulting local torque is transformed back into world space and applied with `apply_torque()`.
 
-Current defaults:
-
-- Linear angular coefficients: `Vector3(20000, 12000, 20000)`
-- Quadratic angular coefficients: `Vector3(2500, 1200, 2500)`
-
-The body also reports equivalent engine damping force for HUD/debug using `state.total_linear_damp`, but built-in linear/angular damping are currently zero in the plane scene.
+This is separate from Godot's built-in rigid body angular damping. The explicit model is preferred because it is visible, tunable per axis, and can be represented in debug force/torque output.
 
 ## Directional Stability
-Directional alignment is the dart-like behavior that turns the nose toward the air-relative movement direction.
+Directional stability is the dart-like behavior that turns the nose toward the air-relative movement direction.
 
 ```text
 axis = forward_axis.cross(airflow_direction)
@@ -395,91 +288,66 @@ angle = forward_axis.angle_to(airflow_direction)
 torque = normalize(axis) * angle * alignment_strength * |v_air|
 ```
 
-Current defaults:
+The torque is capped by an alignment torque limit when that limit is enabled.
 
-- `alignment_strength = 100`
-- `alignment_max_torque = 10000`
+This is a simplified stand-in for stabilizing aerodynamic effects from tail surfaces and fuselage shape. It helps the aircraft self-correct toward its movement direction during falls or low-thrust flight.
 
-If `alignment_max_torque > 0`, the torque is length-limited before applying.
+## Engine-Level Speed Limiting
+The project uses the Jolt physics backend. Jolt/project settings may impose a maximum linear velocity. If speed stops increasing while the HUD still shows positive net force along the movement direction, that is a physics-backend speed cap rather than aerodynamic equilibrium.
+
+This matters when tuning thrust and drag: apparent top speed can come from either force balance or an engine-side velocity limit.
 
 ## Debug Forces and HUD
-Force debug renderer can show:
+The force debug renderer can display the major force and torque contributors:
 
 - thrust
 - lift
 - drag
 - gravity
 - damping / extra drag
-- pitch/yaw torque
+- pitch and yaw torque
 - roll torque
 - alignment torque
 
-Display options are persisted in:
+The HUD can display basic flight telemetry and optional advanced rows. Advanced rows include angle of attack, input bars, and a force-balance projection.
 
-- `user://display_settings.cfg`
+The force-balance snapshot projects forces onto the current velocity direction:
 
-Current toggles:
+```text
+vhat = normalize(linear_velocity)
+```
 
-- `debug_force_arrows_enabled`
-- `advanced_hud_enabled`
+Projected force rows describe acceleration or deceleration along the current movement direction, not the full force vector.
 
-Advanced HUD includes AoA, input bars, and force balance rows.
-
-`get_force_balance_snapshot()` reports:
-
-- speed
-- thrust along velocity direction
-- drag along velocity direction
-- gravity along velocity direction
-- damping along velocity direction
-- net force along velocity direction
-
-These are projected on `vhat = normalize(linear_velocity)`, so they describe acceleration/deceleration along the current movement direction.
+Display preferences are persisted through the display settings system.
 
 ## Aero Table Persistence
-Editable graph data is saved in:
+Editable graph data is persisted through `plane_aero_tables_store.gd`.
 
-- `user://plane_aero_tables.json`
-
-Persisted tables:
+Persisted data includes:
 
 - lift table
 - drag table
 - control authority table
 
-Current save version:
-
-- `2`
-
-The side-force table is exported on the controller but is not currently persisted by `plane_aero_tables_store.gd`.
+The side-force table exists on the controller, but persistence support is separate from the flight force model and can be extended later.
 
 ## Networking Behavior
-Locally simulated planes emit:
+Locally simulated planes emit compact transform snapshots for their owning peer.
 
-- `peer_id`
-- `global_position`
-- yaw
-- pitch
-- roll
+Snapshots include:
 
-at `network_sync_interval`.
+- peer identifier
+- position
+- orientation
 
-Default:
-
-- `network_sync_interval = 0.033`
-
-Remote planes:
-
-- receive transform snapshots
-- snap position/rotation
-- zero local velocity and angular velocity
-
-This is snapshot replication, not deterministic physics replay.
+Remote planes apply received snapshots and do not run local flight simulation. This avoids two peers simulating the same aircraft differently, but it also means remote aircraft are visual replicas rather than fully predicted physics bodies.
 
 ## Current Simplifications
-- Single lumped rigid body, not per-wing or per-control-surface aerodynamics.
-- Lift/drag are central forces, so aerodynamic center and pitching moments are not modeled.
-- Side force is effectively disabled by the default table.
-- No explicit stall state; stall-like behavior comes from lift/drag table shape and pitch limiters.
-- Pitch limiters are control limiters, not force cheats.
-- Remote multiplayer planes are visual replicas, not locally re-simulated aircraft.
+- One lumped rigid body represents the whole aircraft.
+- Lift and drag are central forces.
+- Aerodynamic center and control-surface moments are not modeled.
+- Side force is optional and table-driven.
+- Stall is represented only through coefficient table shape and pitch limiting.
+- Pitch limiters are input limiters, not force overrides.
+- Multiplayer uses snapshot replication, not deterministic physics replay.

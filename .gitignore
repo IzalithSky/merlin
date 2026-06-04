@@ -1,3 +1,67 @@
-# Godot 4+ specific ignores
+# Godot generated state
 .godot/
+.import/
+*.translation
+
+# Godot export/build output
 /android/
+/build/
+/dist/
+/export/
+/exports/
+*.apk
+*.aab
+*.pck
+*.exe
+*.dmg
+*.app
+*.zip
+
+# Godot/Mono crash and temp output
+mono_crash.*.json
+*.tmp
+*.temp
+
+# OS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor/workspace metadata
+.vscode/
+.idea/
+.zed/
+.vs/
+*.swp
+*.swo
+*~
+
+# Visual Studio / C++ extension local output
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.VC.opendb
+*.opensdf
+*.obj
+*.pdb
+*.ilk
+*.lib
+*.dll
+*.exp
+
+# Local environment and logs
+.env
+.env.*
+!.env.example
+*.log
+
+# Local agent/tool state
+.codex/
+.agents/
