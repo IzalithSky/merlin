@@ -81,6 +81,7 @@ func _physics_process(delta: float) -> void:
 
 	var forward_speed := _get_forward_speed()
 	_update_forward_speed_trend(forward_speed, delta)
+	_update_sustain_turn_limiter_mode(forward_speed)
 
 	var terrain_response := _get_terrain_avoidance_response()
 	if terrain_response["active"]:
@@ -159,6 +160,15 @@ func _update_speed_recovery_state(forward_speed: float) -> void:
 		_speed_recovery_active = true
 		_speed_recovery_pitch_command = 0.0
 		_speed_recovery_last_dive_angle = _get_dive_angle_rad()
+
+
+func _update_sustain_turn_limiter_mode(forward_speed: float) -> void:
+	if not _plane.has_method("set_sustain_turn_limiter_runtime_enabled"):
+		return
+
+	# Above recovery speed the bot may pull to max-lift AoA; below it, preserve energy.
+	var should_use_sustain_turns := forward_speed <= speed_recovery_exit_speed
+	_plane.call("set_sustain_turn_limiter_runtime_enabled", should_use_sustain_turns)
 
 
 func _apply_speed_recovery_controls(forward_speed: float, delta: float) -> void:

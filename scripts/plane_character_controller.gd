@@ -17,6 +17,11 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var max_lift_turn_limiter_enabled: bool = true
 @export var max_lift_turn_limiter_min_airspeed: float = 5.0
 @export var max_lift_turn_limiter_fade_deg: float = 3.0
+@export var sustain_turn_limiter_enabled: bool = true
+@export var sustain_turn_limiter_min_target_airspeed: float = 100.0
+@export var sustain_turn_limiter_fade_deg: float = 3.0
+@export var sustain_turn_limiter_samples: int = 48
+@export var sustain_turn_limiter_drag_margin: float = 1.05
 
 @export var air_density: float = 1.225
 @export var reference_area: float = 12.0
@@ -124,6 +129,7 @@ var _frame_airflow_direction := Vector3.ZERO
 var _frame_dynamic_pressure := 0.0
 var _positive_max_lift_aoa_deg := 15.0
 var _negative_max_lift_aoa_deg := -15.0
+var _sustain_turn_limiter_runtime_enabled := true
 
 
 func _ready() -> void:
@@ -295,11 +301,10 @@ func compute_aoa() -> void:
 
 
 func apply_thrust() -> void:
-	var throttle := (throttle_input + 1.0) * 0.5
-	if throttle <= 0.0:
+	var thrust_force := _get_thrust_force_world()
+	if thrust_force.length_squared() <= 0.0:
 		return
 
-	var thrust_force := _frame_forward_axis * throttle * max_thrust
 	apply_central_force(thrust_force)
 	_debug_last_thrust_force_world = thrust_force
 	_push_debug_force(global_position, thrust_force, DEBUG_COLOR_THRUST)
@@ -307,7 +312,7 @@ func apply_thrust() -> void:
 
 func apply_plane_torque() -> void:
 	var control_coefficient := maxf(_sample_aero_table(control_authority_coefficient_table, _frame_air_speed), 0.0)
-	var limited_pitch_input := _get_max_lift_limited_pitch_input(pitch_input)
+	var limited_pitch_input := _get_turn_limited_pitch_input(pitch_input)
 	var p_in := -limited_pitch_input
 	var y_in := yaw_input
 	var r_in := roll_input
@@ -443,6 +448,7 @@ func set_bot_controlled(enabled: bool) -> void:
 		_bot_target_pitch_input = 0.0
 		_bot_target_yaw_input = 0.0
 		_bot_target_throttle_input = -1.0
+		_sustain_turn_limiter_runtime_enabled = true
 
 	if is_node_ready():
 		_apply_local_player_mode()
@@ -456,6 +462,10 @@ func set_bot_control_inputs(roll_value: float, pitch_value: float, yaw_value: fl
 	_bot_target_pitch_input = clampf(pitch_value, -1.0, 1.0)
 	_bot_target_yaw_input = clampf(yaw_value, -1.0, 1.0)
 	_bot_target_throttle_input = clampf(throttle_value, -1.0, 1.0)
+
+
+func set_sustain_turn_limiter_runtime_enabled(enabled: bool) -> void:
+	_sustain_turn_limiter_runtime_enabled = enabled
 
 
 func _emit_local_state() -> void:
@@ -535,6 +545,14 @@ func _get_gravity_force_world() -> Vector3:
 	var gravity_direction: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector")
 	var gravity_magnitude: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 	return gravity_direction * gravity_magnitude * gravity_scale * mass
+
+
+func _get_thrust_force_world() -> Vector3:
+	var throttle := clampf((throttle_input + 1.0) * 0.5, 0.0, 1.0)
+	if throttle <= 0.0:
+		return Vector3.ZERO
+
+	return _frame_forward_axis * throttle * max_thrust
 
 
 func _get_engine_damping_force_world() -> Vector3:
@@ -710,6 +728,70 @@ func _sample_aero_table(points: Array[Vector2], x_value: float) -> float:
 	return points[last_index].y
 
 
+func _find_aero_table_segment_index(points: Array[Vector2], x_value: float) -> int:
+	if points.size() < 2:
+		return 0
+
+	var last_segment_index := points.size() - 2
+	if x_value <= points[0].x:
+		return 0
+
+	if x_value >= points[points.size() - 1].x:
+		return last_segment_index
+
+	for index in range(last_segment_index + 1):
+		if x_value <= points[index + 1].x:
+			return index
+
+	return last_segment_index
+
+
+func _advance_aero_table_segment_index(points: Array[Vector2], x_value: float, current_segment_index: int) -> int:
+	if points.size() < 2:
+		return 0
+
+	var last_segment_index := points.size() - 2
+	var segment_index := clampi(current_segment_index, 0, last_segment_index)
+
+	while segment_index < last_segment_index and x_value > points[segment_index + 1].x:
+		segment_index += 1
+
+	while segment_index > 0 and x_value < points[segment_index].x:
+		segment_index -= 1
+
+	return segment_index
+
+
+func _sample_aero_table_segment(points: Array[Vector2], x_value: float, segment_index: int) -> float:
+	if points.is_empty():
+		return 0.0
+
+	if points.size() == 1:
+		return points[0].y
+
+	if x_value <= points[0].x:
+		return points[0].y
+
+	var last_index := points.size() - 1
+	if x_value >= points[last_index].x:
+		return points[last_index].y
+
+	var left_index := clampi(segment_index, 0, last_index - 1)
+	var left := points[left_index]
+	var right := points[left_index + 1]
+	var span := right.x - left.x
+	if absf(span) <= TABLE_SORT_EPSILON:
+		return right.y
+
+	var t := (x_value - left.x) / span
+	return lerpf(left.y, right.y, t)
+
+
+func _get_turn_limited_pitch_input(raw_pitch_input: float) -> float:
+	var limited_pitch_input := _get_max_lift_limited_pitch_input(raw_pitch_input)
+	return _get_sustain_turn_limited_pitch_input(limited_pitch_input)
+
+
 func _get_max_lift_limited_pitch_input(raw_pitch_input: float) -> float:
 	var limited_pitch_input := clampf(raw_pitch_input, -1.0, 1.0)
 	if not max_lift_turn_limiter_enabled:
@@ -747,6 +829,100 @@ func _get_negative_aoa_pitch_authority(fade_degrees: float) -> float:
 		return 1.0
 
 	return clampf((aoa_deg - _negative_max_lift_aoa_deg) / fade_degrees, 0.0, 1.0)
+
+
+func _get_sustain_turn_limited_pitch_input(raw_pitch_input: float) -> float:
+	var limited_pitch_input := clampf(raw_pitch_input, -1.0, 1.0)
+	if not _should_apply_sustain_turn_limiter():
+		return limited_pitch_input
+
+	if absf(limited_pitch_input) <= 0.0001:
+		return limited_pitch_input
+
+	var fade_degrees := maxf(sustain_turn_limiter_fade_deg, 0.0)
+	if limited_pitch_input < 0.0:
+		var positive_limit := _get_sustainable_aoa_limit(true)
+		return limited_pitch_input * _get_pitch_authority_below_upper_aoa_limit(positive_limit, fade_degrees)
+
+	var negative_limit := _get_sustainable_aoa_limit(false)
+	return limited_pitch_input * _get_pitch_authority_above_lower_aoa_limit(negative_limit, fade_degrees)
+
+
+func _should_apply_sustain_turn_limiter() -> bool:
+	if not sustain_turn_limiter_enabled:
+		return false
+
+	if not _sustain_turn_limiter_runtime_enabled:
+		return false
+
+	if is_local_player and Input.is_key_pressed(KEY_CTRL):
+		return false
+
+	if _frame_air_speed < maxf(max_lift_turn_limiter_min_airspeed, 0.0):
+		return false
+
+	if _frame_air_speed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
+		return false
+
+	if _positive_max_lift_aoa_deg <= _negative_max_lift_aoa_deg:
+		return false
+
+	return true
+
+
+func _get_sustainable_aoa_limit(positive_limit: bool) -> float:
+	var bound := _positive_max_lift_aoa_deg if positive_limit else _negative_max_lift_aoa_deg
+	var sample_count := maxi(sustain_turn_limiter_samples, 1)
+	var available_force := _get_sustain_available_forward_force()
+	if available_force <= 0.0:
+		return 0.0
+
+	var target_speed := maxf(_frame_air_speed, sustain_turn_limiter_min_target_airspeed)
+	var target_speed_squared := target_speed * target_speed
+	var dynamic_pressure := 0.5 * air_density * target_speed_squared
+	var aero_drag_scale := dynamic_pressure * reference_area
+	var extra_linear_drag := maxf(extra_linear_drag_linear_coefficient, 0.0) * target_speed
+	var extra_quadratic_drag := maxf(extra_linear_drag_quadratic_coefficient, 0.0) * target_speed_squared
+	var engine_damping_drag := maxf(_last_total_linear_damp, 0.0) * mass * target_speed
+	var non_aoa_drag := extra_linear_drag + extra_quadratic_drag + engine_damping_drag
+	var drag_margin := maxf(sustain_turn_limiter_drag_margin, 0.0)
+	var drag_segment_index := _find_aero_table_segment_index(drag_coefficient_table, 0.0)
+	var allowed_aoa := 0.0
+
+	for index in range(sample_count + 1):
+		var weight := float(index) / float(sample_count)
+		var candidate_aoa := lerpf(0.0, bound, weight)
+		drag_segment_index = _advance_aero_table_segment_index(drag_coefficient_table, candidate_aoa, drag_segment_index)
+		var drag_coefficient := maxf(_sample_aero_table_segment(drag_coefficient_table, candidate_aoa, drag_segment_index), 0.0)
+		var required_force := (aero_drag_scale * drag_coefficient + non_aoa_drag) * drag_margin
+		if required_force <= available_force:
+			allowed_aoa = candidate_aoa
+
+	return allowed_aoa
+
+
+func _get_sustain_available_forward_force() -> float:
+	var thrust_force := _get_thrust_force_world()
+	var gravity_force := _get_gravity_force_world()
+	return thrust_force.dot(_frame_airflow_direction) + gravity_force.dot(_frame_airflow_direction)
+
+
+func _get_pitch_authority_below_upper_aoa_limit(upper_limit_deg: float, fade_degrees: float) -> float:
+	if fade_degrees <= 0.0001:
+		if aoa_deg >= upper_limit_deg:
+			return 0.0
+		return 1.0
+
+	return clampf((upper_limit_deg - aoa_deg) / fade_degrees, 0.0, 1.0)
+
+
+func _get_pitch_authority_above_lower_aoa_limit(lower_limit_deg: float, fade_degrees: float) -> float:
+	if fade_degrees <= 0.0001:
+		if aoa_deg <= lower_limit_deg:
+			return 0.0
+		return 1.0
+
+	return clampf((aoa_deg - lower_limit_deg) / fade_degrees, 0.0, 1.0)
 
 
 func _sanitize_aero_tables() -> void:
