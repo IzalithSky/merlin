@@ -10,9 +10,9 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var thr_rate: float = 1.2
 
 @export var max_thrust: float = 14_000.0
-@export var max_pitch: float = 2.0
-@export var max_yaw: float = 0.8
-@export var max_roll: float = 2.5
+@export var max_pitch: float = 1.0
+@export var max_yaw: float = 0.5
+@export var max_roll: float = 1.5
 @export var base_control_torque: float = 40_000.0
 @export var max_lift_turn_limiter_enabled: bool = true
 @export var max_lift_turn_limiter_min_airspeed: float = 5.0
