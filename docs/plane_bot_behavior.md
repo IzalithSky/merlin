@@ -19,7 +19,8 @@ The bot pilot:
 - observes the plane's current state
 - resolves or reacquires a follow target
 - chooses a high-level behavior for the current tick
-- converts desired movement into roll, pitch, yaw, and throttle inputs
+- converts desired movement into roll, pitch, and yaw inputs
+- commands throttle from the shared output layer
 - sends those inputs to the plane controller
 
 The plane controller then smooths those inputs and applies the normal flight model. The bot does not apply forces, torques, velocity changes, or position changes directly.
@@ -68,9 +69,9 @@ Each physics tick follows a fixed priority order.
 5. If terrain danger exists, run terrain escape and skip all lower-priority behaviors.
 6. Update speed recovery state.
 7. If speed recovery is active, run speed recovery and skip follow/orbit.
-8. If there is no target, hold simple neutral/low-throttle controls.
-9. If target is outside the orbit band, approach it.
-10. If target is inside the orbit band, orbit it.
+8. If there is no target, hold simple neutral controls.
+9. If target is a player or outside the orbit band, use pursuit/approach guidance.
+10. If fallback target is inside the orbit band, orbit it.
 
 This priority order is intentional: terrain safety overrides energy recovery, and energy recovery overrides mission behavior.
 
@@ -84,17 +85,20 @@ The bot uses ray probes against the physics world:
 
 Forward threat response:
 
-- Build an escape direction from the collision normal plus an upward bias.
-- Convert that escape direction into normal flight controls.
-- Apply a strong climb-biased pitch command.
-- Apply yaw only as part of the escape steering.
-- Use high throttle.
+- At normal speed, build an escape direction from the collision normal plus an upward bias.
+- At low forward speed, project the current movement direction onto the terrain plane instead of forcing a hard climb.
+- Convert the escape direction into normal flight controls.
+- Apply the strong climb-biased pitch command only when not using terrain-parallel escape.
+- Throttle is applied globally by the output layer.
 
 Low-altitude response:
 
-- Build a climb direction from nose-forward plus an upward bias.
+- At normal speed, build a climb direction from nose-forward plus an upward bias.
+- At low forward speed, choose a terrain-parallel desired direction instead of a hard climb direction.
 - Convert it into controls.
 - Skip target following for that tick.
+
+The low-speed terrain-parallel mode exists because hard nose-up terrain avoidance can deepen a stall. When the bot has weak forward speed, preserving a controllable flight path is safer than demanding an immediate climb.
 
 The terrain layer is not path planning. It is immediate obstacle avoidance intended to keep the bot from flying into terrain while the higher-level behavior remains simple.
 
@@ -116,7 +120,7 @@ The recovery controller uses:
 - vertical descent speed
 - estimated terrain clearance
 
-The main recovery principle is that pitch controls energy more strongly than throttle. The bot therefore commands a controlled nose-down attitude when it needs speed, but the command is limited by descent rate and terrain clearance.
+The main recovery principle is that pitch controls energy more directly than engine command in this model. The bot therefore commands a controlled nose-down attitude when it needs speed, but the command is limited by descent rate and terrain clearance.
 
 Recovery behavior:
 
@@ -126,7 +130,7 @@ Recovery behavior:
 - Forward-acceleration trend damping reduces overcorrection.
 - If the aircraft is already descending too fast, nose-down command is reduced.
 - If terrain is close, nose-down command fades or is blocked.
-- Throttle is increased during recovery but is not treated as the only speed-control mechanism.
+- The bot commands full throttle below its max-speed cap and cuts throttle above it; pitch remains the main speed-control mechanism.
 
 This is a simple control loop, not a full autopilot energy model.
 
@@ -135,11 +139,11 @@ The bot can change the plane controller's sustain-turn limiter runtime mode.
 
 Principle:
 
-- When the bot is slow or near speed recovery, sustain-turn limiting is enabled to preserve energy.
-- When the bot has enough speed, sustain-turn limiting can be disabled so the plane may use max-lift turns.
+- Below the bot's max-lift turn speed threshold, sustain-turn limiting is enabled to preserve energy.
+- Above that independent threshold, sustain-turn limiting can be disabled so the plane may use max-lift turns.
 - The max-lift AoA limiter remains part of the plane controller's normal limiter stack.
 
-The bot does not change forces to achieve this. It only chooses which pitch-input limiter mode the plane controller should use.
+The threshold is separate from speed-recovery enter/exit speeds. The bot does not change forces to achieve this; it only chooses which pitch-input limiter mode the plane controller should use.
 
 ## Follow and Orbit Behavior
 When no safety or speed-recovery override is active, the bot flies relative to a target.
@@ -147,16 +151,18 @@ When no safety or speed-recovery override is active, the bot flies relative to a
 Player chase mode:
 
 - Used in singleplayer when a non-bot player plane is found.
-- Desired direction points directly at the player plane.
-- The bot does not orbit the player target in this first-pass behavior.
-- Throttle uses the approach setting, with extra throttle if the bot is below useful forward speed.
+- The bot measures target range, target aspect, and closure speed.
+- Pursuit guidance chooses lag, pure, or lead pursuit from those measurements.
+- The selected pursuit mode creates an aim point relative to the player plane.
+- The bot does not orbit the player target.
+- The bot commands full throttle unless it is above its max-speed cap.
 
 Approach mode:
 
 - Used for the fallback marker when the marker is outside the orbit band.
 - Desired direction points toward the marker.
-- Throttle uses the approach setting.
-- If the plane is below its minimum useful forward speed, throttle is forced higher.
+- If the target has velocity, approach mode can also use pursuit guidance.
+- The bot commands full throttle unless it is above its max-speed cap.
 
 Orbit mode:
 
@@ -170,17 +176,45 @@ Orbit mode:
 
 This is an orbit-like steering behavior, not a physically exact orbital controller.
 
+## Pursuit Modes
+Pursuit mode selection is a simple tactical layer used during approach/chase guidance.
+
+The bot measures:
+
+- Range: current distance to the target.
+- Closure: positive when the bot is closing range, negative when the target is opening range.
+- Aspect: where the bot sits relative to the target's tail.
+
+Lag pursuit:
+
+- Used when the bot is close and either closing fast or not cleanly behind the target.
+- The aim point is moved behind the target along the target's travel direction.
+- This reduces overshoot pressure and helps the bot settle behind the target.
+
+Pure pursuit:
+
+- Used as the neutral/default mode.
+- The aim point is the target's current position.
+
+Lead pursuit:
+
+- Used when the target is opening range or when the bot is far away and not already in a good tail position.
+- The aim point is projected ahead of the target using target velocity and a bounded lookahead time.
+- This cuts toward where the target is moving instead of chasing its current position.
+
+The pursuit system is not a full intercept solver. It is a practical guidance switch that gives the bot lag/pure/lead behavior without bypassing the flight model.
+
 ## Direction-to-Control Mapping
 The bot maps a desired world-space direction into aircraft-local controls.
 
 Process:
 
 1. Normalize the desired world direction.
-2. Transform it into plane-local space.
-3. Use local horizontal error for roll and yaw.
-4. Use local vertical error for pitch.
+2. Transform it into the plane's local body space.
+3. Use local horizontal direction error for roll and yaw.
+4. Use local vertical direction error for pitch.
 5. Clamp each control input to the plane controller's input range.
-6. Submit roll, pitch, yaw, and throttle to the plane controller.
+6. Submit roll, pitch, yaw, and shared throttle output to the plane controller.
 
 This gives the bot simple steering without bypassing the flight model.
 
@@ -197,6 +231,8 @@ The plane controller then:
 - clamps target inputs
 - smooths current input channels toward target inputs
 - runs the same pitch limiters, torque model, drag model, and aerodynamic force model used by players
+
+The bot sends full throttle while below its max-speed cap and cuts throttle above that cap. Speed and energy behavior are still controlled primarily through pitch guidance and the plane controller's turn limiters.
 
 This keeps bot and player aircraft behavior consistent.
 
@@ -220,6 +256,7 @@ The system does not currently replicate bot intent, target state, or determinist
 ## Current Simplifications
 - The bot is reactive and local-rule based, not a strategic AI planner.
 - Terrain avoidance is ray-probe based, not navmesh or pathfinding based.
-- Orbit steering is approximate and does not solve intercept geometry.
+- Orbit steering is approximate.
+- Pursuit steering is approximate and does not solve full intercept geometry.
 - Speed recovery is a practical controller, not a full aircraft energy management autopilot.
 - Multiplayer bots are server-authoritative but remote clients do not predict bot physics.

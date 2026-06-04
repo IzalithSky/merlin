@@ -14,7 +14,7 @@ enum CharacterType {
 }
 
 @export var spawn_center := Vector3.ZERO
-@export var spawn_height_offset: float = 500.0
+@export var spawn_height_offset: float = 1500.0
 @export var spawn_radius := 240.0
 @export var late_join_spawn_min_radius := 300.0
 @export var late_join_spawn_max_radius := 600.0
