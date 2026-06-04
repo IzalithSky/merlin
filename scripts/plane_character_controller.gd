@@ -14,6 +14,9 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var max_yaw: float = 0.5
 @export var max_roll: float = 1.5
 @export var base_control_torque: float = 40_000.0
+@export var max_lift_turn_limiter_enabled: bool = true
+@export var max_lift_turn_limiter_min_airspeed: float = 5.0
+@export var max_lift_turn_limiter_fade_deg: float = 3.0
 
 @export var air_density: float = 1.225
 @export var reference_area: float = 12.0
@@ -119,6 +122,8 @@ var _frame_air_speed_squared := 0.0
 var _frame_air_speed := 0.0
 var _frame_airflow_direction := Vector3.ZERO
 var _frame_dynamic_pressure := 0.0
+var _positive_max_lift_aoa_deg := 15.0
+var _negative_max_lift_aoa_deg := -15.0
 
 
 func _ready() -> void:
@@ -269,7 +274,7 @@ func _collect_inputs(delta: float) -> void:
 	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
 
 
-func compute_control_state(delta: float) -> void:
+func compute_control_state(_delta: float) -> void:
 	compute_aoa()
 
 
@@ -302,7 +307,8 @@ func apply_thrust() -> void:
 
 func apply_plane_torque() -> void:
 	var control_coefficient := maxf(_sample_aero_table(control_authority_coefficient_table, _frame_air_speed), 0.0)
-	var p_in := -pitch_input
+	var limited_pitch_input := _get_max_lift_limited_pitch_input(pitch_input)
+	var p_in := -limited_pitch_input
 	var y_in := yaw_input
 	var r_in := roll_input
 
@@ -651,6 +657,7 @@ func get_control_authority_table() -> Array[Vector2]:
 
 func set_lift_table(points: Array[Vector2]) -> void:
 	lift_coefficient_table = _normalize_table(points)
+	_refresh_max_lift_aoa_limits()
 
 
 func set_drag_table(points: Array[Vector2]) -> void:
@@ -703,11 +710,51 @@ func _sample_aero_table(points: Array[Vector2], x_value: float) -> float:
 	return points[last_index].y
 
 
+func _get_max_lift_limited_pitch_input(raw_pitch_input: float) -> float:
+	var limited_pitch_input := clampf(raw_pitch_input, -1.0, 1.0)
+	if not max_lift_turn_limiter_enabled:
+		return limited_pitch_input
+
+	if _frame_air_speed < maxf(max_lift_turn_limiter_min_airspeed, 0.0):
+		return limited_pitch_input
+
+	if absf(limited_pitch_input) <= 0.0001:
+		return limited_pitch_input
+
+	if _positive_max_lift_aoa_deg <= _negative_max_lift_aoa_deg:
+		return limited_pitch_input
+
+	var fade_degrees := maxf(max_lift_turn_limiter_fade_deg, 0.0)
+	if limited_pitch_input < 0.0:
+		return limited_pitch_input * _get_positive_aoa_pitch_authority(fade_degrees)
+
+	return limited_pitch_input * _get_negative_aoa_pitch_authority(fade_degrees)
+
+
+func _get_positive_aoa_pitch_authority(fade_degrees: float) -> float:
+	if fade_degrees <= 0.0001:
+		if aoa_deg >= _positive_max_lift_aoa_deg:
+			return 0.0
+		return 1.0
+
+	return clampf((_positive_max_lift_aoa_deg - aoa_deg) / fade_degrees, 0.0, 1.0)
+
+
+func _get_negative_aoa_pitch_authority(fade_degrees: float) -> float:
+	if fade_degrees <= 0.0001:
+		if aoa_deg <= _negative_max_lift_aoa_deg:
+			return 0.0
+		return 1.0
+
+	return clampf((aoa_deg - _negative_max_lift_aoa_deg) / fade_degrees, 0.0, 1.0)
+
+
 func _sanitize_aero_tables() -> void:
 	lift_coefficient_table = _normalize_table(lift_coefficient_table)
 	drag_coefficient_table = _normalize_table(drag_coefficient_table)
 	side_force_coefficient_table = _normalize_table(side_force_coefficient_table)
 	control_authority_coefficient_table = _normalize_table(control_authority_coefficient_table)
+	_refresh_max_lift_aoa_limits()
 
 
 func _normalize_table(points: Array[Vector2]) -> Array[Vector2]:
@@ -744,3 +791,33 @@ func _apply_persisted_aero_tables() -> void:
 	var control_authority_points := AERO_TABLES_STORE.decode_points(payload.get("control_authority_table", []))
 	if not control_authority_points.is_empty():
 		set_control_authority_table(control_authority_points)
+
+
+func _refresh_max_lift_aoa_limits() -> void:
+	var positive_found := false
+	var negative_found := false
+	var positive_best_coefficient := 0.0
+	var negative_best_coefficient := 0.0
+	var positive_limit := 15.0
+	var negative_limit := -15.0
+
+	for point in lift_coefficient_table:
+		if point.x > 0.0 and (not positive_found or point.y > positive_best_coefficient):
+			positive_found = true
+			positive_best_coefficient = point.y
+			positive_limit = point.x
+
+		if point.x < 0.0 and (not negative_found or point.y < negative_best_coefficient):
+			negative_found = true
+			negative_best_coefficient = point.y
+			negative_limit = point.x
+
+	if positive_found:
+		_positive_max_lift_aoa_deg = positive_limit
+	else:
+		_positive_max_lift_aoa_deg = absf(negative_limit)
+
+	if negative_found:
+		_negative_max_lift_aoa_deg = negative_limit
+	else:
+		_negative_max_lift_aoa_deg = -absf(positive_limit)
