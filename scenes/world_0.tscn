@@ -180,7 +180,7 @@ text = "Exit"
 [node name="OptionsPanel" type="PanelContainer" parent="ui/MenuRoot/CenterContainer"]
 unique_name_in_owner = true
 visible = false
-custom_minimum_size = Vector2(430, 300)
+custom_minimum_size = Vector2(430, 355)
 layout_mode = 2
 script = ExtResource("5_options")
 
@@ -206,6 +206,12 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "Show force debug arrows"
+
+[node name="BotDebugCheck" type="CheckButton" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Show bot debug visuals"
 
 [node name="AdvancedHudCheck" type="CheckButton" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
 unique_name_in_owner = true

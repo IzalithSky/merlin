@@ -68,8 +68,8 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 	Vector2(250.0, 0.24),
 	Vector2(500.0, 0.25),
 ]
-@export var alignment_strength: float = 100.0
-@export var alignment_max_torque: float = 10_000.0
+@export var alignment_strength: float = 400.0
+@export var alignment_max_torque: float = 40_000.0
 @export var extra_linear_drag_linear_coefficient: float = 0.0
 @export var extra_linear_drag_quadratic_coefficient: float = 0.24
 @export var extra_angular_drag_linear_coefficients: Vector3 = Vector3(20000.0, 12000.0, 20000.0)

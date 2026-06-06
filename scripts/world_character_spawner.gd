@@ -22,8 +22,8 @@ enum CharacterType {
 @export var bot_count := 1
 @export var bot_spawn_radius := 1200.0
 @export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
-@export var bot_orbit_range := 900.0
-@export var bot_orbit_tolerance := 140.0
+@export var bot_player_killzone_distance := 250.0
+@export var bot_player_killzone_tolerance := 150.0
 
 @onready var _characters: Node3D = $characters
 
@@ -155,8 +155,8 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 		pilot_node.name = "PlaneBotPilot"
 		character.add_child(pilot_node)
 
-	pilot_node.set("desired_range", bot_orbit_range)
-	pilot_node.set("range_tolerance", bot_orbit_tolerance)
+	pilot_node.set("killzone_distance", bot_player_killzone_distance)
+	pilot_node.set("killzone_tolerance", bot_player_killzone_tolerance)
 
 	if _bot_follow_target == null:
 		_resolve_bot_follow_target()
@@ -555,6 +555,19 @@ func _apply_display_settings_to_character(character: Node) -> void:
 
 	if character.has_method("_update_force_debug_renderer_state"):
 		character.call("_update_force_debug_renderer_state")
+
+	var bot_pilot := character.get_node_or_null("PlaneBotPilot")
+	if bot_pilot == null:
+		return
+
+	if _has_property(bot_pilot, "debug_bot_visuals_enabled"):
+		bot_pilot.set("debug_bot_visuals_enabled", DisplaySettings.bot_debug_enabled)
+
+	if DisplaySettings.bot_debug_enabled and bot_pilot.has_method("_ensure_bot_debug_renderer"):
+		bot_pilot.call("_ensure_bot_debug_renderer")
+
+	if bot_pilot.has_method("_update_bot_debug_renderer_state"):
+		bot_pilot.call("_update_bot_debug_renderer_state")
 
 
 func _has_property(object: Object, property_name: String) -> bool:
