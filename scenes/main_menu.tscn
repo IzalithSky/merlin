@@ -154,7 +154,7 @@ text = "Exit"
 [node name="OptionsPanel" type="PanelContainer" parent="CenterContainer" unique_id=179548900]
 unique_name_in_owner = true
 visible = false
-custom_minimum_size = Vector2(460, 330)
+custom_minimum_size = Vector2(460, 390)
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
 script = ExtResource("2_options")
@@ -183,6 +183,13 @@ custom_minimum_size = Vector2(0, 46)
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Show force debug arrows"
+
+[node name="BotDebugCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1894812682]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 46)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Show bot debug visuals"
 
 [node name="AdvancedHudCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1280907308]
 unique_name_in_owner = true
