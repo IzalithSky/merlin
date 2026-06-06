@@ -1,8 +1,10 @@
 extends Control
 
 const PLANE_AERO_EDITOR_SCENE := "res://scenes/plane_aero_editor.tscn"
+const BOT_DUEL_SCENE := "res://scenes/bot_duel.tscn"
 
 @onready var _new_game_button: Button = %NewGameButton
+@onready var _bot_duel_button: Button = %BotDuelButton
 @onready var _host_button: Button = %HostButton
 @onready var _join_button: Button = %JoinButton
 @onready var _address_edit: LineEdit = %AddressEdit
@@ -18,6 +20,7 @@ const PLANE_AERO_EDITOR_SCENE := "res://scenes/plane_aero_editor.tscn"
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_new_game_button.pressed.connect(_on_new_game_pressed)
+	_bot_duel_button.pressed.connect(_on_bot_duel_pressed)
 	_host_button.pressed.connect(_on_host_pressed)
 	_join_button.pressed.connect(_on_join_pressed)
 	_plane_editor_button.pressed.connect(_on_plane_editor_pressed)
@@ -32,6 +35,10 @@ func _ready() -> void:
 
 func _on_new_game_pressed() -> void:
 	_lobby.start_single_player()
+
+
+func _on_bot_duel_pressed() -> void:
+	get_tree().change_scene_to_file(BOT_DUEL_SCENE)
 
 
 func _on_host_pressed() -> void:

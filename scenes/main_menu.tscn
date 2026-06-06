@@ -95,6 +95,13 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "New Game (Solo)"
 
+[node name="BotDuelButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Bot Duel"
+
 [node name="HostButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=774952694]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 52)

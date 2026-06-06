@@ -42,15 +42,21 @@ const ROLL_RATE_DEADBAND := 2.0 * PI / 180.0
 const CHECKPOINT_ORBIT_RADIAL_CORRECTION := 0.7
 const CHECKPOINT_ORBIT_RADIUS_DEADBAND := 0.05
 const TURN_FULL_PULL_ANGLE_RAD := PI * 0.5
+const TURN_PITCH_ANGLE_TO_RATE_GAIN := 0.85
+const TURN_PITCH_RATE_RESPONSE_GAIN := 0.75
+const TURN_MAX_DESIRED_PITCH_RATE := 1.4
 const TURN_MIN_PULL_ANGLE_RAD := 0.02
 const TURN_ANGLE_DEADBAND_RAD := PI / 180.0
-const CORRECTION_TURN_PITCH_DOWN_INPUT := 0.35
+const CORRECTION_TURN_PITCH_DOWN_RATE := 0.47
 const CORRECTION_TURN_MIN_LATERAL_ANGLE_RAD := 0.08
 const CORRECTION_TURN_HYSTERESIS_RAD := 2.0 * PI / 180.0
 const WINGS_LEVEL_DEADBAND_RAD := PI / 180.0
 const MIN_DIRECTION_LENGTH_SQUARED := 0.000001
 const PLAYER_TARGET_REACQUIRE_INTERVAL := 0.5
 const GROUND_PROBE_EXCLUSION_REFRESH_INTERVAL := 1.0
+const GROUND_PROBE_SAFE_INTERVAL := 0.25
+const GROUND_PROBE_NEAR_CLEARANCE_MULTIPLIER := 2.0
+const GROUND_PROBE_FAST_CLOSURE_RATIO := 0.25
 const CONTROL_INPUT_LIMIT := 1.0
 
 @export var telemetry_sample_interval: float = 0.2
@@ -88,20 +94,31 @@ var _roll_input := 0.0
 var _pitch_input := 0.0
 var _yaw_input := 0.0
 var _ground_clearance := INF
+var _next_ground_probe_time := 0.0
 var _checkpoint_index := 0
 var _correction_turn_active := false
 var _follow_target: Node3D
 var _fallback_follow_target: Node3D
+var _fallback_follow_target_uses_killzone := false
 var _follow_target_velocity := Vector3.ZERO
 var _last_follow_target_position := Vector3.ZERO
 var _has_follow_target_sample := false
 var _follow_target_is_player := false
+var _follow_target_uses_killzone := false
 var _player_target_reacquire_timer := 0.0
 var _ground_probe_exclusions: Array[RID] = []
 var _next_ground_probe_exclusion_refresh_time := 0.0
 var _last_sustain_turn_limiter_enabled := true
 var _has_applied_turn_limiter_mode := false
 var _bot_debug_renderer: Node
+var _frame_position := Vector3.ZERO
+var _frame_velocity := Vector3.ZERO
+var _frame_speed := 0.0
+var _frame_basis := Basis.IDENTITY
+var _frame_inverse_basis := Basis.IDENTITY
+var _frame_forward_axis := Vector3.FORWARD
+var _frame_forward_speed := 0.0
+var _frame_local_angular_velocity := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -110,6 +127,7 @@ func _ready() -> void:
 		set_physics_process(false)
 		return
 
+	_update_frame_cache()
 	climb_to_altitude(default_altitude)
 	_record_telemetry_sample()
 	_ensure_bot_debug_renderer()
@@ -117,6 +135,7 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_update_frame_cache()
 	_update_follow_target_velocity(delta)
 	_update_flight_controls(delta)
 	_update_bot_debug_visuals()
@@ -128,6 +147,18 @@ func _physics_process(delta: float) -> void:
 
 	_telemetry_timer = fmod(_telemetry_timer, sample_interval)
 	_record_telemetry_sample()
+
+
+func _update_frame_cache() -> void:
+	var plane_transform := _plane.global_transform
+	_frame_position = plane_transform.origin
+	_frame_velocity = _plane.linear_velocity
+	_frame_speed = _frame_velocity.length()
+	_frame_basis = plane_transform.basis.orthonormalized()
+	_frame_inverse_basis = _frame_basis.transposed()
+	_frame_forward_axis = -_frame_basis.z
+	_frame_forward_speed = _frame_velocity.dot(_frame_forward_axis)
+	_frame_local_angular_velocity = _frame_inverse_basis * _plane.angular_velocity
 
 
 func get_motion_trend(window_seconds: float = 2.0) -> Dictionary:
@@ -166,7 +197,7 @@ func _is_climbing_to_altitude() -> bool:
 	if not _altitude_target_active or _plane == null:
 		return false
 
-	return absf(_target_altitude - _plane.global_position.y) > ALTITUDE_CAPTURE_TOLERANCE
+	return absf(_target_altitude - _frame_position.y) > ALTITUDE_CAPTURE_TOLERANCE
 
 
 func _get_current_checkpoint() -> Vector3:
@@ -176,15 +207,17 @@ func _get_current_checkpoint() -> Vector3:
 	return checkpoints[_get_clamped_checkpoint_index()]
 
 
-func set_follow_target(target: Node3D = null) -> void:
+func set_follow_target(target: Node3D = null, use_killzone: bool = false) -> void:
 	_fallback_follow_target = target
+	_fallback_follow_target_uses_killzone = use_killzone
 	if not _follow_target_is_player:
-		_set_active_follow_target(target, false)
+		_set_active_follow_target(target, false, use_killzone)
 
 
-func _set_active_follow_target(target: Node3D, target_is_player: bool) -> void:
+func _set_active_follow_target(target: Node3D, target_is_player: bool, use_killzone: bool = false) -> void:
 	_follow_target = target
 	_follow_target_is_player = target_is_player
+	_follow_target_uses_killzone = target_is_player or use_killzone
 	_follow_target_velocity = Vector3.ZERO
 	_has_follow_target_sample = false
 	if _follow_target != null:
@@ -229,7 +262,6 @@ func _update_bot_debug_visuals() -> void:
 	if _bot_debug_renderer == null or not _bot_debug_renderer.visible:
 		return
 
-	var body_basis := _plane.global_transform.basis.orthonormalized()
 	var has_target := _has_follow_target()
 	var intent_position := Vector3.ZERO
 	var source_target_position := Vector3.ZERO
@@ -239,15 +271,15 @@ func _update_bot_debug_visuals() -> void:
 	if has_target:
 		source_target_position = _follow_target.global_position
 		intent_position = _get_follow_destination_point()
-		if _follow_target_is_player:
+		if _follow_target_uses_killzone:
 			has_killzone = true
 			killzone_position = intent_position
 
 	_bot_debug_renderer.call(
 		"update_visuals",
-		_plane.global_position,
-		-body_basis.z,
-		body_basis.y,
+		_frame_position,
+		_frame_forward_axis,
+		_frame_basis.y,
 		has_target,
 		intent_position,
 		has_killzone,
@@ -261,7 +293,12 @@ func _update_bot_debug_visuals() -> void:
 func _get_bot_debug_label_text() -> String:
 	var target_text := "none"
 	if _has_follow_target():
-		target_text = "player" if _follow_target_is_player else "static"
+		if _follow_target_is_player:
+			target_text = "player"
+		elif _follow_target_uses_killzone:
+			target_text = "killzone"
+		else:
+			target_text = "static"
 
 	return "BOT %s\nTARGET %s" % [_get_flight_state_name(), target_text]
 
@@ -303,7 +340,7 @@ func _update_flight_controls(delta: float) -> void:
 
 
 func _select_flight_state(forward_speed: float) -> int:
-	_ground_clearance = _measure_ground_clearance()
+	_update_ground_clearance()
 	if _should_avoid_ground(_ground_clearance):
 		return FlightState.GROUND_AVOIDANCE
 
@@ -375,7 +412,7 @@ func _update_follow_target_controls(delta: float) -> void:
 	var target_point := _get_follow_destination_point()
 	var throttle_target := _get_follow_throttle_target(target_point)
 
-	var desired_direction := target_point - _plane.global_position
+	var desired_direction := target_point - _frame_position
 	if _is_in_follow_killzone(target_point):
 		desired_direction = _get_follow_alignment_direction()
 
@@ -407,7 +444,7 @@ func level_turn(delta: float, turn_center: Vector3) -> void:
 
 
 func turn_toward_point(delta: float, target_point: Vector3) -> void:
-	var target_offset := target_point - _plane.global_position
+	var target_offset := target_point - _frame_position
 	turn_toward_direction(delta, target_offset, target_point.y)
 
 
@@ -419,7 +456,7 @@ func turn_toward_direction(
 	response_rate: float = LEVEL_TURN_ROLL_RESPONSE_RATE
 ) -> void:
 	var direction := _get_safe_world_direction(desired_direction)
-	var local_direction := _plane.global_transform.basis.orthonormalized().transposed() * direction
+	var local_direction := _frame_inverse_basis * direction
 	var turn_angle := _get_local_turn_angle(local_direction)
 	if _should_use_correction_turn(local_direction, turn_angle):
 		_apply_correction_turn(delta, throttle_target, response_rate)
@@ -450,7 +487,7 @@ func _apply_correction_turn(delta: float, throttle_target: float, response_rate:
 	_apply_control_behavior(
 		delta,
 		_get_wings_level_roll_target(),
-		CORRECTION_TURN_PITCH_DOWN_INPUT,
+		_get_correction_turn_pitch_target(),
 		0.0,
 		response_rate,
 		throttle_target
@@ -504,6 +541,69 @@ func _should_avoid_ground(clearance: float) -> bool:
 	return clearance < min_clearance or _will_hit_ground_soon(clearance, descending_rate)
 
 
+func _update_ground_clearance() -> void:
+	if maxf(min_ground_clearance, 0.0) <= 0.0:
+		_ground_clearance = INF
+		return
+
+	var now_seconds := Time.get_ticks_msec() / 1000.0
+	if not _should_probe_ground(now_seconds):
+		return
+
+	_ground_clearance = _measure_ground_clearance()
+	_next_ground_probe_time = now_seconds + _get_next_ground_probe_interval()
+
+
+func _should_probe_ground(now_seconds: float) -> bool:
+	if now_seconds >= _next_ground_probe_time:
+		return true
+
+	if _flight_state == FlightState.GROUND_AVOIDANCE:
+		return true
+
+	if not is_finite(_ground_clearance):
+		return _has_fast_ground_closure()
+
+	return _is_ground_probe_urgent(_ground_clearance)
+
+
+func _get_next_ground_probe_interval() -> float:
+	if _flight_state == FlightState.GROUND_AVOIDANCE:
+		return 0.0
+
+	if not is_finite(_ground_clearance):
+		return GROUND_PROBE_SAFE_INTERVAL
+
+	if _is_ground_probe_urgent(_ground_clearance):
+		return 0.0
+
+	return GROUND_PROBE_SAFE_INTERVAL
+
+
+func _is_ground_probe_urgent(clearance: float) -> bool:
+	if _has_fast_ground_closure():
+		return true
+
+	if not is_finite(clearance):
+		return false
+
+	var min_clearance := maxf(min_ground_clearance, 0.0)
+	var near_clearance := min_clearance * GROUND_PROBE_NEAR_CLEARANCE_MULTIPLIER
+	near_clearance += maxf(ground_clearance_tolerance, 0.0)
+	if clearance <= near_clearance:
+		return true
+
+	return _will_hit_ground_soon(clearance, _get_ground_closure_rate())
+
+
+func _has_fast_ground_closure() -> bool:
+	var threshold := maxf(
+		ground_avoidance_closure_rate_for_max_pull * GROUND_PROBE_FAST_CLOSURE_RATIO,
+		1.0
+	)
+	return _get_ground_closure_rate() >= threshold
+
+
 func _get_ground_avoidance_pitch_target() -> float:
 	var min_clearance := maxf(min_ground_clearance, 1.0)
 	var clearance := clampf(_ground_clearance, 0.0, min_clearance)
@@ -539,15 +639,14 @@ func _will_hit_ground_soon(clearance: float, descending_rate: float) -> bool:
 
 
 func _get_ground_closure_rate() -> float:
-	return maxf(-_plane.linear_velocity.y, 0.0)
+	return maxf(-_frame_velocity.y, 0.0)
 
 
 func _get_downward_flight_path_angle_deg() -> float:
-	var speed := _plane.linear_velocity.length()
-	if speed <= 0.001:
+	if _frame_speed <= 0.001:
 		return 0.0
 
-	return rad_to_deg(asin(clampf(-_plane.linear_velocity.y / speed, 0.0, 1.0)))
+	return rad_to_deg(asin(clampf(-_frame_velocity.y / _frame_speed, 0.0, 1.0)))
 
 
 func _should_recover_speed(forward_speed: float) -> bool:
@@ -575,7 +674,7 @@ func _get_speed_recovery_direction(forward_speed: float) -> Vector3:
 		return _blend_directions(horizontal_direction, Vector3.DOWN, recovery_ratio)
 
 	var destination_point := _get_follow_destination_point()
-	var destination_offset := destination_point - _plane.global_position
+	var destination_offset := destination_point - _frame_position
 	var horizontal_to_destination := Vector3(destination_offset.x, 0.0, destination_offset.z)
 	if horizontal_to_destination.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
 		horizontal_to_destination = horizontal_direction
@@ -594,7 +693,7 @@ func _get_speed_recovery_direction(forward_speed: float) -> Vector3:
 
 
 func _get_speed_recovery_horizontal_direction() -> Vector3:
-	var horizontal_direction := -_plane.global_transform.basis.z
+	var horizontal_direction := _frame_forward_axis
 	horizontal_direction.y = 0.0
 	if horizontal_direction.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
 		return Vector3.FORWARD
@@ -636,7 +735,7 @@ func _get_speed_recovery_roll_target(forward_speed: float) -> float:
 
 
 func _get_roll_target_toward_point(target_point: Vector3) -> float:
-	var direction := _get_safe_world_direction(target_point - _plane.global_position)
+	var direction := _get_safe_world_direction(target_point - _frame_position)
 	var local_direction := _get_local_direction(direction)
 	var turn_angle := _get_local_turn_angle(local_direction)
 	return _get_lift_vector_roll_target(local_direction, turn_angle)
@@ -647,18 +746,18 @@ func _can_track_level(forward_speed: float) -> bool:
 
 
 func _get_level_flight_pitch_target() -> float:
-	var vertical_speed := _plane.linear_velocity.y
+	var vertical_speed := _frame_velocity.y
 	return vertical_speed * LEVEL_FLIGHT_VERTICAL_SPEED_GAIN
 
 
 func _get_altitude_pitch_target(target_altitude: float) -> float:
-	var altitude_error := target_altitude - _plane.global_position.y
+	var altitude_error := target_altitude - _frame_position.y
 	var desired_vertical_speed := clampf(
 		altitude_error * ALTITUDE_HOLD_ALTITUDE_GAIN,
 		-ALTITUDE_HOLD_MAX_VERTICAL_SPEED,
 		ALTITUDE_HOLD_MAX_VERTICAL_SPEED
 	)
-	var vertical_speed_error := desired_vertical_speed - _plane.linear_velocity.y
+	var vertical_speed_error := desired_vertical_speed - _frame_velocity.y
 	return -vertical_speed_error * ALTITUDE_HOLD_VERTICAL_SPEED_GAIN
 
 
@@ -703,6 +802,7 @@ func _has_follow_target() -> bool:
 
 	_follow_target = null
 	_follow_target_is_player = false
+	_follow_target_uses_killzone = false
 	_has_follow_target_sample = false
 	_follow_target_velocity = Vector3.ZERO
 	return false
@@ -713,8 +813,8 @@ func _get_follow_throttle_target(destination_point: Vector3) -> float:
 		return SPEED_RECOVERY_FULL_THROTTLE_INPUT
 
 	var horizontal_offset := Vector2(
-		destination_point.x - _plane.global_position.x,
-		destination_point.z - _plane.global_position.z
+		destination_point.x - _frame_position.x,
+		destination_point.z - _frame_position.z
 	)
 
 	var closure_speed := _get_follow_horizontal_closure_speed(horizontal_offset)
@@ -730,7 +830,7 @@ func _get_follow_horizontal_closure_speed(horizontal_offset: Vector2) -> float:
 		return 0.0
 
 	var line_direction := horizontal_offset.normalized()
-	var plane_velocity := Vector2(_plane.linear_velocity.x, _plane.linear_velocity.z)
+	var plane_velocity := Vector2(_frame_velocity.x, _frame_velocity.z)
 	var target_velocity := Vector2(_follow_target_velocity.x, _follow_target_velocity.z)
 	return (plane_velocity - target_velocity).dot(line_direction)
 
@@ -748,7 +848,7 @@ func _update_player_target_acquisition(delta: float) -> void:
 		return
 
 	if _follow_target_is_player:
-		_set_active_follow_target(_fallback_follow_target, false)
+		_set_active_follow_target(_fallback_follow_target, false, _fallback_follow_target_uses_killzone)
 
 
 func _find_player_target() -> Node3D:
@@ -766,7 +866,7 @@ func _find_player_target() -> Node3D:
 		if _is_bot_character(candidate_node):
 			continue
 
-		var distance_squared := _plane.global_position.distance_squared_to(candidate_node.global_position)
+		var distance_squared := _frame_position.distance_squared_to(candidate_node.global_position)
 		if distance_squared < best_distance_squared:
 			best_distance_squared = distance_squared
 			best_target = candidate_node
@@ -783,14 +883,14 @@ func _get_follow_destination_point() -> Vector3:
 	if not _has_follow_target():
 		return Vector3.ZERO
 
-	if _follow_target_is_player:
-		return _get_player_killzone_point(_follow_target)
+	if _follow_target_uses_killzone:
+		return _get_target_killzone_point(_follow_target)
 
 	return _follow_target.global_position
 
 
-func _get_player_killzone_point(player: Node3D) -> Vector3:
-	return player.global_position + _get_target_behind_direction(player) * maxf(killzone_distance, 0.0)
+func _get_target_killzone_point(target: Node3D) -> Vector3:
+	return target.global_position + _get_target_behind_direction(target) * maxf(killzone_distance, 0.0)
 
 
 func _get_target_behind_direction(target: Node3D) -> Vector3:
@@ -806,7 +906,7 @@ func _is_in_follow_killzone(killzone_point: Vector3) -> bool:
 	if tolerance <= 0.0:
 		return false
 
-	return _plane.global_position.distance_to(killzone_point) <= tolerance
+	return _frame_position.distance_to(killzone_point) <= tolerance
 
 
 func _get_follow_alignment_direction() -> Vector3:
@@ -816,18 +916,18 @@ func _get_follow_alignment_direction() -> Vector3:
 	if _has_follow_target():
 		return -_follow_target.global_transform.basis.z.normalized()
 
-	return -_plane.global_transform.basis.z.normalized()
+	return _frame_forward_axis
 
 
 func _get_safe_world_direction(direction: Vector3) -> Vector3:
 	if direction.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
-		return -_plane.global_transform.basis.z.normalized()
+		return _frame_forward_axis
 
 	return direction.normalized()
 
 
 func _get_local_direction(world_direction: Vector3) -> Vector3:
-	return _plane.global_transform.basis.orthonormalized().transposed() * world_direction
+	return _frame_inverse_basis * world_direction
 
 
 func _get_local_turn_angle(local_direction: Vector3) -> float:
@@ -879,7 +979,7 @@ func _should_use_correction_turn(local_direction: Vector3, turn_angle: float) ->
 
 
 func _get_wings_level_roll_target() -> float:
-	var local_world_up := _plane.global_transform.basis.orthonormalized().transposed() * Vector3.UP
+	var local_world_up := _frame_inverse_basis * Vector3.UP
 	var bank_error := atan2(local_world_up.x, local_world_up.y)
 	if absf(bank_error) <= WINGS_LEVEL_DEADBAND_RAD and absf(_get_local_roll_rate()) <= ROLL_RATE_DEADBAND:
 		return 0.0
@@ -888,71 +988,121 @@ func _get_wings_level_roll_target() -> float:
 
 
 func _get_roll_input_for_error(roll_error: float, angle_to_rate_gain: float, rate_scale: float = 1.0) -> float:
-	var desired_roll_rate := clampf(
-		-roll_error * angle_to_rate_gain * clampf(rate_scale, 0.0, 1.0),
-		-ROLL_MAX_DESIRED_RATE,
-		ROLL_MAX_DESIRED_RATE
-	)
-	var roll_rate_error := desired_roll_rate - _get_local_roll_rate()
-	return clampf(
-		roll_rate_error * ROLL_RATE_RESPONSE_GAIN,
-		-CONTROL_INPUT_LIMIT,
-		CONTROL_INPUT_LIMIT
+	return _get_rate_stabilized_axis_input(
+		roll_error,
+		angle_to_rate_gain,
+		ROLL_MAX_DESIRED_RATE,
+		_get_local_roll_rate(),
+		ROLL_RATE_RESPONSE_GAIN,
+		-1.0,
+		1.0,
+		rate_scale
 	)
 
 
 func _get_local_roll_rate() -> float:
-	var body_basis := _plane.global_transform.basis.orthonormalized()
-	var local_angular_velocity := body_basis.transposed() * _plane.angular_velocity
-	return local_angular_velocity.z
+	return _get_local_angular_velocity().z
 
 
 func _get_pitch_input_for_error(pitch_error: float) -> float:
-	var desired_pitch_rate := clampf(
-		pitch_error * SPEED_RECOVERY_PITCH_ANGLE_TO_RATE_GAIN,
-		-SPEED_RECOVERY_MAX_DESIRED_PITCH_RATE,
-		SPEED_RECOVERY_MAX_DESIRED_PITCH_RATE
-	)
-	var pitch_rate_error := desired_pitch_rate - _get_local_pitch_rate()
-	return clampf(
-		-pitch_rate_error * SPEED_RECOVERY_PITCH_RATE_RESPONSE_GAIN,
-		-CONTROL_INPUT_LIMIT,
-		CONTROL_INPUT_LIMIT
+	return _get_rate_stabilized_axis_input(
+		pitch_error,
+		SPEED_RECOVERY_PITCH_ANGLE_TO_RATE_GAIN,
+		SPEED_RECOVERY_MAX_DESIRED_PITCH_RATE,
+		_get_local_pitch_rate(),
+		SPEED_RECOVERY_PITCH_RATE_RESPONSE_GAIN,
+		1.0,
+		-1.0
 	)
 
 
 func _get_yaw_input_for_error(yaw_error: float) -> float:
-	var desired_yaw_rate := clampf(
-		-yaw_error * SPEED_RECOVERY_YAW_ANGLE_TO_RATE_GAIN,
-		-SPEED_RECOVERY_MAX_DESIRED_YAW_RATE,
-		SPEED_RECOVERY_MAX_DESIRED_YAW_RATE
+	return _get_rate_stabilized_axis_input(
+		yaw_error,
+		SPEED_RECOVERY_YAW_ANGLE_TO_RATE_GAIN,
+		SPEED_RECOVERY_MAX_DESIRED_YAW_RATE,
+		_get_local_yaw_rate(),
+		SPEED_RECOVERY_YAW_RATE_RESPONSE_GAIN,
+		-1.0,
+		1.0
 	)
-	var yaw_rate_error := desired_yaw_rate - _get_local_yaw_rate()
+
+
+func _get_rate_stabilized_axis_input(
+	angle_error: float,
+	angle_to_rate_gain: float,
+	max_desired_rate: float,
+	local_rate: float,
+	rate_response_gain: float,
+	error_to_rate_sign: float,
+	input_sign: float,
+	rate_scale: float = 1.0
+) -> float:
+	var desired_rate := clampf(
+		angle_error * angle_to_rate_gain * clampf(rate_scale, 0.0, 1.0) * error_to_rate_sign,
+		-max_desired_rate,
+		max_desired_rate
+	)
+	return _get_rate_stabilized_input_for_desired_rate(
+		desired_rate,
+		local_rate,
+		rate_response_gain,
+		input_sign
+	)
+
+
+func _get_rate_stabilized_input_for_desired_rate(
+	desired_rate: float,
+	local_rate: float,
+	rate_response_gain: float,
+	input_sign: float
+) -> float:
+	var rate_error := desired_rate - local_rate
 	return clampf(
-		yaw_rate_error * SPEED_RECOVERY_YAW_RATE_RESPONSE_GAIN,
+		rate_error * rate_response_gain * input_sign,
 		-CONTROL_INPUT_LIMIT,
 		CONTROL_INPUT_LIMIT
 	)
 
 
 func _get_local_pitch_rate() -> float:
-	var body_basis := _plane.global_transform.basis.orthonormalized()
-	var local_angular_velocity := body_basis.transposed() * _plane.angular_velocity
-	return local_angular_velocity.x
+	return _get_local_angular_velocity().x
 
 
 func _get_local_yaw_rate() -> float:
-	var body_basis := _plane.global_transform.basis.orthonormalized()
-	var local_angular_velocity := body_basis.transposed() * _plane.angular_velocity
-	return local_angular_velocity.y
+	return _get_local_angular_velocity().y
+
+
+func _get_local_angular_velocity() -> Vector3:
+	return _frame_local_angular_velocity
 
 
 func _get_turn_pitch_target(turn_angle: float, target_altitude: float) -> float:
-	var pull_ratio := 0.0
-	if turn_angle > TURN_MIN_PULL_ANGLE_RAD:
-		pull_ratio = clampf(turn_angle / TURN_FULL_PULL_ANGLE_RAD, 0.0, 1.0)
+	return _get_turn_pull_pitch_target(turn_angle) + _get_turn_altitude_pitch_target(target_altitude)
 
-	return -pull_ratio + _get_turn_altitude_pitch_target(target_altitude)
+
+func _get_turn_pull_pitch_target(turn_angle: float) -> float:
+	if turn_angle <= TURN_MIN_PULL_ANGLE_RAD:
+		return 0.0
+
+	return _get_rate_stabilized_axis_input(
+		turn_angle,
+		TURN_PITCH_ANGLE_TO_RATE_GAIN,
+		TURN_MAX_DESIRED_PITCH_RATE,
+		_get_local_pitch_rate(),
+		TURN_PITCH_RATE_RESPONSE_GAIN,
+		1.0,
+		-1.0
+	)
+
+
+func _get_correction_turn_pitch_target() -> float:
+	return _get_rate_stabilized_input_for_desired_rate(
+		-CORRECTION_TURN_PITCH_DOWN_RATE,
+		_get_local_pitch_rate(),
+		TURN_PITCH_RATE_RESPONSE_GAIN,
+		-1.0
+	)
 
 
 func _get_turn_altitude_pitch_target(target_altitude: float) -> float:
@@ -975,7 +1125,7 @@ func _get_clamped_checkpoint_index() -> int:
 
 
 func _get_checkpoint_orbit_direction(turn_center: Vector3) -> Vector3:
-	var plane_position := _plane.global_position
+	var plane_position := _frame_position
 	var radial_from_center := Vector3(
 		plane_position.x - turn_center.x,
 		0.0,
@@ -1011,7 +1161,7 @@ func _get_checkpoint_orbit_direction(turn_center: Vector3) -> Vector3:
 
 
 func _get_horizontal_forward_axis() -> Vector3:
-	var forward_axis := -_plane.global_transform.basis.z
+	var forward_axis := _frame_forward_axis
 	forward_axis.y = 0.0
 	if forward_axis.length_squared() <= 0.000001:
 		return Vector3.FORWARD
@@ -1037,7 +1187,7 @@ func _record_telemetry_sample() -> void:
 	telemetry_samples.append({
 		"time": Time.get_ticks_msec() / 1000.0,
 		"forward_speed": _get_forward_speed(),
-		"altitude": _plane.global_position.y,
+		"altitude": _frame_position.y,
 	})
 	_trim_telemetry_samples()
 
@@ -1049,8 +1199,7 @@ func _trim_telemetry_samples() -> void:
 
 
 func _get_forward_speed() -> float:
-	var forward_axis := -_plane.global_transform.basis.z.normalized()
-	return _plane.linear_velocity.dot(forward_axis)
+	return _frame_forward_speed
 
 
 func _measure_ground_clearance() -> float:
@@ -1065,7 +1214,7 @@ func _measure_ground_clearance() -> float:
 	if ray_distance <= 0.0:
 		return INF
 
-	var from_point := _plane.global_position
+	var from_point := _frame_position
 	var to_point := from_point + Vector3.DOWN * ray_distance
 	var query := PhysicsRayQueryParameters3D.create(from_point, to_point)
 	query.exclude = _get_ground_probe_exclusions()
