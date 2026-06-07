@@ -57,6 +57,21 @@ const GROUND_PROBE_EXCLUSION_REFRESH_INTERVAL := 1.0
 const GROUND_PROBE_SAFE_INTERVAL := 0.25
 const GROUND_PROBE_NEAR_CLEARANCE_MULTIPLIER := 2.0
 const GROUND_PROBE_FAST_CLOSURE_RATIO := 0.25
+# Constant-bearing intercept steering: time-to-go (range / closing speed) is
+# capped so a stalled closure (e.g. a co-speed mutual chase) cannot run the
+# projected aim point away.
+const FOLLOW_LEAD_MAX_TIME := 3.0
+const FOLLOW_LEAD_MIN_CLOSING_SPEED := 1.0
+# Ease off throttle while closing fast and already near the trailing slot, so the
+# bot does not barrel through it and overshoot into a hard reversal.
+const FOLLOW_THROTTLE_SLOWDOWN_DISTANCE_SCALE := 2.2
+# High-yo-yo overshoot bleed: in the same closing-hot situation, aim above the
+# slot so the (already max-lift) pull trades excess closure for altitude instead
+# of just idling thrust. Climb-aim height grows with excess closure but is capped
+# to CEILING above the slot, so the zoom is bounded and the bot noses back down
+# instead of climbing away indefinitely.
+const FOLLOW_OVERSHOOT_CLIMB_GAIN := 8.0
+const FOLLOW_OVERSHOOT_CLIMB_CEILING := 400.0
 const CONTROL_INPUT_LIMIT := 1.0
 
 @export var telemetry_sample_interval: float = 0.2
@@ -76,8 +91,9 @@ const CONTROL_INPUT_LIMIT := 1.0
 @export var correction_turn_small_angle_deg: float = 12.0
 @export var overshoot_closure_tolerance: float = 0.5
 @export var overshoot_throttle_gain: float = 0.08
-@export var killzone_distance: float = 250.0
-@export var killzone_tolerance: float = 150.0
+@export var killzone_min_distance: float = 300.0
+@export var killzone_max_distance: float = 500.0
+@export var killzone_base_radius: float = 100.0
 @export var debug_bot_visuals_enabled := true
 @export var checkpoints: Array[Vector3] = [
 	Vector3(0.0, 1500.0, 0.0),
@@ -266,14 +282,24 @@ func _update_bot_debug_visuals() -> void:
 	var intent_position := Vector3.ZERO
 	var source_target_position := Vector3.ZERO
 	var has_killzone := false
-	var killzone_position := Vector3.ZERO
+	var killzone_center_position := Vector3.ZERO
+	var killzone_min_position := Vector3.ZERO
+	var killzone_max_position := Vector3.ZERO
+	var killzone_min_radius := 0.0
+	var resolved_killzone_base_radius := 0.0
 
 	if has_target:
 		source_target_position = _follow_target.global_position
-		intent_position = _get_follow_destination_point()
+		var destination_position := _get_follow_destination_point()
+		intent_position = _get_follow_steering_point(destination_position)
 		if _follow_target_uses_killzone:
+			var cone := _killzone()
 			has_killzone = true
-			killzone_position = intent_position
+			killzone_center_position = destination_position
+			killzone_min_position = cone.min_point(_follow_target)
+			killzone_max_position = cone.max_point(_follow_target)
+			killzone_min_radius = cone.radius_at(cone.min_distance)
+			resolved_killzone_base_radius = cone.base_radius
 
 	_bot_debug_renderer.call(
 		"update_visuals",
@@ -283,7 +309,11 @@ func _update_bot_debug_visuals() -> void:
 		has_target,
 		intent_position,
 		has_killzone,
-		killzone_position,
+		killzone_center_position,
+		killzone_min_position,
+		killzone_max_position,
+		killzone_min_radius,
+		resolved_killzone_base_radius,
 		has_target,
 		source_target_position,
 		_get_bot_debug_label_text()
@@ -412,17 +442,48 @@ func _update_follow_target_controls(delta: float) -> void:
 	var target_point := _get_follow_destination_point()
 	var throttle_target := _get_follow_throttle_target(target_point)
 
-	var desired_direction := target_point - _frame_position
+	var desired_direction: Vector3
+	var target_altitude: float
 	if _is_in_follow_killzone(target_point):
 		desired_direction = _get_follow_alignment_direction()
+		target_altitude = target_point.y
+	else:
+		var horizontal_offset := Vector2(
+			target_point.x - _frame_position.x,
+			target_point.z - _frame_position.z
+		)
+		var closure_speed := _get_follow_horizontal_closure_speed(horizontal_offset)
+		var steering_point := _get_follow_steering_point(target_point)
+		var aim := steering_point
+		if _should_reduce_follow_throttle(target_point, closure_speed):
+			# Closing hot near the slot: keep tracking it horizontally but raise the
+			# aim so a max-lift pull bleeds the excess closure into altitude.
+			aim = _get_follow_overshoot_climb_aim(steering_point, target_point.y, closure_speed)
+		desired_direction = aim - _frame_position
+		target_altitude = aim.y
 
 	turn_toward_direction(
 		delta,
 		desired_direction,
-		target_point.y,
+		target_altitude,
 		throttle_target,
 		LEVEL_TURN_ROLL_RESPONSE_RATE
 	)
+
+
+func _get_follow_overshoot_climb_aim(steering_point: Vector3, slot_altitude: float, closure_speed: float) -> Vector3:
+	# Aim above the slot to convert excess closure into a climb, but never higher
+	# than CEILING above the slot: once that separation is gained the aim levels
+	# (and noses back down if already past it), so the zoom cannot run away into an
+	# endless shallow climb. Horizontal aim stays on the slot, so it never reverses
+	# purely to climb.
+	var excess_closure := maxf(closure_speed - maxf(overshoot_closure_tolerance, 0.0), 0.0)
+	var climb_ceiling := slot_altitude + FOLLOW_OVERSHOOT_CLIMB_CEILING
+	var climb_target_y := minf(
+		_frame_position.y + excess_closure * FOLLOW_OVERSHOOT_CLIMB_GAIN,
+		climb_ceiling
+	)
+	return Vector3(steering_point.x, climb_target_y, steering_point.z)
 
 
 func _update_idle_controls(delta: float) -> void:
@@ -809,20 +870,39 @@ func _has_follow_target() -> bool:
 
 
 func _get_follow_throttle_target(destination_point: Vector3) -> float:
-	if not _is_in_follow_killzone(destination_point):
-		return SPEED_RECOVERY_FULL_THROTTLE_INPUT
-
 	var horizontal_offset := Vector2(
 		destination_point.x - _frame_position.x,
 		destination_point.z - _frame_position.z
 	)
-
 	var closure_speed := _get_follow_horizontal_closure_speed(horizontal_offset)
+	if not _should_reduce_follow_throttle(destination_point, closure_speed):
+		return SPEED_RECOVERY_FULL_THROTTLE_INPUT
+
 	var tolerance := maxf(overshoot_closure_tolerance, 0.0)
 	if closure_speed <= tolerance:
 		return SPEED_RECOVERY_FULL_THROTTLE_INPUT
 
 	return clampf(-((closure_speed - tolerance) * maxf(overshoot_throttle_gain, 0.0)), -1.0, 0.0)
+
+
+func _should_reduce_follow_throttle(destination_point: Vector3, closure_speed: float) -> bool:
+	if closure_speed <= maxf(overshoot_closure_tolerance, 0.0):
+		return false
+
+	if _is_in_follow_killzone(destination_point):
+		return true
+
+	if not _follow_target_uses_killzone or not _has_follow_target():
+		return false
+
+	var slowdown_distance := maxf(
+		killzone_base_radius * FOLLOW_THROTTLE_SLOWDOWN_DISTANCE_SCALE,
+		killzone_base_radius
+	)
+	if slowdown_distance <= 0.0:
+		return false
+
+	return _killzone().distance_to(_frame_position, _follow_target) <= slowdown_distance
 
 
 func _get_follow_horizontal_closure_speed(horizontal_offset: Vector2) -> float:
@@ -884,29 +964,52 @@ func _get_follow_destination_point() -> Vector3:
 		return Vector3.ZERO
 
 	if _follow_target_uses_killzone:
-		return _get_target_killzone_point(_follow_target)
+		return _killzone().center_point(_follow_target)
 
 	return _follow_target.global_position
 
 
-func _get_target_killzone_point(target: Node3D) -> Vector3:
-	return target.global_position + _get_target_behind_direction(target) * maxf(killzone_distance, 0.0)
+func _get_follow_steering_point(destination_point: Vector3) -> Vector3:
+	if not _has_follow_target():
+		return destination_point
+
+	if _is_in_follow_killzone(destination_point):
+		return destination_point
+
+	if _follow_target_velocity.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return destination_point
+
+	var offset := destination_point - _frame_position
+	if offset.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return destination_point
+
+	# Constant-bearing intercept: aim where the slot will be when we reach it, so a
+	# straight-flying target presents a stationary aim point and the heading loop has
+	# no drifting bearing to weave around. Near the slot, time-to-go shrinks and this
+	# collapses back to pure pursuit; against a maneuver the aim stays bounded.
+	var range_to_slot := offset.length()
+	var closing_speed := _get_follow_closing_speed(offset / range_to_slot)
+	var time_to_go := clampf(
+		range_to_slot / maxf(closing_speed, FOLLOW_LEAD_MIN_CLOSING_SPEED),
+		0.0,
+		FOLLOW_LEAD_MAX_TIME
+	)
+	return destination_point + _follow_target_velocity * time_to_go
 
 
-func _get_target_behind_direction(target: Node3D) -> Vector3:
-	var behind := target.global_transform.basis.z
-	if behind.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
-		return Vector3.BACK
-
-	return behind.normalized()
+func _get_follow_closing_speed(line_of_sight: Vector3) -> float:
+	return (_frame_velocity - _follow_target_velocity).dot(line_of_sight)
 
 
-func _is_in_follow_killzone(killzone_point: Vector3) -> bool:
-	var tolerance := maxf(killzone_tolerance, 0.0)
-	if tolerance <= 0.0:
+func _killzone() -> KillzoneCone:
+	return KillzoneCone.new(killzone_min_distance, killzone_max_distance, killzone_base_radius)
+
+
+func _is_in_follow_killzone(_killzone_point: Vector3) -> bool:
+	if not _follow_target_uses_killzone or not _has_follow_target():
 		return false
 
-	return _frame_position.distance_to(killzone_point) <= tolerance
+	return _killzone().contains(_frame_position, _follow_target)
 
 
 func _get_follow_alignment_direction() -> Vector3:

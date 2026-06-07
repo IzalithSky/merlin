@@ -8,6 +8,7 @@ Relevant implementation files:
 - `res://scripts/plane_bot_pilot.gd`
 - `res://scripts/world_character_spawner.gd`
 - `res://scripts/plane_character_controller.gd`
+- `res://scripts/killzone_cone.gd`
 
 The bot is a pilot layer on top of the normal plane character. It does not apply forces, torques, velocity changes, or teleports directly. It writes roll, pitch, yaw, and throttle intentions into the same plane controller used by players.
 
@@ -33,7 +34,7 @@ The spawner:
 - spawns bot plane characters
 - enables bot control on authority-owned bot planes
 - injects a fallback follow target when a static world marker is configured
-- passes player-killzone distance and tolerance into the pilot
+- passes the player-killzone cone parameters (minimum distance, maximum distance, base radius) into the pilot
 
 The pilot can dynamically scan the scene for player aircraft. It searches the `player_character` group and selects the nearest non-bot plane. If no player plane is available, it falls back to the injected static target.
 
@@ -45,8 +46,8 @@ When enabled, each active bot pilot draws:
 - current bot mode and target type
 - forward-axis arrow
 - up-axis arrow
-- line to the current intent point
-- marker at the player killzone point when chasing a player
+- line to the current intent point (the intercept/climb aim it is steering at)
+- the killzone cone outline with a center marker when chasing a target
 
 These visuals are diagnostic only. They do not affect bot state, flight physics, or networking.
 
@@ -91,11 +92,11 @@ Pitch remains the main energy-control tool. Throttle helps, but the bot does not
 
 Recovery no longer means "hold nose-down input until speed returns." Without a target, the pilot blends from its current horizontal heading toward nadir in proportion to missing speed. Near the reserve speed band the aim direction is nearly horizontal; with a large speed deficit it approaches straight down.
 
-With a target, the pilot uses the target or killzone point as context. If that point is lower than the bot, recovery blends from horizontal travel toward that lower point. If the point is level with or above the bot, recovery stays nearly horizontal toward it instead of pitching up or diving straight away from the fight.
+With a target, the pilot uses the target or killzone destination point as context. If that point is lower than the bot, recovery blends from horizontal travel toward that lower point. If the point is level with or above the bot, recovery stays nearly horizontal toward it instead of pitching up or diving straight away from the fight.
 
 The pitch and yaw requests are rate-damped against local angular velocity. This lets the bot aim at the recovery direction and back off before rotating past it.
 
-Roll behavior during recovery depends on context. If the bot has a follow target, it rolls its lift vector toward the target or player killzone point while recovering speed. If it has no target and is already slow or steeply diving, wings-level correction is neutralized so it does not keep rolling while it is trying to build speed. Wings-level correction is only used in untargeted recovery once the aircraft has enough speed and is not in a steep dive.
+Roll behavior during recovery depends on context. If the bot has a follow target, it rolls its lift vector toward the target or killzone destination point while recovering speed. If it has no target and is already slow or steeply diving, wings-level correction is neutralized so it does not keep rolling while it is trying to build speed. Wings-level correction is only used in untargeted recovery once the aircraft has enough speed and is not in a steep dive.
 
 ## Turn Limiter Mode
 The plane controller has two pitch-input limiter layers:
@@ -104,6 +105,8 @@ The plane controller has two pitch-input limiter layers:
 - sustain-turn limiting, which further reduces pitch input when the requested turn would spend energy faster than available thrust can sustain
 
 The bot can switch the sustain-turn limiter at runtime. Below its max-lift-turn speed threshold, sustain-turn limiting stays enabled so the bot preserves energy. At or above that threshold, the bot disables sustain-turn limiting, leaving max-lift limiting as the active cap.
+
+This mode switch also gates the overshoot climb. The bot only has the pitch authority to zoom-climb when it is fast enough to be in max-lift mode, which is exactly the high-closure situation where overshoot occurs. As a climb bleeds speed back toward the threshold, sustain-turn limiting re-engages and caps the pull, so the bot cannot climb itself into a stall.
 
 This does not change forces, torques, velocity, or AoA directly. The bot does not run its own AoA, sustain-turn, or max-load pitch limiter. It only sends normalized control intentions; the plane controller decides how much pitch input is physically accepted.
 
@@ -127,21 +130,32 @@ When ground is too close, the bot commands:
 This is not path planning. It is only a last-resort collision avoidance behavior.
 
 ## Target Following
-When a player target exists, the bot does not aim at the player body. It computes a killzone point behind the target and chases that point.
+When a player target exists, the bot does not aim at the player body. It chases a killzone volume trailing the target.
 
-The killzone point is derived from:
+### Killzone Volume
+The killzone is a truncated cone behind the target, defined by:
 
 - the target's world position
 - the target's backward axis
-- the configured killzone distance
+- a minimum and a maximum trailing distance
+- a base radius
 
-If the bot is outside the killzone tolerance, it turns toward the killzone point. If it is inside the tolerance, it stops aiming at the point and aligns with the target's velocity or forward direction. This avoids intentionally bumping into the target.
+The cone apex is at the target and is truncated at the minimum distance. Its radius grows linearly with distance along the rear axis, reaching the base radius at the maximum distance. The bot uses the cone centerline midpoint as its destination point, while containment ("am I in the killzone") tests the actual cone volume. The cone geometry lives in `killzone_cone.gd` and is shared by the pilot, the debug renderer, and the chase scoring.
 
-Throttle during target follow is intentionally aggressive:
+### Lead Steering
+Outside the killzone the bot does not chase the destination point directly. Aiming at a moving point makes a bank-to-turn aircraft weave, because the bearing to it drifts as the target translates. Instead the bot steers at a constant-bearing intercept point: the destination projected forward along the target's velocity by an estimated time-to-go.
 
-- Outside the killzone, the bot commands full throttle.
-- Inside the killzone, the bot still commands full throttle unless it is closing on the killzone point too quickly.
-- If inside the killzone and overshoot closure is detected, throttle is reduced or cut in proportion to closure speed.
+Time-to-go is the range to the destination divided by closing speed (the bot's velocity minus the target's velocity along the line of sight), capped to a maximum lead time so a stalled closure (such as a co-speed mutual chase) cannot run the aim away. For a target flying a straight line this intercept point is stationary in world space, so the bot flies a straight path to it with no bearing drift to weave around. Near the slot, or when not closing, the lead shrinks and the behavior collapses back to direct pursuit.
+
+Inside the killzone the bot stops aiming at the destination and aligns with the target's velocity or forward direction, so it does not intentionally bump the target.
+
+### Overshoot Handling
+When the bot is closing on the killzone faster than a small tolerance and is already near the cone, it is about to overshoot. It bleeds the excess closure two ways at once:
+
+- Throttle is reduced or cut in proportion to closure speed.
+- The aim is raised above the slot so a climb trades the excess closure for altitude (a high-yo-yo). Because the bot is fast in this situation it is already in max-lift mode, so the pull has the authority to actually climb.
+
+The climb is bounded so it cannot misbehave: the raised aim is capped to a fixed ceiling above the slot, and the horizontal aim stays on the slot. Once that much vertical separation is gained the aim levels off (and noses back down if the bot is already higher), so the bot can neither reverse just to climb nor climb away indefinitely. As closure normalizes the climb fades and normal lead steering resumes.
 
 The bot still steers toward the killzone altitude through pitch. Throttle is not held back just because altitude is not matched.
 
@@ -180,7 +194,7 @@ The bot is still a simple behavior controller, not a full combat AI.
 
 Current limitations:
 
-- It does not solve true intercept geometry.
+- It steers with a first-order constant-bearing intercept, not a full predictive solution that anticipates target maneuvers.
 - It does not reason about weapons, aspect, or tactical pursuit modes.
 - It does not plan terrain routes.
 - It uses local reactive decisions rather than long-horizon planning.

@@ -22,8 +22,9 @@ enum CharacterType {
 @export var bot_count := 1
 @export var bot_spawn_radius := 1200.0
 @export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
-@export var bot_player_killzone_distance := 250.0
-@export var bot_player_killzone_tolerance := 150.0
+@export var bot_player_killzone_min_distance := 300.0
+@export var bot_player_killzone_max_distance := 500.0
+@export var bot_player_killzone_base_radius := 100.0
 
 @onready var _characters: Node3D = $characters
 
@@ -155,8 +156,9 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 		pilot_node.name = "PlaneBotPilot"
 		character.add_child(pilot_node)
 
-	pilot_node.set("killzone_distance", bot_player_killzone_distance)
-	pilot_node.set("killzone_tolerance", bot_player_killzone_tolerance)
+	pilot_node.set("killzone_min_distance", bot_player_killzone_min_distance)
+	pilot_node.set("killzone_max_distance", bot_player_killzone_max_distance)
+	pilot_node.set("killzone_base_radius", bot_player_killzone_base_radius)
 
 	if _bot_follow_target == null:
 		_resolve_bot_follow_target()
@@ -178,7 +180,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 		existing.configure(peer_id, local_player)
 		_set_character_local_binding(existing, local_player)
 		_configure_bot_behavior(existing, peer_id)
-		_apply_display_settings_to_character(existing)
+		BotDebugVisibility.apply_to_character(existing)
 		if local_player:
 			_bind_local_plane_presentation(existing)
 		return existing
@@ -191,7 +193,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	_set_character_local_binding(character, local_player)
 	_configure_bot_behavior(character, peer_id)
 	_characters.add_child(character, true)
-	_apply_display_settings_to_character(character)
+	BotDebugVisibility.apply_to_character(character)
 	if local_player:
 		_bind_local_plane_presentation(character)
 	return character
@@ -542,37 +544,4 @@ func _clear_local_plane_presentation_target() -> void:
 
 
 func _on_display_settings_changed() -> void:
-	for character in _characters.get_children():
-		_apply_display_settings_to_character(character)
-
-
-func _apply_display_settings_to_character(character: Node) -> void:
-	if _has_property(character, "debug_force_vectors_enabled"):
-		character.set("debug_force_vectors_enabled", DisplaySettings.debug_force_arrows_enabled)
-
-	if DisplaySettings.debug_force_arrows_enabled and character.has_method("_ensure_force_debug_renderer"):
-		character.call("_ensure_force_debug_renderer")
-
-	if character.has_method("_update_force_debug_renderer_state"):
-		character.call("_update_force_debug_renderer_state")
-
-	var bot_pilot := character.get_node_or_null("PlaneBotPilot")
-	if bot_pilot == null:
-		return
-
-	if _has_property(bot_pilot, "debug_bot_visuals_enabled"):
-		bot_pilot.set("debug_bot_visuals_enabled", DisplaySettings.bot_debug_enabled)
-
-	if DisplaySettings.bot_debug_enabled and bot_pilot.has_method("_ensure_bot_debug_renderer"):
-		bot_pilot.call("_ensure_bot_debug_renderer")
-
-	if bot_pilot.has_method("_update_bot_debug_renderer_state"):
-		bot_pilot.call("_update_bot_debug_renderer_state")
-
-
-func _has_property(object: Object, property_name: String) -> bool:
-	for property in object.get_property_list():
-		if String(property.get("name", "")) == property_name:
-			return true
-
-	return false
+	BotDebugVisibility.apply_to_characters(_characters)

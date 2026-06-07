@@ -32,7 +32,11 @@ func update_visuals(
 	has_target: bool,
 	intent_position: Vector3,
 	has_killzone: bool,
-	killzone_position: Vector3,
+	killzone_center_position: Vector3,
+	killzone_min_position: Vector3,
+	killzone_max_position: Vector3,
+	killzone_min_radius: float,
+	killzone_base_radius: float,
 	has_source_target: bool,
 	source_target_position: Vector3,
 	mode_text: String
@@ -55,9 +59,17 @@ func update_visuals(
 		_append_line(bot_position, intent_position, Color(1.0, 0.92, 0.2, 1.0))
 
 	if has_killzone:
-		_append_cross(killzone_position, killzone_marker_radius, Color(1.0, 0.42, 0.05, 1.0))
+		_append_cross(killzone_center_position, killzone_marker_radius, Color(1.0, 0.42, 0.05, 1.0))
+		KillzoneCone.append_frustum_lines(
+			_immediate_mesh,
+			killzone_min_position,
+			killzone_max_position,
+			killzone_min_radius,
+			killzone_base_radius,
+			Color(1.0, 0.42, 0.05, 1.0)
+		)
 		if has_source_target:
-			_append_line(source_target_position, killzone_position, Color(1.0, 0.42, 0.05, 0.9))
+			_append_line(source_target_position, killzone_min_position, Color(1.0, 0.42, 0.05, 0.9))
 
 	_immediate_mesh.surface_end()
 

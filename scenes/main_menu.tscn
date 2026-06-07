@@ -55,7 +55,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="Panel" type="PanelContainer" parent="CenterContainer" unique_id=110436948]
-custom_minimum_size = Vector2(460, 500)
+custom_minimum_size = Vector2(460, 560)
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
 
@@ -101,6 +101,13 @@ custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Bot Duel"
+
+[node name="BotChaseDebugButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Bot Chase Debug"
 
 [node name="HostButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=774952694]
 unique_name_in_owner = true

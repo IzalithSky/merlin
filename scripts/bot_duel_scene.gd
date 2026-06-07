@@ -9,14 +9,17 @@ const BOT_DUEL_CAMERA_SCENE := preload("res://scenes/bot_duel_camera.tscn")
 @export var bot_separation: float = 900.0
 @export var initial_forward_speed: float = 160.0
 @export var bot_default_altitude: float = 2500.0
-@export var bot_killzone_distance: float = 250.0
-@export var bot_killzone_tolerance: float = 150.0
+@export var bot_killzone_min_distance: float = 300.0
+@export var bot_killzone_max_distance: float = 500.0
+@export var bot_killzone_base_radius: float = 100.0
 
 @onready var _characters: Node3D = $characters
 
 
 func _ready() -> void:
 	_import_level_and_env()
+	if BotDebugVisibility.is_available(self):
+		DisplaySettings.settings_changed.connect(_on_display_settings_changed)
 
 	var bot_a := _spawn_bot("BotA", 1000000, Vector3(-bot_separation * 0.5, spawn_altitude, 0.0))
 	var bot_b := _spawn_bot("BotB", 1000001, Vector3(bot_separation * 0.5, spawn_altitude, 0.0))
@@ -30,6 +33,7 @@ func _ready() -> void:
 	pilot_a.call("set_follow_target", bot_b, true)
 	pilot_b.call("set_follow_target", bot_a, true)
 
+	BotDebugVisibility.apply_to_characters(_characters)
 	_spawn_camera(bot_a, bot_b)
 
 
@@ -78,13 +82,18 @@ func _attach_bot_pilot(plane: RigidBody3D) -> Node:
 		plane.add_child(pilot)
 
 	pilot.set("default_altitude", bot_default_altitude)
-	pilot.set("killzone_distance", bot_killzone_distance)
-	pilot.set("killzone_tolerance", bot_killzone_tolerance)
-	if _has_display_settings():
+	pilot.set("killzone_min_distance", bot_killzone_min_distance)
+	pilot.set("killzone_max_distance", bot_killzone_max_distance)
+	pilot.set("killzone_base_radius", bot_killzone_base_radius)
+	if BotDebugVisibility.is_available(self):
 		pilot.set("debug_bot_visuals_enabled", DisplaySettings.bot_debug_enabled)
 	if pilot.has_method("climb_to_altitude"):
 		pilot.call("climb_to_altitude", bot_default_altitude)
 	return pilot
+
+
+func _on_display_settings_changed() -> void:
+	BotDebugVisibility.apply_to_characters(_characters)
 
 
 func _face_plane_at(plane: Node3D, target_point: Vector3) -> void:
@@ -112,7 +121,3 @@ func _spawn_camera(bot_a: Node3D, bot_b: Node3D) -> void:
 	if camera_rig.has_method("set_targets"):
 		var targets: Array[Node3D] = [bot_a, bot_b]
 		camera_rig.call("set_targets", targets)
-
-
-func _has_display_settings() -> bool:
-	return Engine.has_singleton("DisplaySettings") or get_node_or_null("/root/DisplaySettings") != null

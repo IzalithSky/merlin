@@ -1,0 +1,127 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/game_menu.gd" id="1_menu"]
+[ext_resource type="Script" path="res://scripts/options_menu.gd" id="2_options"]
+
+[node name="ui" type="CanvasLayer"]
+script = ExtResource("1_menu")
+
+[node name="MenuRoot" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Scrim" type="ColorRect" parent="MenuRoot"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.45)
+
+[node name="CenterContainer" type="CenterContainer" parent="MenuRoot"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="MenuRoot/CenterContainer"]
+custom_minimum_size = Vector2(360, 270)
+layout_mode = 2
+
+[node name="Margin" type="MarginContainer" parent="MenuRoot/CenterContainer/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 34
+theme_override_constants/margin_top = 30
+theme_override_constants/margin_right = 34
+theme_override_constants/margin_bottom = 30
+
+[node name="VBox" type="VBoxContainer" parent="MenuRoot/CenterContainer/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="MenuRoot/CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 30
+text = "Game Menu"
+horizontal_alignment = 1
+
+[node name="RestartButton" type="Button" parent="MenuRoot/CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Restart"
+
+[node name="MainMenuButton" type="Button" parent="MenuRoot/CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Main Menu"
+
+[node name="OptionsButton" type="Button" parent="MenuRoot/CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Options"
+
+[node name="ExitButton" type="Button" parent="MenuRoot/CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Exit"
+
+[node name="OptionsPanel" type="PanelContainer" parent="MenuRoot/CenterContainer"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(430, 355)
+layout_mode = 2
+script = ExtResource("2_options")
+
+[node name="Margin" type="MarginContainer" parent="MenuRoot/CenterContainer/OptionsPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 34
+theme_override_constants/margin_top = 30
+theme_override_constants/margin_right = 34
+theme_override_constants/margin_bottom = 30
+
+[node name="VBox" type="VBoxContainer" parent="MenuRoot/CenterContainer/OptionsPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 30
+text = "Options"
+horizontal_alignment = 1
+
+[node name="DebugForceArrowsCheck" type="CheckButton" parent="MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Show force debug arrows"
+
+[node name="BotDebugCheck" type="CheckButton" parent="MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Show bot debug visuals"
+
+[node name="AdvancedHudCheck" type="CheckButton" parent="MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Show advanced HUD (AoA and below)"
+
+[node name="OptionsBackButton" type="Button" parent="MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Back"
