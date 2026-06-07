@@ -47,6 +47,9 @@ const TURN_PITCH_RATE_RESPONSE_GAIN := 0.75
 const TURN_MAX_DESIRED_PITCH_RATE := 1.4
 const TURN_MIN_PULL_ANGLE_RAD := 0.02
 const TURN_ANGLE_DEADBAND_RAD := PI / 180.0
+# Below this nose-to-target angle, blend the turn roll toward wings level so the
+# bot rolls out of its bank as it aligns instead of holding bank and overshooting.
+const TURN_ROLLOUT_ANGLE_RAD := PI / 12.0
 const CORRECTION_TURN_PITCH_DOWN_RATE := 0.47
 const CORRECTION_TURN_MIN_LATERAL_ANGLE_RAD := 0.08
 const CORRECTION_TURN_HYSTERESIS_RAD := 2.0 * PI / 180.0
@@ -942,7 +945,18 @@ func _get_lift_vector_roll_target(local_direction: Vector3, turn_angle: float) -
 
 	var lift_vector_error := atan2(local_direction.x, local_direction.y)
 	var turn_ratio := clampf(turn_angle / TURN_FULL_PULL_ANGLE_RAD, 0.0, 1.0)
-	return _get_roll_input_for_error(lift_vector_error, LEVEL_TURN_ROLL_GAIN, turn_ratio)
+	var lift_vector_roll := _get_roll_input_for_error(lift_vector_error, LEVEL_TURN_ROLL_GAIN, turn_ratio)
+
+	# As the nose closes onto the target, roll out to wings level instead of holding
+	# the bank. Scaling only the roll rate (turn_ratio) toward zero makes the bot coast
+	# at its current bank while it keeps pulling, curving the nose past the target
+	# (slalom). Blend toward the wings-level target over the final approach so the lift
+	# vector comes upright as the pull relaxes.
+	var rollout := 1.0 - clampf(turn_angle / TURN_ROLLOUT_ANGLE_RAD, 0.0, 1.0)
+	if rollout <= 0.0:
+		return lift_vector_roll
+
+	return lerpf(lift_vector_roll, _get_wings_level_roll_target(), rollout)
 
 
 func _should_use_correction_turn(local_direction: Vector3, turn_angle: float) -> bool:
