@@ -8,6 +8,7 @@ enum FlightState {
 	ALTITUDE_HOLD,
 	LEVEL_FLIGHT,
 	GROUND_AVOIDANCE,
+	COLLISION_AVOIDANCE,
 	FOLLOW_TARGET,
 }
 
@@ -64,6 +65,15 @@ const CONTROL_INPUT_LIMIT := 1.0
 const FOLLOW_LEAD_MAX_TIME := 3.0
 const FOLLOW_LEAD_MIN_CLOSING_SPEED := 1.0
 const FOLLOW_THROTTLE_BRAKE_DISTANCE_SCALE := 2.0
+const COLLISION_AVOIDANCE_RADIUS := 12.0
+const COLLISION_AVOIDANCE_LOOKAHEAD := 1.5
+const COLLISION_AVOIDANCE_MIN_DURATION := 0.5
+const COLLISION_AVOIDANCE_RESPONSE_RATE := 1.5
+const COLLISION_AVOIDANCE_BANK_DEG := 90.0
+# Only treat a nearby plane as a collision threat when the gap is actually shrinking
+# fast. Managed pursuit keeps the bot parked in its killzone at near-zero closing
+# speed, so without this gate the bot would jink at every plane it is tailing.
+const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 
 @export var min_acceptable_forward_speed: float = 50.0
 @export var reserve_forward_speed: float = 90.0
@@ -111,6 +121,8 @@ var _ground_probe_exclusions: Array[RID] = []
 var _next_ground_probe_exclusion_refresh_time := 0.0
 var _last_sustain_turn_limiter_enabled := true
 var _has_applied_turn_limiter_mode := false
+var _collision_avoidance_direction := 0.0
+var _collision_avoidance_exit_time := 0.0
 var _bot_debug_renderer: Node
 var _frame_position := Vector3.ZERO
 var _frame_velocity := Vector3.ZERO
@@ -275,6 +287,8 @@ func _get_flight_state_name() -> String:
 			return "LEVEL_FLIGHT"
 		FlightState.GROUND_AVOIDANCE:
 			return "GROUND_AVOIDANCE"
+		FlightState.COLLISION_AVOIDANCE:
+			return "COLLISION_AVOIDANCE"
 		FlightState.FOLLOW_TARGET:
 			return "FOLLOW_TARGET"
 		_:
@@ -284,11 +298,14 @@ func _get_flight_state_name() -> String:
 func _update_flight_controls(delta: float) -> void:
 	var forward_speed := _get_forward_speed()
 	_update_turn_limiter_mode(forward_speed)
+	_update_collision_threat()
 	_flight_state = _select_flight_state(forward_speed)
 
 	match _flight_state:
 		FlightState.GROUND_AVOIDANCE:
 			avoid_ground(delta)
+		FlightState.COLLISION_AVOIDANCE:
+			_update_collision_avoidance_controls(delta)
 		FlightState.SPEED_RECOVERY:
 			_update_speed_recovery_controls(delta, forward_speed)
 		FlightState.FOLLOW_TARGET:
@@ -305,6 +322,9 @@ func _select_flight_state(forward_speed: float) -> int:
 	_update_ground_clearance()
 	if _should_avoid_ground(_ground_clearance):
 		return FlightState.GROUND_AVOIDANCE
+
+	if _collision_avoidance_direction != 0.0:
+		return FlightState.COLLISION_AVOIDANCE
 
 	if _should_recover_speed(forward_speed):
 		return FlightState.SPEED_RECOVERY
@@ -332,6 +352,22 @@ func avoid_ground(delta: float) -> void:
 		delta,
 		_get_ground_avoidance_pitch_target(),
 		GROUND_AVOIDANCE_PITCH_RESPONSE_RATE,
+		SPEED_RECOVERY_FULL_THROTTLE_INPUT
+	)
+
+
+func _update_collision_avoidance_controls(delta: float) -> void:
+	var local_world_up := _frame_inverse_basis * Vector3.UP
+	var current_bank := atan2(local_world_up.x, local_world_up.y)
+	var target_bank := _collision_avoidance_direction * deg_to_rad(COLLISION_AVOIDANCE_BANK_DEG)
+	var bank_error := target_bank - current_bank
+	var roll_target := _get_roll_input_for_error(bank_error, WINGS_LEVEL_ROLL_GAIN)
+	_apply_control_behavior(
+		delta,
+		roll_target,
+		-CONTROL_INPUT_LIMIT,
+		0.0,
+		COLLISION_AVOIDANCE_RESPONSE_RATE,
 		SPEED_RECOVERY_FULL_THROTTLE_INPUT
 	)
 
@@ -734,7 +770,7 @@ func _update_turn_limiter_mode(forward_speed: float) -> void:
 
 	var threshold := maxf(max_lift_turn_min_forward_speed, 0.0)
 	var sustain_limiter_enabled := forward_speed < threshold
-	if _flight_state == FlightState.GROUND_AVOIDANCE:
+	if _flight_state == FlightState.GROUND_AVOIDANCE or _flight_state == FlightState.COLLISION_AVOIDANCE:
 		sustain_limiter_enabled = false
 	if _has_applied_turn_limiter_mode and sustain_limiter_enabled == _last_sustain_turn_limiter_enabled:
 		return
@@ -742,6 +778,65 @@ func _update_turn_limiter_mode(forward_speed: float) -> void:
 	_has_applied_turn_limiter_mode = true
 	_last_sustain_turn_limiter_enabled = sustain_limiter_enabled
 	_plane.call("set_sustain_turn_limiter_runtime_enabled", sustain_limiter_enabled)
+
+
+func _update_collision_threat() -> void:
+	var now := Time.get_ticks_msec() / 1000.0
+	var threat_direction := _find_collision_threat()
+	if threat_direction != 0.0:
+		_collision_avoidance_direction = threat_direction
+		_collision_avoidance_exit_time = now + COLLISION_AVOIDANCE_MIN_DURATION
+	elif now >= _collision_avoidance_exit_time:
+		_collision_avoidance_direction = 0.0
+
+
+func _find_collision_threat() -> float:
+	var scene_tree := get_tree()
+	if scene_tree == null or _plane == null:
+		return 0.0
+
+	var best_tca := INF
+	var best_direction := 0.0
+
+	for candidate in scene_tree.get_nodes_in_group("player_character"):
+		if candidate == _plane or not candidate is Node3D:
+			continue
+
+		var other := candidate as Node3D
+		var other_vel := Vector3.ZERO
+		if other is RigidBody3D:
+			other_vel = (other as RigidBody3D).linear_velocity
+
+		var offset := other.global_position - _frame_position
+		var distance := offset.length()
+		var rel_vel := other_vel - _frame_velocity
+
+		# Closing speed is the rate the separation shrinks. Co-flying or separating
+		# planes (including a target the bot is tailing) fall below the gate and are
+		# ignored even when they are physically close.
+		var closing_speed := rel_vel.length() if distance <= MIN_DIRECTION_LENGTH_SQUARED else -offset.dot(rel_vel) / distance
+		if closing_speed < COLLISION_AVOIDANCE_MIN_CLOSING_SPEED:
+			continue
+
+		# Closing speed is positive, so time-to-closest-approach is non-negative.
+		var rel_speed_sq := rel_vel.length_squared()
+		var tca := -offset.dot(rel_vel) / rel_speed_sq
+		if tca > COLLISION_AVOIDANCE_LOOKAHEAD:
+			continue
+
+		var cpa_offset := offset + rel_vel * tca
+		if cpa_offset.length() > COLLISION_AVOIDANCE_RADIUS:
+			continue
+
+		# Other plane in forward hemisphere (local z < 0) → frontal threat → turn right.
+		# Other plane in rear hemisphere (local z > 0) → rear threat → turn left.
+		var local_offset := _frame_inverse_basis * offset
+		var direction := 1.0 if local_offset.z < 0.0 else -1.0
+		if tca < best_tca:
+			best_tca = tca
+			best_direction = direction
+
+	return best_direction
 
 
 func _update_follow_target_velocity(delta: float) -> void:

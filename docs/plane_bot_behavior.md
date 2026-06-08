@@ -57,11 +57,12 @@ Each physics tick follows a fixed priority order.
 1. Refresh follow-target velocity and player acquisition.
 2. Measure ground clearance.
 3. Avoid ground if clearance is unsafe.
-4. Recover speed if forward speed is below the acceptable band.
-5. Follow the current target when one exists.
-6. Hold requested altitude when no target exists.
-7. Orbit a configured checkpoint when idle.
-8. Fly level as a final fallback.
+4. Avoid a closing mid-air collision if one is predicted.
+5. Recover speed if forward speed is below the acceptable band.
+6. Follow the current target when one exists.
+7. Hold requested altitude when no target exists.
+8. Orbit a configured checkpoint when idle.
+9. Fly level as a final fallback.
 
 Safety and energy management intentionally override mission behavior. The bot should not keep chasing a target while below safe speed or too close to terrain.
 
@@ -95,7 +96,7 @@ The plane controller has two pitch-input limiter layers:
 
 The bot can switch the sustain-turn limiter at runtime. Below its max-lift-turn speed threshold, sustain-turn limiting stays enabled so the bot preserves energy. At or above that threshold, the bot disables sustain-turn limiting, leaving max-lift limiting as the active cap.
 
-During ground avoidance the bot unconditionally forces max-lift mode regardless of current speed. When the aircraft is close to terrain it needs maximum pitch authority; sustain-turn limiting would restrict the pull available precisely when it is most critical.
+During ground avoidance and collision avoidance the bot unconditionally forces max-lift mode regardless of current speed. Both states demand maximum pitch authority; sustain-turn limiting would restrict the pull available precisely when it is most critical.
 
 This does not change forces, torques, velocity, or AoA directly. The bot does not run its own AoA, sustain-turn, or max-load pitch limiter. It only sends normalized control intentions; the plane controller decides how much pitch input is physically accepted.
 
@@ -117,6 +118,27 @@ When ground is too close, the bot commands:
 - wings-level roll behavior
 
 This is not path planning. It is only a last-resort collision avoidance behavior.
+
+## Collision Avoidance
+Collision avoidance is a reactive safety layer that prevents mid-air collisions between planes. It overrides all mission behavior except terrain avoidance.
+
+Every physics tick the bot scans all other planes in the `player_character` group. For each candidate it computes the time-to-closest-approach (TCA) using relative velocity:
+
+```text
+tca = -(offset · rel_vel) / |rel_vel|²
+miss_distance = |offset + rel_vel × tca|
+```
+
+A threat is confirmed when TCA falls within the lookahead window and the predicted miss distance is smaller than the collision radius. A closing-speed gate is also required: planes that are co-flying, separating, or that the bot is actively trailing in its killzone close at near-zero relative speed and are never treated as threats, even when they are physically close.
+
+The evasion direction is based on the other plane's position in the bot's local frame:
+
+- Other plane in the forward hemisphere: turn right.
+- Other plane in the rear hemisphere: turn left.
+
+This rule is symmetric. Two bots on a head-on course each break right, separating them to opposite sides. A faster bot overtaking from behind also breaks left, while the one being overtaken turns right, widening the gap. The maneuver banks to the target angle (`COLLISION_AVOIDANCE_BANK_DEG`) and holds it with a closed-loop roll controller, then pulls hard. The aircraft banks once to the target angle and stays there rather than rolling past it.
+
+The avoidance direction is latched once triggered and held for at least `COLLISION_AVOIDANCE_MIN_DURATION` seconds after the threat clears, preventing rapid flicker if planes oscillate around the detection threshold.
 
 ## Target Following
 When a player target exists, the bot does not aim at the player body. It computes a killzone point behind the target and chases that point.
@@ -189,6 +211,64 @@ All three thresholds are absolute values in m/s, but their effective meaning dep
 - `max_lift_turn_min_forward_speed` controls when the bot is allowed to trade energy for turn rate; a high value means the bot usually fights energy-conservatively, a low value means it will pull hard even at modest speed.
 
 As a practical baseline, set `min_acceptable_forward_speed` near the plane's minimum safe handling speed, `reserve_forward_speed` near comfortable cruise, and `max_lift_turn_min_forward_speed` slightly above that. Raising all three uniformly makes the bot more conservative and harder to exploit; lowering them makes the bot more reckless and easier to separate from energy.
+
+## Export Reference
+All `@export` fields on `PlaneBotPilot` are set by the spawner or the bot scene and can be overridden per-bot without touching the script.
+
+### Altitude and idle
+| Export | Default | Unit | Role |
+|---|---|---|---|
+| `default_altitude` | 5000 | m | Altitude climbed to at spawn; altitude maintained when no target exists. |
+| `checkpoints` | `[(0, 1500, 0)]` | Array[Vector3] | World positions the bot orbits when idle with no follow target. |
+| `checkpoint_orbit_radius` | 500 | m | Target orbital radius around each checkpoint. |
+| `checkpoint_orbit_direction` | 1.0 | ±1 | Orbit direction: positive = counterclockwise seen from above. |
+
+### Speed recovery and turn limiting
+| Export | Default | Unit | Role |
+|---|---|---|---|
+| `min_acceptable_forward_speed` | 50 | m/s | Forward speed below which the bot abandons its target and enters speed recovery. |
+| `reserve_forward_speed` | 90 | m/s | Speed the bot must reach before it exits recovery. Creates hysteresis to prevent flicker. |
+| `max_lift_turn_min_forward_speed` | 110 | m/s | Speed above which sustain-turn limiting is disabled, allowing the bot to trade energy for turn rate. |
+
+### Ground avoidance
+| Export | Default | Unit | Role |
+|---|---|---|---|
+| `min_ground_clearance` | 300 | m | Hard clearance floor; avoidance triggers when ray-measured clearance falls below this. |
+| `ground_clearance_tolerance` | 25 | m | Hysteresis margin; bot stays in avoidance until clearance exceeds `min_ground_clearance + tolerance`. |
+| `ground_avoidance_time_to_impact` | 4 | s | Avoidance also triggers when predicted time-to-ground falls below this, even if absolute clearance is acceptable. |
+| `ground_avoidance_closure_rate_for_max_pull` | 120 | m/s | Downward closure rate at which full nose-up input is commanded. |
+| `ground_avoidance_dive_angle_for_max_pull_deg` | 35 | deg | Dive angle at which full nose-up input is commanded. |
+| `ground_probe_distance` | 1000 | m | Maximum range of the downward ground probe ray. |
+
+### Target following
+| Export | Default | Unit | Role |
+|---|---|---|---|
+| `killzone_distance` | 250 | m | Distance behind the target where the bot aims to fly. |
+| `killzone_tolerance` | 150 | m | Radius of the killzone sphere. Inside this the bot aligns with the target rather than steering toward the point. |
+| `overshoot_closure_tolerance` | 0.5 | m/s | Closure speed below which throttle braking is not applied even when inside the brake zone. |
+| `overshoot_throttle_gain` | 0.08 | — | Throttle reduction per m/s of excess closure speed inside the brake zone. |
+
+### Turning
+| Export | Default | Unit | Role |
+|---|---|---|---|
+| `correction_turn_small_angle_deg` | 12 | deg | Lateral-angle threshold below which the bot pitches down briefly before rolling into a turn. Avoids infinite shallow corrections for tiny heading errors. |
+
+### Debug
+| Export | Default | Role |
+|---|---|---|
+| `debug_bot_visuals_enabled` | true | Enables the 3D debug overlay drawn by each bot pilot. |
+
+### Collision avoidance constants
+These are `const` rather than `@export` and must be changed in the script. They are unlikely to need per-bot tuning.
+
+| Constant | Value | Unit | Role |
+|---|---|---|---|
+| `COLLISION_AVOIDANCE_RADIUS` | 40 | m | Predicted miss distance at CPA below which the threat is confirmed. |
+| `COLLISION_AVOIDANCE_LOOKAHEAD` | 2 | s | How far ahead in time to check for a predicted collision. |
+| `COLLISION_AVOIDANCE_MIN_CLOSING_SPEED` | 40 | m/s | Closing-speed gate; planes closing slower than this are never treated as threats. |
+| `COLLISION_AVOIDANCE_BANK_DEG` | 80 | deg | Target bank angle held during the evasive maneuver. |
+| `COLLISION_AVOIDANCE_MIN_DURATION` | 0.5 | s | Minimum time the avoidance maneuver is held after the threat clears. |
+| `COLLISION_AVOIDANCE_RESPONSE_RATE` | 1.5 | /s | Input ramp rate during the avoidance maneuver. |
 
 ## Limits
 The bot is still a simple behavior controller, not a full combat AI.

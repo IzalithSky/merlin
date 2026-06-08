@@ -13,7 +13,7 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var max_pitch: float = 1.0
 @export var max_yaw: float = 0.5
 @export var max_roll: float = 1.5
-@export var base_control_torque: float = 80_000.0
+@export var base_control_torque: float = 40_000.0
 @export var max_lift_turn_limiter_enabled: bool = true
 @export var max_lift_turn_limiter_min_airspeed: float = 5.0
 @export var max_lift_turn_limiter_fade_deg: float = 3.0
@@ -73,9 +73,9 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 	Vector2(500.0, 1.0),
 ]
 @export var alignment_strength: float = 400.0
-@export var alignment_max_torque: float = 40_000.0
+@export var alignment_max_torque: float = 10_000.0
 @export var extra_linear_drag_linear_coefficient: float = 0.0
-@export var extra_linear_drag_quadratic_coefficient: float = 0.24
+@export var extra_linear_drag_quadratic_coefficient: float = 0.16
 @export var extra_angular_drag_linear_coefficients: Vector3 = Vector3(20000.0, 12000.0, 20000.0)
 @export var extra_angular_drag_quadratic_coefficients: Vector3 = Vector3(2500.0, 1200.0, 2500.0)
 @export var network_sync_interval: float = 0.033
