@@ -13,7 +13,7 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var max_pitch: float = 1.0
 @export var max_yaw: float = 0.5
 @export var max_roll: float = 1.5
-@export var base_control_torque: float = 40_000.0
+@export var base_control_torque: float = 80_000.0
 @export var max_lift_turn_limiter_enabled: bool = true
 @export var max_lift_turn_limiter_min_airspeed: float = 5.0
 @export var max_lift_turn_limiter_fade_deg: float = 3.0
@@ -67,6 +67,10 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 	Vector2(150.0, 0.27),
 	Vector2(250.0, 0.24),
 	Vector2(500.0, 0.25),
+]
+@export var thrust_coefficient_table: Array[Vector2] = [
+	Vector2(0.0, 1.0),
+	Vector2(500.0, 1.0),
 ]
 @export var alignment_strength: float = 400.0
 @export var alignment_max_torque: float = 40_000.0
@@ -552,7 +556,9 @@ func _get_thrust_force_world() -> Vector3:
 	if throttle <= 0.0:
 		return Vector3.ZERO
 
-	return _frame_forward_axis * throttle * max_thrust
+	var forward_speed := absf(_frame_air_velocity_world.dot(_frame_forward_axis))
+	var thrust_scale := maxf(_sample_aero_table(thrust_coefficient_table, forward_speed), 0.0)
+	return _frame_forward_axis * throttle * max_thrust * thrust_scale
 
 
 func _get_engine_damping_force_world() -> Vector3:
@@ -688,6 +694,14 @@ func set_side_force_table(points: Array[Vector2]) -> void:
 
 func set_control_authority_table(points: Array[Vector2]) -> void:
 	control_authority_coefficient_table = _normalize_table(points)
+
+
+func get_thrust_table() -> Array[Vector2]:
+	return thrust_coefficient_table.duplicate()
+
+
+func set_thrust_table(points: Array[Vector2]) -> void:
+	thrust_coefficient_table = _normalize_table(points)
 
 
 func get_sideslip_deg() -> float:
@@ -930,6 +944,7 @@ func _sanitize_aero_tables() -> void:
 	drag_coefficient_table = _normalize_table(drag_coefficient_table)
 	side_force_coefficient_table = _normalize_table(side_force_coefficient_table)
 	control_authority_coefficient_table = _normalize_table(control_authority_coefficient_table)
+	thrust_coefficient_table = _normalize_table(thrust_coefficient_table)
 	_refresh_max_lift_aoa_limits()
 
 
@@ -967,6 +982,10 @@ func _apply_persisted_aero_tables() -> void:
 	var control_authority_points := AERO_TABLES_STORE.decode_points(payload.get("control_authority_table", []))
 	if not control_authority_points.is_empty():
 		set_control_authority_table(control_authority_points)
+
+	var thrust_points := AERO_TABLES_STORE.decode_points(payload.get("thrust_table", []))
+	if not thrust_points.is_empty():
+		set_thrust_table(thrust_points)
 
 
 func _refresh_max_lift_aoa_limits() -> void:

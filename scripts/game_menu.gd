@@ -92,9 +92,13 @@ func _set_options_open(open: bool) -> void:
 
 
 func _apply_single_player_pause_state(menu_open: bool) -> void:
-	if not multiplayer.get_peers().is_empty():
+	if _has_remote_peers():
 		if get_tree().paused:
 			get_tree().paused = false
 		return
 
 	get_tree().paused = menu_open
+
+
+func _has_remote_peers() -> bool:
+	return multiplayer.multiplayer_peer != null and not multiplayer.get_peers().is_empty()

@@ -114,12 +114,16 @@ sideslip = atan2(flow_right, forward_plane_speed)
 Below a minimum aerodynamic speed threshold, angle of attack and sideslip are treated as neutral so low-speed numerical noise does not create unstable forces.
 
 ## Thrust
-Throttle is converted into a normalized thrust fraction, then applied along the aircraft forward axis:
+Throttle is converted into a normalized thrust fraction, scaled by an editable thrust-coefficient table, then applied along the aircraft forward axis:
 
 ```text
 throttle_fraction = normalized_throttle_input
-F_thrust = forward_axis * throttle_fraction * max_thrust
+forward_speed = abs(dot(v_air, forward_axis))
+thrust_scale = thrust_coefficient_curve(forward_speed)
+F_thrust = forward_axis * throttle_fraction * max_thrust * max(thrust_scale, 0)
 ```
+
+The thrust coefficient table maps engine output as a multiplier of `max_thrust` against the aircraft's air-relative forward speed. At 1.0 throughout the speed range the behavior is identical to a flat `max_thrust` model. Reducing the coefficient at high speed models thrust falloff under ram drag. Reducing it at low speed models spool-up or compressor limits.
 
 Thrust is applied as a central force. The engine does not create an offset moment by itself.
 
@@ -210,6 +214,7 @@ Aerodynamic behavior comes from editable tables:
 - `drag_coefficient_table` sampled by angle of attack
 - `side_force_coefficient_table` sampled by sideslip
 - `control_authority_coefficient_table` sampled by air-relative speed magnitude
+- `thrust_coefficient_table` sampled by air-relative forward speed (`|v_air · forward_axis|`)
 
 Sampling behavior:
 
@@ -329,8 +334,9 @@ Persisted data includes:
 - lift table
 - drag table
 - control authority table
+- thrust table
 
-The side-force table exists on the controller, but persistence support is separate from the flight force model and can be extended later.
+All four tables are editable at runtime through the plane aerodynamics editor, which presents each table in a separate tab (Lift, Drag, Control, Thrust). The side-force table exists on the controller but is not yet exposed in the editor.
 
 ## Networking Behavior
 Locally simulated planes emit compact transform snapshots for their owning peer.

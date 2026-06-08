@@ -8,6 +8,7 @@ Relevant implementation files:
 - `res://scripts/plane_bot_pilot.gd`
 - `res://scripts/world_character_spawner.gd`
 - `res://scripts/plane_character_controller.gd`
+- `res://scripts/display_settings_applier.gd`
 
 The bot is a pilot layer on top of the normal plane character. It does not apply forces, torques, velocity changes, or teleports directly. It writes roll, pitch, yaw, and throttle intentions into the same plane controller used by players.
 
@@ -64,17 +65,6 @@ Each physics tick follows a fixed priority order.
 
 Safety and energy management intentionally override mission behavior. The bot should not keep chasing a target while below safe speed or too close to terrain.
 
-## Telemetry
-The bot stores periodic samples of forward speed and altitude.
-
-The telemetry layer exposes numeric trend values for:
-
-- current forward speed and altitude
-- forward-speed delta and approximate acceleration
-- altitude delta and approximate vertical speed
-
-These samples are used as bot-readable state, not as physics authority.
-
 ## Speed Recovery
 Speed recovery is an override that protects the bot from low-energy flight.
 
@@ -104,6 +94,8 @@ The plane controller has two pitch-input limiter layers:
 - sustain-turn limiting, which further reduces pitch input when the requested turn would spend energy faster than available thrust can sustain
 
 The bot can switch the sustain-turn limiter at runtime. Below its max-lift-turn speed threshold, sustain-turn limiting stays enabled so the bot preserves energy. At or above that threshold, the bot disables sustain-turn limiting, leaving max-lift limiting as the active cap.
+
+During ground avoidance the bot unconditionally forces max-lift mode regardless of current speed. When the aircraft is close to terrain it needs maximum pitch authority; sustain-turn limiting would restrict the pull available precisely when it is most critical.
 
 This does not change forces, torques, velocity, or AoA directly. The bot does not run its own AoA, sustain-turn, or max-load pitch limiter. It only sends normalized control intentions; the plane controller decides how much pitch input is physically accepted.
 
@@ -135,13 +127,21 @@ The killzone point is derived from:
 - the target's backward axis
 - the configured killzone distance
 
-If the bot is outside the killzone tolerance, it turns toward the killzone point. If it is inside the tolerance, it stops aiming at the point and aligns with the target's velocity or forward direction. This avoids intentionally bumping into the target.
+Outside the killzone tolerance the bot uses constant-bearing intercept steering. Rather than aiming at where the killzone point is now, it predicts where the point will be when the bot arrives and aims there:
 
-Throttle during target follow is intentionally aggressive:
+```text
+time_to_go = range / max(closing_speed, MIN_CLOSING_SPEED)
+time_to_go = min(time_to_go, FOLLOW_LEAD_MAX_TIME)   # capped at 3 s
+steering_point = killzone_point + target_velocity * time_to_go
+```
 
-- Outside the killzone, the bot commands full throttle.
-- Inside the killzone, the bot still commands full throttle unless it is closing on the killzone point too quickly.
-- If inside the killzone and overshoot closure is detected, throttle is reduced or cut in proportion to closure speed.
+The lead point collapses to the raw killzone point when `time_to_go` approaches zero (bot already at the slot) or when closing speed is too low to estimate a useful lead. Inside the killzone tolerance the bot stops aiming at any computed point and aligns with the target's velocity or forward direction instead. This avoids intentionally bumping into the target.
+
+Throttle during target follow:
+
+- Outside the brake zone, the bot commands full throttle.
+- The brake zone begins at `killzone_tolerance × 2.0` from the killzone point, before the bot crosses into the killzone itself.
+- When inside the brake zone and closing too fast, throttle is reduced in proportion to closure speed to prevent overshooting.
 
 The bot still steers toward the killzone altitude through pitch. Throttle is not held back just because altitude is not matched.
 
@@ -175,12 +175,26 @@ Pitch targets are behavior requests, not physical guarantees. The bot may reques
 
 For small lateral target errors near the nose, the bot can briefly pitch down to increase angular separation before doing the normal roll-and-pull turn. This avoids tiny same-heading errors becoming endless shallow corrections.
 
+## Difficulty Tuning
+Bot aggression and energy management are governed by three speed thresholds exported on `PlaneBotPilot`:
+
+- `min_acceptable_forward_speed` — the speed below which the bot abandons its target and enters recovery.
+- `reserve_forward_speed` — the speed it must reach before it will exit recovery mode (hysteresis prevents flicker).
+- `max_lift_turn_min_forward_speed` — the speed above which sustain-turn limiting is disabled, giving the bot full pitch authority for hard turns.
+
+All three thresholds are absolute values in m/s, but their effective meaning depends on the plane model's natural flight envelope. The recommended practice is to set them relative to the plane's optimal cruise and turn speeds:
+
+- A bot that recovers early (high thresholds relative to cruise speed) maintains its energy advantage and is harder to defeat in extended maneuver fights.
+- A bot that recovers late (low thresholds) can be drained into stall more easily by a skilled player.
+- `max_lift_turn_min_forward_speed` controls when the bot is allowed to trade energy for turn rate; a high value means the bot usually fights energy-conservatively, a low value means it will pull hard even at modest speed.
+
+As a practical baseline, set `min_acceptable_forward_speed` near the plane's minimum safe handling speed, `reserve_forward_speed` near comfortable cruise, and `max_lift_turn_min_forward_speed` slightly above that. Raising all three uniformly makes the bot more conservative and harder to exploit; lowering them makes the bot more reckless and easier to separate from energy.
+
 ## Limits
 The bot is still a simple behavior controller, not a full combat AI.
 
 Current limitations:
 
-- It does not solve true intercept geometry.
 - It does not reason about weapons, aspect, or tactical pursuit modes.
 - It does not plan terrain routes.
 - It uses local reactive decisions rather than long-horizon planning.

@@ -165,6 +165,36 @@ x_axis_label = "Airspeed (m/s)"
 y_axis_label = "Control coef"
 tick_decimals = 2
 
+[node name="Thrust" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/GraphTabs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="ThrustTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Thrust"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Engine Thrust Multiplier vs Forward Speed (m/s)"
+
+[node name="ThrustGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Thrust"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(1040, 600)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("2_graph")
+x_min = 0.0
+x_max = 500.0
+y_min = 0.0
+y_max = 1.5
+edit_x_min = 0.0
+edit_x_max = 1000.0
+edit_y_min = 0.0
+edit_y_max = 5.0
+x_axis_label = "Forward speed (m/s)"
+y_axis_label = "Thrust ×"
+tick_decimals = 2
+
 [node name="Footer" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
 layout_mode = 2
 

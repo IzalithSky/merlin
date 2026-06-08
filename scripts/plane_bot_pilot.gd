@@ -65,9 +65,9 @@ const FOLLOW_LEAD_MAX_TIME := 3.0
 const FOLLOW_LEAD_MIN_CLOSING_SPEED := 1.0
 const FOLLOW_THROTTLE_BRAKE_DISTANCE_SCALE := 2.0
 
-@export var min_acceptable_forward_speed: float = 80.0
-@export var reserve_forward_speed: float = 120.0
-@export var max_lift_turn_min_forward_speed: float = 120.0
+@export var min_acceptable_forward_speed: float = 50.0
+@export var reserve_forward_speed: float = 90.0
+@export var max_lift_turn_min_forward_speed: float = 110.0
 @export var default_altitude: float = 5000.0
 @export var min_ground_clearance: float = 300.0
 @export var ground_clearance_tolerance: float = 25.0
@@ -734,6 +734,8 @@ func _update_turn_limiter_mode(forward_speed: float) -> void:
 
 	var threshold := maxf(max_lift_turn_min_forward_speed, 0.0)
 	var sustain_limiter_enabled := forward_speed < threshold
+	if _flight_state == FlightState.GROUND_AVOIDANCE:
+		sustain_limiter_enabled = false
 	if _has_applied_turn_limiter_mode and sustain_limiter_enabled == _last_sustain_turn_limiter_enabled:
 		return
 

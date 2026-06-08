@@ -95,14 +95,14 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "New Game (Solo)"
 
-[node name="BotDuelButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="BotDuelButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=1927670255]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Bot Duel"
 
-[node name="BotChaseDebugButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="BotChaseDebugButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=1782246337]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2

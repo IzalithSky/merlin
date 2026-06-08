@@ -4,6 +4,7 @@ const WORLD_SCENE := preload("res://scenes/world_0.tscn")
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
 const BOT_DUEL_CAMERA_SCENE := preload("res://scenes/bot_duel_camera.tscn")
+const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 const MIN_DIRECTION_LENGTH_SQUARED := 0.000001
 const KILLZONE_MARKER_SEGMENTS := 32
 
@@ -47,6 +48,8 @@ var _killzone_marker_mesh_instance: MeshInstance3D
 
 
 func _ready() -> void:
+	if _has_display_settings():
+		DisplaySettings.settings_changed.connect(_on_display_settings_changed)
 	_parse_benchmark_args()
 	_import_level_and_env()
 	_setup_killzone_marker()
@@ -513,6 +516,10 @@ func _get_angle_deg(first_direction: Vector3, second_direction: Vector3) -> floa
 
 	var alignment := first_direction.normalized().dot(second_direction.normalized())
 	return rad_to_deg(acos(clampf(alignment, -1.0, 1.0)))
+
+
+func _on_display_settings_changed() -> void:
+	DISPLAY_SETTINGS_APPLIER.apply_to_tree(_characters)
 
 
 func _has_display_settings() -> bool:

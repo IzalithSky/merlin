@@ -4,6 +4,7 @@ const WORLD_SCENE := preload("res://scenes/world_0.tscn")
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
 const BOT_DUEL_CAMERA_SCENE := preload("res://scenes/bot_duel_camera.tscn")
+const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 
 @export var spawn_altitude: float = 2500.0
 @export var bot_separation: float = 900.0
@@ -16,6 +17,8 @@ const BOT_DUEL_CAMERA_SCENE := preload("res://scenes/bot_duel_camera.tscn")
 
 
 func _ready() -> void:
+	if _has_display_settings():
+		DisplaySettings.settings_changed.connect(_on_display_settings_changed)
 	_import_level_and_env()
 
 	var bot_a := _spawn_bot("BotA", 1000000, Vector3(-bot_separation * 0.5, spawn_altitude, 0.0))
@@ -112,6 +115,10 @@ func _spawn_camera(bot_a: Node3D, bot_b: Node3D) -> void:
 	if camera_rig.has_method("set_targets"):
 		var targets: Array[Node3D] = [bot_a, bot_b]
 		camera_rig.call("set_targets", targets)
+
+
+func _on_display_settings_changed() -> void:
+	DISPLAY_SETTINGS_APPLIER.apply_to_tree(_characters)
 
 
 func _has_display_settings() -> bool:
