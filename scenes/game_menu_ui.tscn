@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://scripts/options_menu.gd" id="2_options"]
 
 [node name="ui" type="CanvasLayer"]
+layer = 10
 script = ExtResource("1_menu")
 
 [node name="MenuRoot" type="Control" parent="."]
