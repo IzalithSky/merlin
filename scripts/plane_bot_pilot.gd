@@ -61,9 +61,10 @@ const GROUND_PROBE_SAFE_INTERVAL := 0.25
 const GROUND_PROBE_NEAR_CLEARANCE_MULTIPLIER := 2.0
 const GROUND_PROBE_FAST_CLOSURE_RATIO := 0.25
 const CONTROL_INPUT_LIMIT := 1.0
+const FOLLOW_LEAD_MAX_TIME := 3.0
+const FOLLOW_LEAD_MIN_CLOSING_SPEED := 1.0
+const FOLLOW_THROTTLE_BRAKE_DISTANCE_SCALE := 2.0
 
-@export var telemetry_sample_interval: float = 0.2
-@export var telemetry_max_samples: int = 25
 @export var min_acceptable_forward_speed: float = 80.0
 @export var reserve_forward_speed: float = 120.0
 @export var max_lift_turn_min_forward_speed: float = 120.0
@@ -86,10 +87,7 @@ const CONTROL_INPUT_LIMIT := 1.0
 	Vector3(0.0, 1500.0, 0.0),
 ]
 
-var telemetry_samples: Array[Dictionary] = []
-
 var _plane: RigidBody3D
-var _telemetry_timer := 0.0
 var _altitude_target_active := false
 var _target_altitude := 0.0
 var _flight_state: int = FlightState.IDLE
@@ -132,7 +130,6 @@ func _ready() -> void:
 
 	_update_frame_cache()
 	climb_to_altitude(default_altitude)
-	_record_telemetry_sample()
 	_ensure_bot_debug_renderer()
 	_update_bot_debug_renderer_state()
 
@@ -142,14 +139,6 @@ func _physics_process(delta: float) -> void:
 	_update_follow_target_velocity(delta)
 	_update_flight_controls(delta)
 	_update_bot_debug_visuals()
-
-	var sample_interval := maxf(telemetry_sample_interval, 0.001)
-	_telemetry_timer += delta
-	if _telemetry_timer < sample_interval:
-		return
-
-	_telemetry_timer = fmod(_telemetry_timer, sample_interval)
-	_record_telemetry_sample()
 
 
 func _update_frame_cache() -> void:
@@ -162,33 +151,6 @@ func _update_frame_cache() -> void:
 	_frame_forward_axis = -_frame_basis.z
 	_frame_forward_speed = _frame_velocity.dot(_frame_forward_axis)
 	_frame_local_angular_velocity = _frame_inverse_basis * _plane.angular_velocity
-
-
-func get_motion_trend(window_seconds: float = 2.0) -> Dictionary:
-	if telemetry_samples.size() < 2:
-		return _make_unknown_motion_trend()
-
-	var latest: Dictionary = telemetry_samples[telemetry_samples.size() - 1]
-	var reference: Dictionary = _find_reference_sample(float(latest["time"]), window_seconds)
-	var elapsed := maxf(float(latest["time"]) - float(reference["time"]), 0.001)
-	var speed_delta := float(latest["forward_speed"]) - float(reference["forward_speed"])
-	var altitude_delta := float(latest["altitude"]) - float(reference["altitude"])
-
-	return {
-		"has_enough_data": true,
-		"sample_count": telemetry_samples.size(),
-		"elapsed_seconds": elapsed,
-		"forward_speed": float(latest["forward_speed"]),
-		"altitude": float(latest["altitude"]),
-		"speed_delta": speed_delta,
-		"altitude_delta": altitude_delta,
-		"acceleration": speed_delta / elapsed,
-		"vertical_speed": altitude_delta / elapsed,
-	}
-
-
-func get_flight_state() -> int:
-	return _flight_state
 
 
 func climb_to_altitude(target_altitude: float) -> void:
@@ -226,10 +188,6 @@ func _set_active_follow_target(target: Node3D, target_is_player: bool, use_killz
 	if _follow_target != null:
 		_last_follow_target_position = _follow_target.global_position if _follow_target.is_inside_tree() else _follow_target.position
 		_has_follow_target_sample = true
-
-
-func get_follow_target() -> Node3D:
-	return _follow_target
 
 
 func _ensure_bot_debug_renderer() -> void:
@@ -273,10 +231,11 @@ func _update_bot_debug_visuals() -> void:
 
 	if has_target:
 		source_target_position = _follow_target.global_position
-		intent_position = _get_follow_destination_point()
+		var destination_point := _get_follow_destination_point()
+		intent_position = _get_follow_steering_point(destination_point)
 		if _follow_target_uses_killzone:
 			has_killzone = true
-			killzone_position = intent_position
+			killzone_position = destination_point
 
 	_bot_debug_renderer.call(
 		"update_visuals",
@@ -415,14 +374,20 @@ func _update_follow_target_controls(delta: float) -> void:
 	var target_point := _get_follow_destination_point()
 	var throttle_target := _get_follow_throttle_target(target_point)
 
-	var desired_direction := target_point - _frame_position
+	var desired_direction: Vector3
+	var target_altitude: float
 	if _is_in_follow_killzone(target_point):
 		desired_direction = _get_follow_alignment_direction()
+		target_altitude = target_point.y
+	else:
+		var steering_point := _get_follow_steering_point(target_point)
+		desired_direction = steering_point - _frame_position
+		target_altitude = steering_point.y
 
 	turn_toward_direction(
 		delta,
 		desired_direction,
-		target_point.y,
+		target_altitude,
 		throttle_target,
 		LEVEL_TURN_ROLL_RESPONSE_RATE
 	)
@@ -444,11 +409,6 @@ func _update_idle_controls(delta: float) -> void:
 func level_turn(delta: float, turn_center: Vector3) -> void:
 	var desired_direction := _get_checkpoint_orbit_direction(turn_center)
 	turn_toward_direction(delta, desired_direction, turn_center.y)
-
-
-func turn_toward_point(delta: float, target_point: Vector3) -> void:
-	var target_offset := target_point - _frame_position
-	turn_toward_direction(delta, target_offset, target_point.y)
 
 
 func turn_toward_direction(
@@ -812,20 +772,28 @@ func _has_follow_target() -> bool:
 
 
 func _get_follow_throttle_target(destination_point: Vector3) -> float:
-	if not _is_in_follow_killzone(destination_point):
-		return SPEED_RECOVERY_FULL_THROTTLE_INPUT
-
 	var horizontal_offset := Vector2(
 		destination_point.x - _frame_position.x,
 		destination_point.z - _frame_position.z
 	)
-
 	var closure_speed := _get_follow_horizontal_closure_speed(horizontal_offset)
+	if not _is_in_follow_brake_zone(destination_point, closure_speed):
+		return SPEED_RECOVERY_FULL_THROTTLE_INPUT
+
 	var tolerance := maxf(overshoot_closure_tolerance, 0.0)
 	if closure_speed <= tolerance:
 		return SPEED_RECOVERY_FULL_THROTTLE_INPUT
 
 	return clampf(-((closure_speed - tolerance) * maxf(overshoot_throttle_gain, 0.0)), -1.0, 0.0)
+
+
+func _is_in_follow_brake_zone(destination_point: Vector3, closure_speed: float) -> bool:
+	if closure_speed <= maxf(overshoot_closure_tolerance, 0.0):
+		return false
+
+	var tolerance := maxf(killzone_tolerance, 0.0)
+	var brake_distance := tolerance * FOLLOW_THROTTLE_BRAKE_DISTANCE_SCALE
+	return _frame_position.distance_to(destination_point) <= brake_distance
 
 
 func _get_follow_horizontal_closure_speed(horizontal_offset: Vector2) -> float:
@@ -920,6 +888,31 @@ func _get_follow_alignment_direction() -> Vector3:
 		return -_follow_target.global_transform.basis.z.normalized()
 
 	return _frame_forward_axis
+
+
+func _get_follow_steering_point(destination_point: Vector3) -> Vector3:
+	if not _has_follow_target() or _is_in_follow_killzone(destination_point):
+		return destination_point
+
+	if _follow_target_velocity.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return destination_point
+
+	var offset := destination_point - _frame_position
+	if offset.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return destination_point
+
+	var range_to_slot := offset.length()
+	var closing_speed := _get_follow_closing_speed(offset / range_to_slot)
+	var time_to_go := clampf(
+		range_to_slot / maxf(closing_speed, FOLLOW_LEAD_MIN_CLOSING_SPEED),
+		0.0,
+		FOLLOW_LEAD_MAX_TIME
+	)
+	return destination_point + _follow_target_velocity * time_to_go
+
+
+func _get_follow_closing_speed(line_of_sight: Vector3) -> float:
+	return (_frame_velocity - _follow_target_velocity).dot(line_of_sight)
 
 
 func _get_safe_world_direction(direction: Vector3) -> Vector3:
@@ -1194,24 +1187,6 @@ func _apply_controls(roll_value: float, pitch_value: float, yaw_value: float, th
 		)
 
 
-func _record_telemetry_sample() -> void:
-	if _plane == null:
-		return
-
-	telemetry_samples.append({
-		"time": Time.get_ticks_msec() / 1000.0,
-		"forward_speed": _get_forward_speed(),
-		"altitude": _frame_position.y,
-	})
-	_trim_telemetry_samples()
-
-
-func _trim_telemetry_samples() -> void:
-	var max_samples := maxi(telemetry_max_samples, 2)
-	while telemetry_samples.size() > max_samples:
-		telemetry_samples.remove_at(0)
-
-
 func _get_forward_speed() -> float:
 	return _frame_forward_speed
 
@@ -1258,28 +1233,3 @@ func _get_ground_probe_exclusions() -> Array[RID]:
 			_ground_probe_exclusions.append((candidate as CollisionObject3D).get_rid())
 
 	return _ground_probe_exclusions
-
-
-func _find_reference_sample(latest_time: float, window_seconds: float) -> Dictionary:
-	var target_time := latest_time - maxf(window_seconds, telemetry_sample_interval)
-	var reference: Dictionary = telemetry_samples[0]
-	for sample: Dictionary in telemetry_samples:
-		if float(sample["time"]) > target_time:
-			break
-		reference = sample
-
-	return reference
-
-
-func _make_unknown_motion_trend() -> Dictionary:
-	return {
-		"has_enough_data": false,
-		"sample_count": telemetry_samples.size(),
-		"elapsed_seconds": 0.0,
-		"forward_speed": 0.0,
-		"altitude": 0.0,
-		"speed_delta": 0.0,
-		"altitude_delta": 0.0,
-		"acceleration": 0.0,
-		"vertical_speed": 0.0,
-	}
