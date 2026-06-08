@@ -76,11 +76,6 @@ func _physics_process(delta: float) -> void:
 	_update_benchmark()
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
-		get_tree().quit()
-
-
 func _parse_benchmark_args() -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--bot-chase-benchmark="):
