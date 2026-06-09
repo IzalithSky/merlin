@@ -1,9 +1,20 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/plane_telemetry_hud.gd" id="1_hud"]
+[ext_resource type="Script" path="res://scripts/relative_roll_clock.gd" id="2_clock"]
 
 [node name="PlaneTelemetryHud" type="CanvasLayer"]
 script = ExtResource("1_hud")
+
+[node name="RelativeRollClock" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 0
+offset_right = 64.0
+offset_top = 55.0
+offset_bottom = 119.0
+visible = false
+script = ExtResource("2_clock")
 
 [node name="Root" type="Control" parent="."]
 layout_mode = 3

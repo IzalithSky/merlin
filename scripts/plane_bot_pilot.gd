@@ -1092,16 +1092,16 @@ func _get_wings_level_roll_target() -> float:
 
 
 func _get_roll_input_for_error(roll_error: float, angle_to_rate_gain: float, rate_scale: float = 1.0) -> float:
-	return _get_rate_stabilized_axis_input(
-		roll_error,
-		angle_to_rate_gain,
-		ROLL_MAX_DESIRED_RATE,
-		_get_local_roll_rate(),
-		ROLL_RATE_RESPONSE_GAIN,
-		-1.0,
-		1.0,
-		rate_scale
-	)
+	if _plane != null and _plane.has_method("get_roll_input_for_error"):
+		return _plane.call(
+			"get_roll_input_for_error",
+			roll_error,
+			angle_to_rate_gain,
+			ROLL_MAX_DESIRED_RATE,
+			ROLL_RATE_RESPONSE_GAIN,
+			rate_scale
+		)
+	return 0.0
 
 
 func _get_local_roll_rate() -> float:

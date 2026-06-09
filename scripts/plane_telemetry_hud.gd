@@ -15,6 +15,7 @@ extends CanvasLayer
 @onready var _gravity_along_value: Label = %GravityAlongValue
 @onready var _damping_along_value: Label = %DampingAlongValue
 @onready var _net_along_value: Label = %NetAlongValue
+@onready var _relative_roll_clock: Control = %RelativeRollClock
 
 var _target: RigidBody3D
 var _advanced_hud_nodes: Array[CanvasItem] = []
@@ -84,6 +85,7 @@ func _process(_delta: float) -> void:
 	_roll_input_bar.value = roll_input * 100.0
 	_throttle_input_bar.value = throttle_input * 100.0
 	_update_force_balance_debug()
+	_update_relative_roll_clock()
 
 
 func _reset_labels() -> void:
@@ -130,6 +132,20 @@ func _update_force_balance_debug() -> void:
 	_gravity_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "gravity_along_velocity")
 	_damping_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "damping_along_velocity")
 	_net_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "net_along_velocity")
+
+
+func _update_relative_roll_clock() -> void:
+	if _relative_roll_clock == null:
+		return
+
+	if _target == null or not _target.has_method("is_relative_roll_active"):
+		_relative_roll_clock.visible = false
+		return
+
+	var is_active := bool(_target.call("is_relative_roll_active"))
+	_relative_roll_clock.visible = is_active
+	if is_active and _target.has_method("get_relative_roll_error"):
+		_relative_roll_clock.set("roll_error", float(_target.call("get_relative_roll_error")))
 
 
 func _reset_force_balance_debug() -> void:

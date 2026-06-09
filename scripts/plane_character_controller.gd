@@ -8,6 +8,13 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var rot_rate: float = 2.4
 @export var rot_decay: float = 3.0
 @export var thr_rate: float = 1.2
+@export var relative_roll_cursor_speed: float = 2.0
+@export var relative_roll_max_error_deg: float = 120.0
+@export var relative_roll_error_to_rate_gain: float = 1.4
+@export var relative_roll_max_desired_rate: float = 2.0
+@export var relative_roll_rate_response_gain: float = 0.8
+@export var relative_roll_deadband_deg: float = 1.0
+@export var relative_roll_rate_deadband: float = 0.03
 
 @export var max_thrust: float = 14_000.0
 @export var max_pitch: float = 1.0
@@ -103,6 +110,11 @@ var pitch_input := 0.0
 var yaw_input := 0.0
 var throttle_input := 0.0
 
+var relative_roll_target_up_world := Vector3.UP
+var relative_roll_target_active := false
+var relative_roll_error := 0.0
+var relative_roll_input := 0.0
+
 var _bot_target_roll_input := 0.0
 var _bot_target_pitch_input := 0.0
 var _bot_target_yaw_input := 0.0
@@ -162,12 +174,12 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_begin_force_debug_frame()
+	_update_physics_frame_cache()
+
 	if is_bot_controlled:
 		_apply_bot_inputs(delta)
 	else:
 		_collect_inputs(delta)
-
-	_update_physics_frame_cache()
 	compute_control_state(delta)
 	apply_thrust()
 	apply_plane_torque()
@@ -215,6 +227,10 @@ func _apply_spawn_control_defaults() -> void:
 	yaw_input = 0.0
 	throttle_input = 0.0
 	throttle_percent = 50.0
+	relative_roll_target_active = false
+	relative_roll_target_up_world = Vector3.UP
+	relative_roll_error = 0.0
+	relative_roll_input = 0.0
 
 
 func _apply_bot_inputs(delta: float) -> void:
@@ -238,13 +254,7 @@ func _collect_inputs(delta: float) -> void:
 	var rotation_rate := rot_rate * delta
 	var rotation_decay := rot_decay * delta
 
-	if Input.is_physical_key_pressed(KEY_D):
-		roll_input -= rotation_rate
-	elif Input.is_physical_key_pressed(KEY_A):
-		roll_input += rotation_rate
-	else:
-		roll_input = move_toward(roll_input, 0.0, rotation_decay)
-	roll_input = clamp(roll_input, -1.0, 1.0)
+	_collect_roll_input(delta, rotation_rate, rotation_decay)
 
 	var keyboard_pitch := 0.0
 	if Input.is_physical_key_pressed(KEY_W):
@@ -282,6 +292,118 @@ func _collect_inputs(delta: float) -> void:
 	throttle_input = clamp(throttle_input, -1.0, 1.0)
 
 	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
+
+
+func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: float) -> void:
+	var direct_roll_direction := _get_direct_roll_direction()
+	var relative_roll_direction := _get_relative_roll_direction()
+
+	if absf(direct_roll_direction) > 0.001:
+		_reset_relative_roll_target()
+		relative_roll_input = move_toward(relative_roll_input, 0.0, rotation_decay)
+		roll_input = move_toward(roll_input, direct_roll_direction, rotation_rate)
+		roll_input = clampf(roll_input, -1.0, 1.0)
+		return
+
+	_update_relative_roll_target(delta, relative_roll_direction)
+
+	if relative_roll_target_active:
+		var target_roll_input := get_roll_input_for_error(
+			relative_roll_error,
+			relative_roll_error_to_rate_gain,
+			relative_roll_max_desired_rate,
+			relative_roll_rate_response_gain
+		)
+
+		relative_roll_input = move_toward(relative_roll_input, target_roll_input, rotation_rate)
+		roll_input = clampf(relative_roll_input, -1.0, 1.0)
+
+		if _is_relative_roll_settled() and absf(relative_roll_direction) <= 0.001:
+			_reset_relative_roll_target()
+
+		return
+
+	relative_roll_input = move_toward(relative_roll_input, 0.0, rotation_decay)
+	roll_input = move_toward(roll_input, 0.0, rotation_decay)
+	roll_input = clampf(roll_input, -1.0, 1.0)
+
+
+func _get_direct_roll_direction() -> float:
+	var direction := 0.0
+
+	if Input.is_physical_key_pressed(KEY_A):
+		direction += 1.0
+	if Input.is_physical_key_pressed(KEY_D):
+		direction -= 1.0
+
+	return clampf(direction, -1.0, 1.0)
+
+
+func _get_relative_roll_direction() -> float:
+	var direction := 0.0
+
+	direction += Input.get_action_strength("relative_roll_left")
+	direction -= Input.get_action_strength("relative_roll_right")
+
+	return clampf(direction, -1.0, 1.0)
+
+
+func _update_relative_roll_target(delta: float, input_direction: float) -> void:
+	if not relative_roll_target_active:
+		relative_roll_target_up_world = _frame_up_axis
+		relative_roll_error = 0.0
+
+	if absf(input_direction) > 0.001:
+		relative_roll_target_active = true
+		var cursor_angle_step := input_direction * relative_roll_cursor_speed * delta
+		relative_roll_target_up_world = relative_roll_target_up_world.rotated(
+			_frame_forward_axis,
+			cursor_angle_step
+		).normalized()
+
+	if not relative_roll_target_active:
+		return
+
+	_update_relative_roll_error()
+
+
+func _update_relative_roll_error() -> void:
+	var target_up := relative_roll_target_up_world
+	target_up -= _frame_forward_axis * target_up.dot(_frame_forward_axis)
+
+	if target_up.length_squared() <= MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		_reset_relative_roll_target()
+		return
+
+	target_up = target_up.normalized()
+
+	relative_roll_error = atan2(
+		target_up.dot(_frame_right_axis),
+		target_up.dot(_frame_up_axis)
+	)
+
+	var max_error := deg_to_rad(maxf(relative_roll_max_error_deg, 1.0))
+	relative_roll_error = clampf(relative_roll_error, -max_error, max_error)
+
+	relative_roll_target_up_world = _frame_up_axis.rotated(
+		_frame_forward_axis,
+		relative_roll_error
+	).normalized()
+
+
+func _reset_relative_roll_target() -> void:
+	relative_roll_target_active = false
+	relative_roll_target_up_world = _frame_up_axis
+	relative_roll_error = 0.0
+	relative_roll_input = 0.0
+
+
+func _is_relative_roll_settled() -> bool:
+	var error_deadband := deg_to_rad(maxf(relative_roll_deadband_deg, 0.0))
+	return (
+		absf(relative_roll_error) <= error_deadband and
+		absf(get_local_roll_rate()) <= maxf(relative_roll_rate_deadband, 0.0)
+	)
 
 
 func compute_control_state(_delta: float) -> void:
@@ -657,6 +779,78 @@ func get_yaw_input() -> float:
 
 func get_roll_input() -> float:
 	return roll_input
+
+
+func get_relative_roll_error() -> float:
+	return relative_roll_error
+
+
+func get_relative_roll_input() -> float:
+	return relative_roll_input
+
+
+func is_relative_roll_active() -> bool:
+	return relative_roll_target_active
+
+
+func get_local_angular_velocity() -> Vector3:
+	return _frame_body_basis.transposed() * angular_velocity
+
+
+func get_local_roll_rate() -> float:
+	return get_local_angular_velocity().z
+
+
+func get_roll_input_for_error(
+	roll_error: float,
+	angle_to_rate_gain: float,
+	max_desired_rate: float,
+	rate_response_gain: float,
+	rate_scale: float = 1.0
+) -> float:
+	return get_rate_stabilized_axis_input(
+		roll_error,
+		angle_to_rate_gain,
+		max_desired_rate,
+		get_local_roll_rate(),
+		rate_response_gain,
+		-1.0,
+		1.0,
+		rate_scale
+	)
+
+
+func get_rate_stabilized_axis_input(
+	angle_error: float,
+	angle_to_rate_gain: float,
+	max_desired_rate: float,
+	local_rate: float,
+	rate_response_gain: float,
+	error_to_rate_sign: float,
+	input_sign: float,
+	rate_scale: float = 1.0
+) -> float:
+	var desired_rate := clampf(
+		angle_error * angle_to_rate_gain * clampf(rate_scale, 0.0, 1.0) * error_to_rate_sign,
+		-max_desired_rate,
+		max_desired_rate
+	)
+	return get_rate_stabilized_input_for_desired_rate(
+		desired_rate,
+		local_rate,
+		rate_response_gain,
+		input_sign
+	)
+
+
+func get_rate_stabilized_input_for_desired_rate(
+	desired_rate: float,
+	local_rate: float,
+	rate_response_gain: float,
+	input_sign: float
+) -> float:
+	var rate_error := desired_rate - local_rate
+	return clampf(rate_error * rate_response_gain * input_sign, -1.0, 1.0)
 
 
 func get_throttle_input() -> float:
