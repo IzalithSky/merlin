@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=4 uid="uid://dj47wc5nnm06h"]
+[gd_scene load_steps=15 format=4 uid="uid://dj47wc5nnm06h"]
 
 [ext_resource type="Texture2D" uid="uid://c8iuitgcercyk" path="res://textures/256x256/Grass/Grass_03-256x256.png" id="1_fhkym"]
 
@@ -7,6 +7,7 @@
 [ext_resource type="Script" path="res://scripts/world_character_spawner.gd" id="3_fhkym"]
 [ext_resource type="Script" path="res://scripts/game_menu.gd" id="4_fhkym"]
 [ext_resource type="Script" path="res://scripts/options_menu.gd" id="5_options"]
+[ext_resource type="PackedScene" path="res://scenes/keybindings_menu.tscn" id="6_kbmenu"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dihnr"]
 albedo_texture = ExtResource("1_fhkym")
@@ -219,8 +220,19 @@ custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "Show advanced HUD (AoA and below)"
 
+[node name="KeyBindingsButton" type="Button" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Key Bindings"
+
 [node name="OptionsBackButton" type="Button" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "Back"
+
+[node name="KeybindingsPanel" parent="ui/MenuRoot/CenterContainer" instance=ExtResource("6_kbmenu")]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2

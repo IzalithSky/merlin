@@ -142,9 +142,8 @@ func _update_relative_roll_clock() -> void:
 		_relative_roll_clock.visible = false
 		return
 
-	var is_active := bool(_target.call("is_relative_roll_active"))
-	_relative_roll_clock.visible = is_active
-	if is_active and _target.has_method("get_relative_roll_error"):
+	_relative_roll_clock.visible = true
+	if _target.has_method("get_relative_roll_error"):
 		_relative_roll_clock.set("roll_error", float(_target.call("get_relative_roll_error")))
 
 

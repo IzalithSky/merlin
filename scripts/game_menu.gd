@@ -5,6 +5,7 @@ const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 @onready var _menu_root: Control = %MenuRoot
 @onready var _menu_panel: Control = $MenuRoot/CenterContainer/Panel
 @onready var _options_panel: Control = %OptionsPanel
+@onready var _keybindings_panel: Control = %KeybindingsPanel
 @onready var _restart_button: Button = %RestartButton
 @onready var _main_menu_button: Button = %MainMenuButton
 @onready var _options_button: Button = %OptionsButton
@@ -21,6 +22,8 @@ func _ready() -> void:
 	_options_button.pressed.connect(_on_options_pressed)
 	_exit_button.pressed.connect(_on_exit_pressed)
 	_options_panel.connect("back_requested", Callable(self, "_on_options_back_requested"))
+	_options_panel.connect("keybindings_requested", Callable(self, "_on_keybindings_requested"))
+	_keybindings_panel.connect("back_requested", Callable(self, "_on_keybindings_back_requested"))
 	_set_open(false, false)
 
 
@@ -83,9 +86,25 @@ func _on_options_back_requested() -> void:
 	_options_button.grab_focus()
 
 
+func _on_keybindings_requested() -> void:
+	_menu_panel.visible = false
+	_options_panel.visible = false
+	_keybindings_panel.visible = true
+	if _keybindings_panel.has_method("focus_first"):
+		_keybindings_panel.call("focus_first")
+
+
+func _on_keybindings_back_requested() -> void:
+	_keybindings_panel.visible = false
+	_options_panel.visible = true
+	if _options_panel.has_method("focus_first"):
+		_options_panel.call("focus_first")
+
+
 func _set_options_open(open: bool) -> void:
 	_menu_panel.visible = not open
 	_options_panel.visible = open
+	_keybindings_panel.visible = false
 
 	if open and _options_panel.has_method("focus_first"):
 		_options_panel.call("focus_first")

@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/game_menu.gd" id="1_menu"]
 [ext_resource type="Script" path="res://scripts/options_menu.gd" id="2_options"]
+[ext_resource type="PackedScene" path="res://scenes/keybindings_menu.tscn" id="3_kbmenu"]
 
 [node name="ui" type="CanvasLayer"]
 layer = 10
@@ -121,8 +122,19 @@ custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "Show advanced HUD (AoA and below)"
 
+[node name="KeyBindingsButton" type="Button" parent="MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Key Bindings"
+
 [node name="OptionsBackButton" type="Button" parent="MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "Back"
+
+[node name="KeybindingsPanel" parent="MenuRoot/CenterContainer" instance=ExtResource("3_kbmenu")]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2

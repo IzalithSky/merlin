@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" uid="uid://0b7sliokqqvq" path="res://scripts/main_menu.gd" id="1_7wdu1"]
 [ext_resource type="Script" uid="uid://dfpveiu83s8lr" path="res://scripts/options_menu.gd" id="2_options"]
+[ext_resource type="PackedScene" path="res://scenes/keybindings_menu.tscn" id="3_kbmenu"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_menu_panel"]
 bg_color = Color(0.0352941, 0.0470588, 0.0588235, 0.92)
@@ -212,9 +213,21 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Show advanced HUD (AoA and below)"
 
+[node name="KeyBindingsButton" type="Button" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1678234512]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 46)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Key Bindings"
+
 [node name="OptionsBackButton" type="Button" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1579601306]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Back"
+
+[node name="KeybindingsPanel" parent="CenterContainer" instance=ExtResource("3_kbmenu")]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2

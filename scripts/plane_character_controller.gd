@@ -29,6 +29,13 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var sustain_turn_limiter_fade_deg: float = 3.0
 @export var sustain_turn_limiter_samples: int = 48
 @export var sustain_turn_limiter_drag_margin: float = 1.05
+@export var sustain_turn_vy_enabled: bool = true
+@export var sustain_turn_vy_update_interval: float = 0.25
+@export var sustain_turn_vy_sample_min_speed: float = 10.0
+@export var sustain_turn_vy_sample_max_speed: float = 250.0
+@export var sustain_turn_vy_sample_count: int = 64
+@export var sustain_turn_vy_max_load_factor: float = 4.0
+@export var sustain_turn_vy_min_vertical_pull_intent: float = 0.1
 
 @export var air_density: float = 1.225
 @export var reference_area: float = 12.0
@@ -146,6 +153,10 @@ var _frame_dynamic_pressure := 0.0
 var _positive_max_lift_aoa_deg := 15.0
 var _negative_max_lift_aoa_deg := -15.0
 var _sustain_turn_limiter_runtime_enabled := true
+var _best_climb_speed_vy := 0.0
+var _best_climb_speed_vy_valid := false
+var _sustain_turn_vy_update_timer := 0.0
+var _sustain_turn_using_vy := false
 
 
 func _ready() -> void:
@@ -175,6 +186,7 @@ func _physics_process(delta: float) -> void:
 
 	_begin_force_debug_frame()
 	_update_physics_frame_cache()
+	_update_best_climb_speed_vy(delta)
 
 	if is_bot_controlled:
 		_apply_bot_inputs(delta)
@@ -257,16 +269,12 @@ func _collect_inputs(delta: float) -> void:
 	_collect_roll_input(delta, rotation_rate, rotation_decay)
 
 	var keyboard_pitch := 0.0
-	if Input.is_physical_key_pressed(KEY_W):
-		keyboard_pitch += 1.0
-	if Input.is_physical_key_pressed(KEY_S):
-		keyboard_pitch -= 1.0
+	keyboard_pitch += Input.get_action_strength("pitch_up")
+	keyboard_pitch -= Input.get_action_strength("pitch_down")
 
 	var keyboard_yaw := 0.0
-	if Input.is_physical_key_pressed(KEY_Q):
-		keyboard_yaw += 1.0
-	if Input.is_physical_key_pressed(KEY_E):
-		keyboard_yaw -= 1.0
+	keyboard_yaw += Input.get_action_strength("yaw_left")
+	keyboard_yaw -= Input.get_action_strength("yaw_right")
 
 	var desired_pitch: float = clampf(keyboard_pitch, -1.0, 1.0)
 	var desired_yaw: float = clampf(keyboard_yaw, -1.0, 1.0)
@@ -285,9 +293,9 @@ func _collect_inputs(delta: float) -> void:
 	yaw_input = clamp(yaw_input, -1.0, 1.0)
 
 	var throttle_rate := thr_rate * delta
-	if Input.is_physical_key_pressed(KEY_SPACE):
+	if Input.is_action_pressed("throttle_up"):
 		throttle_input += throttle_rate
-	if Input.is_physical_key_pressed(KEY_SHIFT):
+	if Input.is_action_pressed("throttle_down"):
 		throttle_input -= throttle_rate
 	throttle_input = clamp(throttle_input, -1.0, 1.0)
 
@@ -331,10 +339,8 @@ func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: flo
 func _get_direct_roll_direction() -> float:
 	var direction := 0.0
 
-	if Input.is_physical_key_pressed(KEY_A):
-		direction += 1.0
-	if Input.is_physical_key_pressed(KEY_D):
-		direction -= 1.0
+	direction += Input.get_action_strength("roll_left")
+	direction -= Input.get_action_strength("roll_right")
 
 	return clampf(direction, -1.0, 1.0)
 
@@ -801,6 +807,22 @@ func get_local_roll_rate() -> float:
 	return get_local_angular_velocity().z
 
 
+func get_best_climb_speed_vy() -> float:
+	return _best_climb_speed_vy
+
+
+func is_best_climb_speed_vy_valid() -> bool:
+	return _best_climb_speed_vy_valid
+
+
+func is_sustain_turn_using_vy() -> bool:
+	return _sustain_turn_using_vy
+
+
+func get_vertical_pull_intent() -> float:
+	return _get_vertical_pull_intent()
+
+
 func get_roll_input_for_error(
 	roll_error: float,
 	angle_to_rate_gain: float,
@@ -1085,7 +1107,7 @@ func _get_sustainable_aoa_limit(positive_limit: bool) -> float:
 	if available_force <= 0.0:
 		return 0.0
 
-	var target_speed := maxf(_frame_air_speed, sustain_turn_limiter_min_target_airspeed)
+	var target_speed := _get_sustain_turn_target_speed()
 	var target_speed_squared := target_speed * target_speed
 	var dynamic_pressure := 0.5 * air_density * target_speed_squared
 	var aero_drag_scale := dynamic_pressure * reference_area
@@ -1113,6 +1135,175 @@ func _get_sustain_available_forward_force() -> float:
 	var thrust_force := _get_thrust_force_world()
 	var gravity_force := _get_gravity_force_world()
 	return thrust_force.dot(_frame_airflow_direction) + gravity_force.dot(_frame_airflow_direction)
+
+
+func _update_best_climb_speed_vy(delta: float) -> void:
+	_sustain_turn_vy_update_timer -= delta
+	if _sustain_turn_vy_update_timer > 0.0:
+		return
+
+	_sustain_turn_vy_update_timer = maxf(sustain_turn_vy_update_interval, 0.01)
+	_best_climb_speed_vy = _calculate_best_climb_speed_vy()
+	_best_climb_speed_vy_valid = _best_climb_speed_vy > 0.0
+
+
+func _calculate_best_climb_speed_vy() -> float:
+	if not sustain_turn_vy_enabled:
+		return 0.0
+
+	var sample_count := maxi(sustain_turn_vy_sample_count, 1)
+	var min_speed := maxf(sustain_turn_vy_sample_min_speed, 0.1)
+	var max_speed := maxf(sustain_turn_vy_sample_max_speed, min_speed)
+
+	var load_factor := _get_current_bank_load_factor()
+	if not is_finite(load_factor):
+		return 0.0
+
+	load_factor = minf(load_factor, maxf(sustain_turn_vy_max_load_factor, 1.0))
+
+	var best_speed := 0.0
+	var best_excess_power := -INF
+	var required_lift := _get_weight_force_magnitude() * load_factor
+
+	for sample_index in range(sample_count + 1):
+		var sample_ratio := float(sample_index) / float(sample_count)
+		var speed := lerpf(min_speed, max_speed, sample_ratio)
+
+		var required_drag := _get_drag_required_for_lift_at_speed(required_lift, speed)
+		if required_drag < 0.0:
+			continue
+
+		var available_thrust := _get_available_thrust_at_speed(speed)
+		var excess_power := (available_thrust - required_drag) * speed
+
+		if excess_power > best_excess_power:
+			best_excess_power = excess_power
+			best_speed = speed
+
+	if best_excess_power <= 0.0:
+		return 0.0
+
+	return best_speed
+
+
+func _get_weight_force_magnitude() -> float:
+	var default_gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity"))
+	var gravity_magnitude := default_gravity * gravity_scale
+	return mass * gravity_magnitude
+
+
+func _get_current_bank_load_factor() -> float:
+	var local_world_up := _frame_body_basis.transposed() * Vector3.UP
+	var bank_angle := atan2(local_world_up.x, local_world_up.y)
+	var bank_cosine := cos(bank_angle)
+
+	if bank_cosine <= 0.05:
+		return INF
+
+	return 1.0 / bank_cosine
+
+
+func _get_available_thrust_at_speed(speed: float) -> float:
+	var thrust_coefficient := maxf(_sample_aero_table(thrust_coefficient_table, speed), 0.0)
+	return max_thrust * thrust_coefficient
+
+
+func _get_drag_required_for_lift_at_speed(required_lift: float, speed: float) -> float:
+	var speed_squared := speed * speed
+	if speed_squared <= 0.001:
+		return -1.0
+
+	var dynamic_pressure := 0.5 * air_density * speed_squared
+	var lift_scale := dynamic_pressure * reference_area
+	if lift_scale <= 0.001:
+		return -1.0
+
+	var required_lift_coefficient := required_lift / lift_scale
+	if not _can_reach_lift_coefficient(required_lift_coefficient):
+		return -1.0
+
+	var required_aoa := _find_nearest_aoa_for_lift_coefficient(required_lift_coefficient)
+	if not is_finite(required_aoa):
+		return -1.0
+
+	var drag_coefficient := maxf(_sample_aero_table(drag_coefficient_table, required_aoa), 0.0)
+	var aerodynamic_drag := dynamic_pressure * reference_area * drag_coefficient
+
+	var extra_drag := (
+		maxf(extra_linear_drag_linear_coefficient, 0.0) * speed +
+		maxf(extra_linear_drag_quadratic_coefficient, 0.0) * speed_squared +
+		maxf(_last_total_linear_damp, 0.0) * mass * speed
+	)
+
+	return aerodynamic_drag + extra_drag
+
+
+func _can_reach_lift_coefficient(target_lift_coefficient: float) -> bool:
+	if lift_coefficient_table.is_empty():
+		return false
+
+	var min_lift_coefficient := INF
+	var max_lift_coefficient := -INF
+
+	for point in lift_coefficient_table:
+		min_lift_coefficient = minf(min_lift_coefficient, point.y)
+		max_lift_coefficient = maxf(max_lift_coefficient, point.y)
+
+	return (
+		target_lift_coefficient >= min_lift_coefficient and
+		target_lift_coefficient <= max_lift_coefficient
+	)
+
+
+func _find_nearest_aoa_for_lift_coefficient(target_lift_coefficient: float) -> float:
+	if lift_coefficient_table.is_empty():
+		return INF
+
+	var best_aoa := INF
+	var best_error := INF
+
+	for point in lift_coefficient_table:
+		var error := absf(point.y - target_lift_coefficient)
+		if error < best_error:
+			best_error = error
+			best_aoa = point.x
+
+	return best_aoa
+
+
+func _get_vertical_pull_intent() -> float:
+	var pull_strength := -pitch_input
+	return pull_strength * _frame_up_axis.y
+
+
+func _has_sustain_turn_climb_intent() -> bool:
+	return _get_vertical_pull_intent() > sustain_turn_vy_min_vertical_pull_intent
+
+
+func _get_sustain_turn_target_speed() -> float:
+	_sustain_turn_using_vy = false
+
+	if _should_use_vy_for_sustain_turn():
+		_sustain_turn_using_vy = true
+		return maxf(_best_climb_speed_vy, sustain_turn_limiter_min_target_airspeed)
+
+	return maxf(_frame_air_speed, sustain_turn_limiter_min_target_airspeed)
+
+
+func _should_use_vy_for_sustain_turn() -> bool:
+	if not sustain_turn_vy_enabled:
+		return false
+
+	if not _should_apply_sustain_turn_limiter():
+		return false
+
+	if not _best_climb_speed_vy_valid:
+		return false
+
+	if not _has_sustain_turn_climb_intent():
+		return false
+
+	return true
 
 
 func _get_pitch_authority_below_upper_aoa_limit(upper_limit_deg: float, fade_degrees: float) -> float:
