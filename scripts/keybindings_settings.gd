@@ -12,6 +12,8 @@ const ACTIONS: Array[String] = [
 	"roll_left", "roll_right",
 	"throttle_up", "throttle_down",
 	"relative_roll_left", "relative_roll_right",
+	"target_select", "target_deselect",
+	"target_cycle_next", "target_cycle_prev",
 ]
 
 const ACTION_LABELS: Dictionary = {
@@ -25,6 +27,10 @@ const ACTION_LABELS: Dictionary = {
 	"throttle_down": "Throttle Down",
 	"relative_roll_left": "Relative Roll Left",
 	"relative_roll_right": "Relative Roll Right",
+	"target_select": "Target Select",
+	"target_deselect": "Target Deselect",
+	"target_cycle_next": "Target Next",
+	"target_cycle_prev": "Target Prev",
 }
 
 var _bindings: Dictionary = {}
@@ -78,7 +84,9 @@ func load_bindings() -> void:
 		return
 
 	for action in ACTIONS:
-		var saved: Variant = config.get_value(SECTION, action, null)
+		if not config.has_section_key(SECTION, action):
+			continue
+		var saved: Variant = config.get_value(SECTION, action)
 		if saved is Array and (saved as Array).size() == MAX_BINDINGS:
 			_bindings[action] = [int((saved as Array)[0]), int((saved as Array)[1])]
 
@@ -109,6 +117,10 @@ func _make_defaults() -> Dictionary:
 		"throttle_down": [KEY_SHIFT, -1],
 		"relative_roll_left": [KEY_A, -1],
 		"relative_roll_right": [KEY_D, -1],
+		"target_select": [KEY_T, -1],
+		"target_deselect": [KEY_G, -1],
+		"target_cycle_next": [KEY_Y, -1],
+		"target_cycle_prev": [-1, -1],
 	}
 
 

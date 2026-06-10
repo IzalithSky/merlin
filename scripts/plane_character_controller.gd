@@ -44,6 +44,8 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 # entry before altitude has started rising.
 @export var sustain_turn_vy_min_vertical_pull_intent: float = 0.1
 
+@export var team_id: int = 0
+
 @export var air_density: float = 1.225
 @export var reference_area: float = 12.0
 @export var ambient_wind_velocity_world: Vector3 = Vector3.ZERO
@@ -805,6 +807,18 @@ func get_force_balance_snapshot() -> Dictionary:
 		"damping_along_velocity": damping_force.dot(velocity_dir),
 		"net_along_velocity": net_force.dot(velocity_dir),
 	}
+
+
+func get_team_id() -> int:
+	return team_id
+
+
+func is_hostile_to(other: Node) -> bool:
+	if other == null or not is_instance_valid(other):
+		return false
+	if not other.has_method("get_team_id"):
+		return true
+	return int(other.call("get_team_id")) != team_id
 
 
 func get_throttle_percent() -> float:

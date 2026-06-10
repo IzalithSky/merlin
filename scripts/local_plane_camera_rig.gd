@@ -22,6 +22,10 @@ func _ready() -> void:
 	_apply_camera_look()
 
 
+func get_camera() -> Camera3D:
+	return _camera
+
+
 func set_target(target: Node3D = null) -> void:
 	_target = target
 	if _target != null:

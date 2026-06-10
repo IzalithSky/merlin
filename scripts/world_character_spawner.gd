@@ -4,6 +4,7 @@ const PLAYER_CHARACTER_SCENE := preload("res://scenes/player_character.tscn")
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const LOCAL_PLANE_CAMERA_RIG_SCENE := preload("res://scenes/local_plane_camera_rig.tscn")
 const PLANE_TELEMETRY_HUD_SCENE := preload("res://scenes/plane_telemetry_hud.tscn")
+const PLANE_TARGETING_HUD_SCENE := preload("res://scenes/plane_targeting_hud.tscn")
 const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
 const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 const CHARACTER_NAME_PREFIX := "PlayerCharacter_"
@@ -25,6 +26,8 @@ enum CharacterType {
 @export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
 @export var bot_player_killzone_distance := 250.0
 @export var bot_player_killzone_tolerance := 150.0
+@export var player_team_id: int = 1
+@export var bot_team_id: int = 2
 
 @onready var _characters: Node3D = $characters
 
@@ -33,6 +36,7 @@ var _world_ready_peers: Dictionary = {}
 var _spawn_random := RandomNumberGenerator.new()
 var _local_plane_camera_rig: Node3D
 var _local_plane_hud: CanvasLayer
+var _local_targeting_hud: CanvasLayer
 var _bot_follow_target: Node3D
 
 
@@ -179,6 +183,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 		existing.configure(peer_id, local_player)
 		_set_character_local_binding(existing, local_player)
 		_configure_bot_behavior(existing, peer_id)
+		_apply_team_to_character(existing, peer_id)
 		_apply_display_settings_to_character(existing)
 		if local_player:
 			_bind_local_plane_presentation(existing)
@@ -191,11 +196,17 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	character.configure(peer_id, local_player)
 	_set_character_local_binding(character, local_player)
 	_configure_bot_behavior(character, peer_id)
+	_apply_team_to_character(character, peer_id)
 	_characters.add_child(character, true)
 	_apply_display_settings_to_character(character)
 	if local_player:
 		_bind_local_plane_presentation(character)
 	return character
+
+
+func _apply_team_to_character(character: Node3D, peer_id: int) -> void:
+	if "team_id" in character:
+		character.set("team_id", bot_team_id if _is_bot_peer(peer_id) else player_team_id)
 
 
 func _despawn_character(peer_id: int) -> void:
@@ -523,6 +534,14 @@ func _bind_local_plane_presentation(character: Node3D) -> void:
 	if _local_plane_hud != null and _local_plane_hud.has_method("set_target"):
 		_local_plane_hud.call("set_target", character)
 
+	if _local_targeting_hud != null:
+		if _local_targeting_hud.has_method("set_target"):
+			_local_targeting_hud.call("set_target", character)
+		if _local_plane_camera_rig != null and _local_plane_camera_rig.has_method("get_camera"):
+			var cam := _local_plane_camera_rig.call("get_camera") as Camera3D
+			if _local_targeting_hud.has_method("set_camera"):
+				_local_targeting_hud.call("set_camera", cam)
+
 
 func _ensure_local_plane_presentation() -> void:
 	if _local_plane_camera_rig == null:
@@ -533,6 +552,10 @@ func _ensure_local_plane_presentation() -> void:
 		_local_plane_hud = PLANE_TELEMETRY_HUD_SCENE.instantiate() as CanvasLayer
 		add_child(_local_plane_hud)
 
+	if _local_targeting_hud == null:
+		_local_targeting_hud = PLANE_TARGETING_HUD_SCENE.instantiate() as CanvasLayer
+		add_child(_local_targeting_hud)
+
 
 func _clear_local_plane_presentation_target() -> void:
 	if _local_plane_camera_rig != null and _local_plane_camera_rig.has_method("set_target"):
@@ -540,6 +563,9 @@ func _clear_local_plane_presentation_target() -> void:
 
 	if _local_plane_hud != null and _local_plane_hud.has_method("set_target"):
 		_local_plane_hud.call("set_target", null)
+
+	if _local_targeting_hud != null and _local_targeting_hud.has_method("set_target"):
+		_local_targeting_hud.call("set_target", null)
 
 
 func _on_display_settings_changed() -> void:
