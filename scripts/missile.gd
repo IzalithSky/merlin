@@ -1,13 +1,14 @@
 extends RigidBody3D
 
-@export var thrust: float = 12000.0
-@export var drag_coeff: float = 0.002
-@export var torque_strength: float = 1500.0
+@export var thrust: float = 12_000.0
+@export var drag_coeff: float = 0.1
+@export var lateral_force: float = 60_000.0
+@export var torque_strength: float = 10.0
 @export var max_ang_vel_deg: float = 200.0
 @export var max_lifetime: float = 15.0
-@export var proximity_radius: float = 50.0
+@export var proximity_radius: float = 15.0
 @export var proximity_fuse_delay: float = 0.4
-@export var explosion_radius: float = 25.0
+@export var explosion_radius: float = 50.0
 @export var explosion_min_damage: float = 10.0
 @export var explosion_max_damage: float = 80.0
 @export var explosion_collision_mask: int = 1
@@ -16,6 +17,7 @@ extends RigidBody3D
 @export var trail_ttl_after_death: float = 4.0
 @export var target_loss_grace_period: float = 1.5
 @export var explode_on_timeout: bool = true
+@export var seeker_cone_half_angle_deg: float = 60.0
 
 const TRAIL_SCENE := preload("res://scenes/wing_trail.tscn")
 
@@ -88,6 +90,11 @@ func _apply_guidance(delta: float) -> void:
 	var deviation := target.global_position - global_position
 	var dist := deviation.length()
 
+	var fwd := -global_transform.basis.z
+	if fwd.dot(deviation / dist) < cos(deg_to_rad(seeker_cone_half_angle_deg)):
+		target = null
+		return
+
 	if dist < proximity_radius:
 		_spawn_explosion()
 		_die()
@@ -96,7 +103,12 @@ func _apply_guidance(delta: float) -> void:
 	var variation := deviation - _previous_deviation
 	_previous_deviation = deviation
 	var steer_dir := (deviation + variation).normalized()
-	var fwd := -global_transform.basis.z
+
+	var vel_dir := linear_velocity.normalized()
+	var lateral := steer_dir - vel_dir * vel_dir.dot(steer_dir)
+	if lateral.length_squared() > 1e-8:
+		apply_central_force(lateral * lateral_force)
+
 	var angle := fwd.angle_to(steer_dir)
 
 	if angle > 1e-3:

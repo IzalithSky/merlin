@@ -130,7 +130,8 @@ controlled by `explode_on_timeout`.
 | Export | Default | Notes |
 |---|---|---|
 | `thrust` | 12 000 N | Constant nose force for the whole flight. Missiles are 80 kg so this gives ~150 m/s² initial acceleration. Raise if missiles can't catch fast targets. |
-| `drag_coeff` | 0.002 | Quadratic drag coefficient. Higher drag limits top speed; lower drag makes the missile faster at range but harder to turn. |
+| `drag_coeff` | 0.1 | Quadratic drag coefficient. Sets terminal velocity: `v_eq = sqrt(thrust / drag_coeff)`. At 0.1 this caps at ~346 m/s. Lower = faster missile but harder to redirect at range. |
+| `lateral_force` | 80 000 N | Direct force applied perpendicular to current velocity, toward the intercept direction. This is what actually bends the flight path — without it, only nose-direction thrust redirects the missile and high-speed turns are impossible. Scale with `thrust` if changing thrust significantly. |
 | `torque_strength` | 150 N·m | Angular acceleration for guidance and stabilisation. Too low → lazy turns and missed targets. Too high → oscillation. |
 | `max_ang_vel_deg` | 200°/s | Hard cap on angular velocity. Primary limiter on how tight a turn the missile can make. |
 | `max_lifetime` | 15 s | Hard kill: missile dies at this age regardless of target state. |

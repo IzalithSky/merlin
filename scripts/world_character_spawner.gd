@@ -20,12 +20,12 @@ enum CharacterType {
 
 @export var spawn_center := Vector3.ZERO
 @export var spawn_height_offset: float = 1500.0
-@export var spawn_radius := 240.0
+@export var spawn_radius := 480.0
 @export var late_join_spawn_min_radius := 300.0
 @export var late_join_spawn_max_radius := 600.0
 @export var character_type := CharacterType.PLANE
 @export var bot_count := 1
-@export var bot_spawn_radius := 1200.0
+@export var bot_spawn_radius := 2400.0
 @export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
 @export var bot_player_killzone_distance := 250.0
 @export var bot_player_killzone_tolerance := 150.0
@@ -201,6 +201,8 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	_set_character_local_binding(character, local_player)
 	_configure_bot_behavior(character, peer_id)
 	_characters.add_child(character, true)
+	if character is RigidBody3D:
+		(character as RigidBody3D).linear_velocity = -character.basis.z * 100.0
 	_apply_display_settings_to_character(character)
 	if local_player:
 		_bind_local_plane_presentation(character)
