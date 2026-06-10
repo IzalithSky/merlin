@@ -103,12 +103,12 @@ func _make_defaults() -> Dictionary:
 		"pitch_down": [KEY_S, -1],
 		"yaw_left": [KEY_Q, -1],
 		"yaw_right": [KEY_E, -1],
-		"roll_left": [KEY_A, -1],
-		"roll_right": [KEY_D, -1],
+		"roll_left": [KEY_Z, -1],
+		"roll_right": [KEY_X, -1],
 		"throttle_up": [KEY_SPACE, -1],
 		"throttle_down": [KEY_SHIFT, -1],
-		"relative_roll_left": [KEY_Z, -1],
-		"relative_roll_right": [KEY_X, -1],
+		"relative_roll_left": [KEY_A, -1],
+		"relative_roll_right": [KEY_D, -1],
 	}
 
 

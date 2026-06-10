@@ -9,7 +9,7 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var rot_decay: float = 3.0
 @export var thr_rate: float = 1.2
 @export var relative_roll_cursor_speed: float = 2.0
-@export var relative_roll_max_error_deg: float = 120.0
+@export var relative_roll_max_error_deg: float = 180.0
 @export var relative_roll_error_to_rate_gain: float = 1.4
 @export var relative_roll_max_desired_rate: float = 2.0
 @export var relative_roll_rate_response_gain: float = 0.8
@@ -48,32 +48,32 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var reference_area: float = 12.0
 @export var ambient_wind_velocity_world: Vector3 = Vector3.ZERO
 @export var lift_coefficient_table: Array[Vector2] = [
-	Vector2(-30.0, -0.65),
-	Vector2(-20.0, -0.40),
-	Vector2(-10.0, -0.15),
-	Vector2(-5.0, -0.05),
-	Vector2(0.0, 0.00),
-	Vector2(5.0, 0.35),
-	Vector2(10.0, 0.75),
-	Vector2(15.0, 1.00),
-	Vector2(20.0, 0.85),
-	Vector2(25.0, 0.55),
-	Vector2(30.0, 0.25),
-	Vector2(40.0, 0.00),
+	Vector2(-27.63, -0.1506),
+	Vector2(-20.13, -0.9907),
+	Vector2(-10.18, -0.7980),
+	Vector2(-5.06, -0.3982),
+	Vector2(0.0, 0.0),
+	Vector2(4.98, 0.3937),
+	Vector2(9.94, 0.7979),
+	Vector2(14.98, 1.1985),
+	Vector2(19.88, 1.6027),
+	Vector2(24.06, 1.3809),
+	Vector2(29.73, 0.1696),
 ]
 @export var drag_coefficient_table: Array[Vector2] = [
-	Vector2(-30.0, 0.30),
-	Vector2(-20.0, 0.16),
-	Vector2(-10.0, 0.07),
-	Vector2(-5.0, 0.04),
-	Vector2(0.0, 0.02),
-	Vector2(5.0, 0.04),
-	Vector2(10.0, 0.07),
-	Vector2(15.0, 0.11),
-	Vector2(20.0, 0.18),
-	Vector2(25.0, 0.26),
-	Vector2(30.0, 0.36),
-	Vector2(40.0, 0.55),
+	Vector2(-29.83, 0.5989),
+	Vector2(-25.42, 0.3963),
+	Vector2(-21.38, 0.2701),
+	Vector2(-15.0, 0.1171),
+	Vector2(-10.04, 0.0495),
+	Vector2(-5.13, 0.0212),
+	Vector2(0.17, 0.0027),
+	Vector2(4.96, 0.0207),
+	Vector2(10.03, 0.0500),
+	Vector2(14.99, 0.1171),
+	Vector2(20.22, 0.2487),
+	Vector2(25.01, 0.3989),
+	Vector2(29.91, 0.6010),
 ]
 @export var side_force_coefficient_table: Array[Vector2] = [
 	Vector2(-40.0, 0.0),
@@ -81,17 +81,27 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 	Vector2(40.0, 0.0),
 ]
 @export var control_authority_coefficient_table: Array[Vector2] = [
-	Vector2(0.0, 1.00),
-	Vector2(25.0, 0.77),
-	Vector2(50.0, 0.55),
-	Vector2(100.0, 0.34),
-	Vector2(150.0, 0.27),
-	Vector2(250.0, 0.24),
-	Vector2(500.0, 0.25),
+	Vector2(0.77, 0.5008),
+	Vector2(24.32, 0.7643),
+	Vector2(65.02, 0.9982),
+	Vector2(114.65, 1.0037),
+	Vector2(152.36, 0.7573),
+	Vector2(175.44, 0.4232),
+	Vector2(200.45, 0.2607),
+	Vector2(250.47, 0.1438),
+	Vector2(500.67, 0.0689),
 ]
 @export var thrust_coefficient_table: Array[Vector2] = [
 	Vector2(0.0, 1.0),
-	Vector2(500.0, 1.0),
+	Vector2(22.30, 0.8621),
+	Vector2(38.64, 0.7771),
+	Vector2(55.66, 0.6795),
+	Vector2(73.29, 0.5910),
+	Vector2(97.13, 0.4855),
+	Vector2(124.82, 0.3779),
+	Vector2(158.05, 0.2854),
+	Vector2(202.43, 0.1934),
+	Vector2(391.29, 0.0411),
 ]
 @export var alignment_strength: float = 400.0
 @export var alignment_max_torque: float = 10_000.0
