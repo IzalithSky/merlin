@@ -3,7 +3,6 @@ extends Node
 @export var lock_cone_half_angle_deg: float = 15.0
 @export var lock_max_range: float = 4000.0
 @export var lock_time_sec: float = 1.5
-@export var allow_locking_friends: bool = false
 
 signal lock_acquired(target: Node3D)
 signal lock_lost()
@@ -93,12 +92,4 @@ func _check_lock_envelope(target: Node3D) -> bool:
 
 
 func _is_lockable(target: Node3D) -> bool:
-	if not is_instance_valid(target):
-		return false
-	var owner_plane := get_parent()
-	if owner_plane == null:
-		return true
-	if target.has_method("is_hostile_to"):
-		if not bool(target.call("is_hostile_to", owner_plane)) and not allow_locking_friends:
-			return false
-	return true
+	return is_instance_valid(target)

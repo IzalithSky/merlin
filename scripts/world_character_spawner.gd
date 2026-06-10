@@ -29,9 +29,6 @@ enum CharacterType {
 @export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
 @export var bot_player_killzone_distance := 250.0
 @export var bot_player_killzone_tolerance := 150.0
-@export var player_team_id: int = 1
-@export var bot_team_id: int = 2
-
 @onready var _characters: Node3D = $characters
 @onready var _projectiles: Node3D = $projectiles
 
@@ -69,7 +66,6 @@ func _ready() -> void:
 		_world_ready_peers[multiplayer.get_unique_id()] = true
 		_register_initial_peers()
 		_spawn_registered_characters_locally()
-		_spawn_bots(true)
 	else:
 		call_deferred("_request_world_sync")
 
@@ -192,7 +188,6 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 		existing.configure(peer_id, local_player)
 		_set_character_local_binding(existing, local_player)
 		_configure_bot_behavior(existing, peer_id)
-		_apply_team_to_character(existing, peer_id)
 		_apply_display_settings_to_character(existing)
 		if local_player:
 			_bind_local_plane_presentation(existing)
@@ -205,17 +200,11 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	character.configure(peer_id, local_player)
 	_set_character_local_binding(character, local_player)
 	_configure_bot_behavior(character, peer_id)
-	_apply_team_to_character(character, peer_id)
 	_characters.add_child(character, true)
 	_apply_display_settings_to_character(character)
 	if local_player:
 		_bind_local_plane_presentation(character)
 	return character
-
-
-func _apply_team_to_character(character: Node3D, peer_id: int) -> void:
-	if "team_id" in character:
-		character.set("team_id", bot_team_id if _is_bot_peer(peer_id) else player_team_id)
 
 
 func _despawn_character(peer_id: int) -> void:

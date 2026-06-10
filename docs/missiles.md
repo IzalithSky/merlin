@@ -77,7 +77,6 @@ and `_locked` becomes false immediately — there is no hysteresis on loss.
 | `lock_cone_half_angle_deg` | 15° | Half-angle of the nose cone. Wider = easier to acquire but allows off-bore shots. Typical fighters: 15–25°. |
 | `lock_max_range` | 4000 m | Maximum range at which lock can be acquired or maintained. Should exceed the missile's `max_fuel × speed` so a lock is always achievable before the missile runs out. |
 | `lock_time_sec` | 1.5 s | Time to go from 0 → full lock while continuously in the envelope. Shorter = more forgiving to player aim; longer = rewards sustained pursuit. |
-| `allow_locking_friends` | false | When true, friendly planes can be locked and targeted. Useful for testing or cooperative scenarios. |
 
 ### HUD feedback
 

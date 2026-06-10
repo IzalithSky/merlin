@@ -18,6 +18,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("game_menu")
 	_restart_button.pressed.connect(_on_restart_pressed)
+	_restart_button.visible = not _has_remote_peers()
 	_main_menu_button.pressed.connect(_on_main_menu_pressed)
 	_options_button.pressed.connect(_on_options_pressed)
 	_exit_button.pressed.connect(_on_exit_pressed)
@@ -48,7 +49,10 @@ func _set_open(value: bool, update_mouse_mode := true) -> void:
 
 	if value:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-		_restart_button.grab_focus()
+		if _restart_button.visible:
+			_restart_button.grab_focus()
+		else:
+			_main_menu_button.grab_focus()
 	else:
 		call_deferred("_capture_mouse")
 
