@@ -1,9 +1,5 @@
 extends CanvasLayer
 
-@export var lock_cone_half_angle_deg: float = 15.0
-@export var lock_max_range: float = 4000.0
-@export var lock_time_sec: float = 1.5
-@export var allow_locking_friends: bool = false
 @export var foe_color: Color = Color(1.0, 0.25, 0.1)
 @export var friend_color: Color = Color(0.2, 0.9, 0.3)
 @export var selected_color: Color = Color(1.0, 0.85, 0.0)
@@ -20,8 +16,7 @@ const LABEL_HEIGHT := 14.0
 var _owner_plane: Node3D = null
 var _camera: Camera3D = null
 var _selected_target: Node3D = null
-var _lock_progress: float = 0.0
-var _locked: bool = false
+var _weapon_lock: Node = null
 var _markers: Dictionary = {}
 
 var _tex_foe: Texture2D = null
@@ -41,8 +36,14 @@ func set_target(owner_plane: Node3D) -> void:
 	_owner_plane = owner_plane
 	_clear_all_markers()
 	_selected_target = null
-	_lock_progress = 0.0
-	_locked = false
+	_weapon_lock = null
+	if owner_plane != null and is_instance_valid(owner_plane):
+		_weapon_lock = owner_plane.get_node_or_null("PlaneWeaponLock")
+		if _weapon_lock != null:
+			if not _weapon_lock.lock_acquired.is_connected(_on_lock_acquired):
+				_weapon_lock.lock_acquired.connect(_on_lock_acquired)
+			if not _weapon_lock.lock_lost.is_connected(_on_lock_lost):
+				_weapon_lock.lock_lost.connect(_on_lock_lost)
 
 
 func set_camera(cam: Camera3D) -> void:
@@ -54,20 +55,24 @@ func get_selected_target() -> Node3D:
 
 
 func get_locked_target() -> Node3D:
-	if _locked and is_instance_valid(_selected_target):
-		return _selected_target
+	if _weapon_lock != null and is_instance_valid(_weapon_lock):
+		return _weapon_lock.call("get_locked_target") as Node3D
 	return null
 
 
 func get_lock_progress() -> float:
-	return _lock_progress
+	if _weapon_lock != null and is_instance_valid(_weapon_lock):
+		return float(_weapon_lock.call("get_lock_progress"))
+	return 0.0
 
 
 func is_in_lock_envelope() -> bool:
-	return _check_lock_envelope(_selected_target)
+	if _weapon_lock != null and is_instance_valid(_weapon_lock):
+		return bool(_weapon_lock.call("is_in_envelope"))
+	return false
 
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if _owner_plane == null or not is_instance_valid(_owner_plane):
 		return
 	if _camera == null or not is_instance_valid(_camera):
@@ -77,7 +82,7 @@ func _process(delta: float) -> void:
 
 	_handle_input()
 	_validate_selection()
-	_update_lock(delta)
+	_push_selection_to_lock()
 	_update_markers()
 	_purge_dead_markers()
 
@@ -98,54 +103,9 @@ func _validate_selection() -> void:
 		_clear_selection()
 
 
-func _update_lock(delta: float) -> void:
-	if not is_instance_valid(_selected_target):
-		if _locked:
-			_locked = false
-			_lock_progress = 0.0
-			lock_lost.emit()
-		else:
-			_lock_progress = 0.0
-		return
-
-	if not _is_lockable(_selected_target):
-		if _locked:
-			_locked = false
-			lock_lost.emit()
-		_lock_progress = 0.0
-		return
-
-	if _check_lock_envelope(_selected_target):
-		_lock_progress = minf(_lock_progress + delta / maxf(lock_time_sec, 0.01), 1.0)
-		if not _locked and _lock_progress >= 1.0:
-			_locked = true
-			lock_acquired.emit(_selected_target)
-	else:
-		if _locked:
-			_locked = false
-			lock_lost.emit()
-		_lock_progress = 0.0
-
-
-func _check_lock_envelope(target: Node3D) -> bool:
-	if target == null or not is_instance_valid(target):
-		return false
-	var to_target := target.global_position - _owner_plane.global_position
-	var dist := to_target.length()
-	if dist < 0.001 or dist > lock_max_range:
-		return false
-	var fwd := -_owner_plane.global_transform.basis.z
-	var angle := acos(clampf(fwd.dot(to_target / dist), -1.0, 1.0))
-	return angle <= deg_to_rad(lock_cone_half_angle_deg)
-
-
-func _is_lockable(target: Node3D) -> bool:
-	if not is_instance_valid(target):
-		return false
-	if target.has_method("is_hostile_to"):
-		if not bool(target.call("is_hostile_to", _owner_plane)) and not allow_locking_friends:
-			return false
-	return true
+func _push_selection_to_lock() -> void:
+	if _weapon_lock != null and is_instance_valid(_weapon_lock):
+		_weapon_lock.call("set_desired_target", _selected_target)
 
 
 func _select_nearest_to_center() -> void:
@@ -197,10 +157,6 @@ func _cycle_selection(direction: int) -> void:
 func _set_selection(target: Node3D) -> void:
 	if target == _selected_target:
 		return
-	_lock_progress = 0.0
-	if _locked:
-		_locked = false
-		lock_lost.emit()
 	_selected_target = target
 	selection_changed.emit(_selected_target)
 
@@ -312,9 +268,12 @@ func _apply_marker(marker: Control, target: Node3D, screen_pos: Vector2) -> void
 	var range_lbl := marker.get_node("Range") as Label
 	var state_lbl := marker.get_node("State") as Label
 
+	var lock_progress := get_lock_progress()
+	var locked := _weapon_lock != null and is_instance_valid(_weapon_lock) and bool(_weapon_lock.call("is_locked"))
+
 	icon.texture = _tex_foe if is_foe else _tex_friend
 
-	if is_sel and _locked:
+	if is_sel and locked:
 		icon.modulate = locked_color
 	elif is_sel:
 		icon.modulate = selected_color
@@ -323,12 +282,11 @@ func _apply_marker(marker: Control, target: Node3D, screen_pos: Vector2) -> void
 	else:
 		icon.modulate = friend_color
 
-	# Lock brackets fade in while locking, solid when locked
-	var show_lock := is_sel and (_lock_progress > 0.0 or _locked)
+	var show_lock := is_sel and (lock_progress > 0.0 or locked)
 	lock_icon.visible = show_lock
 	if show_lock:
 		lock_icon.modulate = Color(locked_color.r, locked_color.g, locked_color.b,
-			1.0 if _locked else _lock_progress)
+			1.0 if locked else lock_progress)
 
 	var dist := target.global_position.distance_to(_owner_plane.global_position)
 	range_lbl.text = "%.0fm" % dist
@@ -336,11 +294,11 @@ func _apply_marker(marker: Control, target: Node3D, screen_pos: Vector2) -> void
 
 	if is_sel:
 		state_lbl.visible = true
-		if _locked:
+		if locked:
 			state_lbl.text = "LOCK"
 			state_lbl.modulate = locked_color
-		elif _lock_progress > 0.0:
-			state_lbl.text = "%.0f%%" % (_lock_progress * 100.0)
+		elif lock_progress > 0.0:
+			state_lbl.text = "%.0f%%" % (lock_progress * 100.0)
 			state_lbl.modulate = selected_color
 		else:
 			state_lbl.text = "SEL"
@@ -380,3 +338,11 @@ func _is_game_menu_open() -> bool:
 		if menu.has_method("is_open") and bool(menu.call("is_open")):
 			return true
 	return false
+
+
+func _on_lock_acquired(target: Node3D) -> void:
+	lock_acquired.emit(target)
+
+
+func _on_lock_lost() -> void:
+	lock_lost.emit()

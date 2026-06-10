@@ -103,6 +103,8 @@ shadow_enabled = true
 
 [node name="characters" type="Node3D" parent="."]
 
+[node name="projectiles" type="Node3D" parent="."]
+
 [node name="ui" type="CanvasLayer" parent="."]
 layer = 10
 script = ExtResource("4_fhkym")

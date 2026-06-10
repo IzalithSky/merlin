@@ -14,6 +14,7 @@ const ACTIONS: Array[String] = [
 	"relative_roll_left", "relative_roll_right",
 	"target_select", "target_deselect",
 	"target_cycle_next", "target_cycle_prev",
+	"fire_missile",
 ]
 
 const ACTION_LABELS: Dictionary = {
@@ -31,6 +32,7 @@ const ACTION_LABELS: Dictionary = {
 	"target_deselect": "Target Deselect",
 	"target_cycle_next": "Target Next",
 	"target_cycle_prev": "Target Prev",
+	"fire_missile": "Fire Missile",
 }
 
 var _bindings: Dictionary = {}
@@ -121,6 +123,7 @@ func _make_defaults() -> Dictionary:
 		"target_deselect": [KEY_G, -1],
 		"target_cycle_next": [KEY_Y, -1],
 		"target_cycle_prev": [-1, -1],
+		"fire_missile": [KEY_F, -1],
 	}
 
 
