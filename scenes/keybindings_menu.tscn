@@ -37,9 +37,22 @@ theme_override_constants/h_separation = 8
 theme_override_constants/v_separation = 6
 columns = 4
 
-[node name="KeybindingsBackButton" type="Button" parent="Margin/VBox"]
+[node name="ButtonRow" type="HBoxContainer" parent="Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="KeybindingsResetButton" type="Button" parent="Margin/VBox/ButtonRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 20
+text = "Reset to Defaults"
+
+[node name="KeybindingsBackButton" type="Button" parent="Margin/VBox/ButtonRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 20
 text = "Back"

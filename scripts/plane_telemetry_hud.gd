@@ -16,6 +16,8 @@ extends CanvasLayer
 @onready var _damping_along_value: Label = %DampingAlongValue
 @onready var _net_along_value: Label = %NetAlongValue
 @onready var _relative_roll_clock: Control = %RelativeRollClock
+@onready var _vy_speed_value: Label = %VySpeedValue
+@onready var _vy_active_value: Label = %VyActiveValue
 
 var _target: RigidBody3D
 var _advanced_hud_nodes: Array[CanvasItem] = []
@@ -85,6 +87,7 @@ func _process(_delta: float) -> void:
 	_roll_input_bar.value = roll_input * 100.0
 	_throttle_input_bar.value = throttle_input * 100.0
 	_update_force_balance_debug()
+	_update_vy_debug()
 	_update_relative_roll_clock()
 
 
@@ -113,6 +116,8 @@ func _reset_advanced_labels() -> void:
 	_gravity_along_value.text = "--"
 	_damping_along_value.text = "--"
 	_net_along_value.text = "--"
+	_vy_speed_value.text = "--"
+	_vy_active_value.text = "--"
 
 
 func _update_force_balance_debug() -> void:
@@ -134,6 +139,19 @@ func _update_force_balance_debug() -> void:
 	_net_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "net_along_velocity")
 
 
+func _update_vy_debug() -> void:
+	if _target == null or not _target.has_method("get_best_climb_speed_vy"):
+		_vy_speed_value.text = "--"
+		_vy_active_value.text = "--"
+		return
+
+	var vy := float(_target.call("get_best_climb_speed_vy"))
+	var valid := bool(_target.call("is_best_climb_speed_vy_valid"))
+	var using_vy := bool(_target.call("is_sustain_turn_using_vy"))
+	_vy_speed_value.text = ("%.1f m/s" % vy) if valid else "---"
+	_vy_active_value.text = "YES" if using_vy else "no"
+
+
 func _update_relative_roll_clock() -> void:
 	if _relative_roll_clock == null:
 		return
@@ -142,7 +160,8 @@ func _update_relative_roll_clock() -> void:
 		_relative_roll_clock.visible = false
 		return
 
-	_relative_roll_clock.visible = true
+	var is_active := bool(_target.call("is_relative_roll_active"))
+	_relative_roll_clock.visible = is_active
 	if _target.has_method("get_relative_roll_error"):
 		_relative_roll_clock.set("roll_error", float(_target.call("get_relative_roll_error")))
 
@@ -187,6 +206,12 @@ func _collect_advanced_hud_nodes() -> void:
 		"DampingAlongValue",
 		"NetAlongLabel",
 		"NetAlongValue",
+		"VySectionLabel",
+		"VySectionValueSpacer",
+		"VySpeedLabel",
+		"VySpeedValue",
+		"VyActiveLabel",
+		"VyActiveValue",
 	]
 
 	for node_name in node_names:

@@ -10,11 +10,13 @@ var _row_buttons: Dictionary = {}
 
 @onready var _action_grid: GridContainer = %ActionGrid
 @onready var _back_button: Button = %KeybindingsBackButton
+@onready var _reset_button: Button = %KeybindingsResetButton
 
 
 func _ready() -> void:
 	_build_rows()
 	_back_button.pressed.connect(_on_back_pressed)
+	_reset_button.pressed.connect(_on_reset_pressed)
 	KeybindingsSettings.bindings_changed.connect(_refresh_labels)
 
 
@@ -121,6 +123,11 @@ func _on_clear_pressed(action: String) -> void:
 		_stop_listening()
 
 	KeybindingsSettings.clear_action(action)
+
+
+func _on_reset_pressed() -> void:
+	_stop_listening()
+	KeybindingsSettings.reset_to_defaults()
 
 
 func _on_back_pressed() -> void:

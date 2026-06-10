@@ -107,8 +107,8 @@ func _make_defaults() -> Dictionary:
 		"roll_right": [KEY_D, -1],
 		"throttle_up": [KEY_SPACE, -1],
 		"throttle_down": [KEY_SHIFT, -1],
-		"relative_roll_left": [KEY_X, -1],
-		"relative_roll_right": [KEY_Z, -1],
+		"relative_roll_left": [KEY_Z, -1],
+		"relative_roll_right": [KEY_X, -1],
 	}
 
 

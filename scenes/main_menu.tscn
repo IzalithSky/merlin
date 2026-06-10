@@ -227,7 +227,7 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Back"
 
-[node name="KeybindingsPanel" parent="CenterContainer" instance=ExtResource("3_kbmenu")]
+[node name="KeybindingsPanel" parent="CenterContainer" unique_id=1972562999 instance=ExtResource("3_kbmenu")]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2

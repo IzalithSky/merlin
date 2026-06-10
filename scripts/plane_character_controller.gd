@@ -19,14 +19,14 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var max_thrust: float = 14_000.0
 @export var max_pitch: float = 1.0
 @export var max_yaw: float = 0.5
-@export var max_roll: float = 1.5
-@export var base_control_torque: float = 40_000.0
+@export var max_roll: float = 2.5
+@export var base_control_torque: float = 24_000.0
 @export var max_lift_turn_limiter_enabled: bool = true
 @export var max_lift_turn_limiter_min_airspeed: float = 5.0
-@export var max_lift_turn_limiter_fade_deg: float = 3.0
+@export var max_lift_turn_limiter_fade_deg: float = 10.0
 @export var sustain_turn_limiter_enabled: bool = true
 @export var sustain_turn_limiter_min_target_airspeed: float = 100.0
-@export var sustain_turn_limiter_fade_deg: float = 3.0
+@export var sustain_turn_limiter_fade_deg: float = 10.0
 @export var sustain_turn_limiter_samples: int = 48
 @export var sustain_turn_limiter_drag_margin: float = 1.05
 @export var sustain_turn_vy_enabled: bool = true
@@ -35,6 +35,13 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var sustain_turn_vy_sample_max_speed: float = 250.0
 @export var sustain_turn_vy_sample_count: int = 64
 @export var sustain_turn_vy_max_load_factor: float = 4.0
+# Vy speed-margin limiter: when altitude is rising, pitch authority fades to zero
+# over this speed band as airspeed drops from (Vy + margin) down to Vy.
+@export var sustain_turn_vy_margin_speed: float = 20.0
+# Hysteresis dead-band (m/s) around zero world-vertical-speed for the climb switch.
+@export var sustain_turn_vy_climb_speed_threshold: float = 0.5
+# Min world-vertical pull intent (-pitch * up.y) to engage the Vy gate on a climb
+# entry before altitude has started rising.
 @export var sustain_turn_vy_min_vertical_pull_intent: float = 0.1
 
 @export var air_density: float = 1.225
@@ -157,6 +164,7 @@ var _best_climb_speed_vy := 0.0
 var _best_climb_speed_vy_valid := false
 var _sustain_turn_vy_update_timer := 0.0
 var _sustain_turn_using_vy := false
+var _altitude_rising := false
 
 
 func _ready() -> void:
@@ -186,6 +194,7 @@ func _physics_process(delta: float) -> void:
 
 	_begin_force_debug_frame()
 	_update_physics_frame_cache()
+	_update_altitude_rising_state()
 	_update_best_climb_speed_vy(delta)
 
 	if is_bot_controlled:
@@ -231,6 +240,20 @@ func _update_physics_frame_cache() -> void:
 
 	_frame_air_velocity_local = _frame_body_basis.transposed() * _frame_air_velocity_world
 	_frame_dynamic_pressure = 0.5 * air_density * _frame_air_speed_squared
+
+
+func _update_altitude_rising_state() -> void:
+	var climb_speed_threshold := maxf(sustain_turn_vy_climb_speed_threshold, 0.0)
+	var world_vertical_speed := linear_velocity.y
+
+	if climb_speed_threshold <= 0.0001:
+		_altitude_rising = world_vertical_speed > 0.0
+		return
+
+	if world_vertical_speed > climb_speed_threshold:
+		_altitude_rising = true
+	elif world_vertical_speed < -climb_speed_threshold:
+		_altitude_rising = false
 
 
 func _apply_spawn_control_defaults() -> void:
@@ -348,8 +371,8 @@ func _get_direct_roll_direction() -> float:
 func _get_relative_roll_direction() -> float:
 	var direction := 0.0
 
-	direction += Input.get_action_strength("relative_roll_left")
-	direction -= Input.get_action_strength("relative_roll_right")
+	direction -= Input.get_action_strength("relative_roll_left")
+	direction += Input.get_action_strength("relative_roll_right")
 
 	return clampf(direction, -1.0, 1.0)
 
@@ -515,13 +538,20 @@ func apply_directional_alignment() -> void:
 	if _frame_air_speed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
 		return
 
+	var yaw_axis := _frame_up_axis
 	var forward := _frame_forward_axis
 	var velocity_direction := _frame_airflow_direction
-	var axis := forward.cross(velocity_direction)
-	var angle := forward.angle_to(velocity_direction)
+	velocity_direction -= yaw_axis * velocity_direction.dot(yaw_axis)
 
-	if angle > 0.01:
-		var torque := axis.normalized() * angle * alignment_strength * _frame_air_speed
+	if velocity_direction.length_squared() < MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		return
+
+	velocity_direction = velocity_direction.normalized()
+	var axis := forward.cross(velocity_direction)
+	var yaw_angle := forward.angle_to(velocity_direction) * signf(axis.dot(yaw_axis))
+
+	if absf(yaw_angle) > 0.01:
+		var torque := yaw_axis * yaw_angle * alignment_strength * _frame_air_speed
 		if alignment_max_torque > 0.0:
 			torque = torque.limit_length(alignment_max_torque)
 		apply_torque(torque)
@@ -819,10 +849,6 @@ func is_sustain_turn_using_vy() -> bool:
 	return _sustain_turn_using_vy
 
 
-func get_vertical_pull_intent() -> float:
-	return _get_vertical_pull_intent()
-
-
 func get_roll_input_for_error(
 	roll_error: float,
 	angle_to_rate_gain: float,
@@ -1030,35 +1056,25 @@ func _get_max_lift_limited_pitch_input(raw_pitch_input: float) -> float:
 	if _frame_air_speed < maxf(max_lift_turn_limiter_min_airspeed, 0.0):
 		return limited_pitch_input
 
-	if absf(limited_pitch_input) <= 0.0001:
-		return limited_pitch_input
-
 	if _positive_max_lift_aoa_deg <= _negative_max_lift_aoa_deg:
 		return limited_pitch_input
 
 	var fade_degrees := maxf(max_lift_turn_limiter_fade_deg, 0.0)
-	if limited_pitch_input < 0.0:
-		return limited_pitch_input * _get_positive_aoa_pitch_authority(fade_degrees)
+	if limited_pitch_input < 0.0 or aoa_deg > _positive_max_lift_aoa_deg:
+		return _limit_pitch_input_below_upper_aoa_limit(
+			limited_pitch_input,
+			_positive_max_lift_aoa_deg,
+			fade_degrees
+		)
 
-	return limited_pitch_input * _get_negative_aoa_pitch_authority(fade_degrees)
+	if limited_pitch_input > 0.0 or aoa_deg < _negative_max_lift_aoa_deg:
+		return _limit_pitch_input_above_lower_aoa_limit(
+			limited_pitch_input,
+			_negative_max_lift_aoa_deg,
+			fade_degrees
+		)
 
-
-func _get_positive_aoa_pitch_authority(fade_degrees: float) -> float:
-	if fade_degrees <= 0.0001:
-		if aoa_deg >= _positive_max_lift_aoa_deg:
-			return 0.0
-		return 1.0
-
-	return clampf((_positive_max_lift_aoa_deg - aoa_deg) / fade_degrees, 0.0, 1.0)
-
-
-func _get_negative_aoa_pitch_authority(fade_degrees: float) -> float:
-	if fade_degrees <= 0.0001:
-		if aoa_deg <= _negative_max_lift_aoa_deg:
-			return 0.0
-		return 1.0
-
-	return clampf((aoa_deg - _negative_max_lift_aoa_deg) / fade_degrees, 0.0, 1.0)
+	return limited_pitch_input
 
 
 func _get_sustain_turn_limited_pitch_input(raw_pitch_input: float) -> float:
@@ -1066,16 +1082,24 @@ func _get_sustain_turn_limited_pitch_input(raw_pitch_input: float) -> float:
 	if not _should_apply_sustain_turn_limiter():
 		return limited_pitch_input
 
-	if absf(limited_pitch_input) <= 0.0001:
-		return limited_pitch_input
-
 	var fade_degrees := maxf(sustain_turn_limiter_fade_deg, 0.0)
-	if limited_pitch_input < 0.0:
+	if limited_pitch_input < 0.0 or aoa_deg > 0.0:
 		var positive_limit := _get_sustainable_aoa_limit(true)
-		return limited_pitch_input * _get_pitch_authority_below_upper_aoa_limit(positive_limit, fade_degrees)
+		return _limit_pitch_input_below_upper_aoa_limit(
+			limited_pitch_input,
+			positive_limit,
+			fade_degrees
+		)
 
-	var negative_limit := _get_sustainable_aoa_limit(false)
-	return limited_pitch_input * _get_pitch_authority_above_lower_aoa_limit(negative_limit, fade_degrees)
+	if limited_pitch_input > 0.0 or aoa_deg < 0.0:
+		var negative_limit := _get_sustainable_aoa_limit(false)
+		return _limit_pitch_input_above_lower_aoa_limit(
+			limited_pitch_input,
+			negative_limit,
+			fade_degrees
+		)
+
+	return limited_pitch_input
 
 
 func _should_apply_sustain_turn_limiter() -> bool:
@@ -1102,6 +1126,16 @@ func _should_apply_sustain_turn_limiter() -> bool:
 
 func _get_sustainable_aoa_limit(positive_limit: bool) -> float:
 	var bound := _positive_max_lift_aoa_deg if positive_limit else _negative_max_lift_aoa_deg
+
+	# Pull-up while altitude is rising: gate on speed margin above Vy instead of the
+	# current-speed drag balance, which collapses during a climb (gravity along the
+	# climbing airflow turns negative). This lets the pilot trade speed down to Vy.
+	if positive_limit and _should_use_vy_speed_margin_limit():
+		_sustain_turn_using_vy = true
+		return _get_vy_speed_margin_aoa_limit(bound)
+
+	_sustain_turn_using_vy = false
+
 	var sample_count := maxi(sustain_turn_limiter_samples, 1)
 	var available_force := _get_sustain_available_forward_force()
 	if available_force <= 0.0:
@@ -1135,6 +1169,35 @@ func _get_sustain_available_forward_force() -> float:
 	var thrust_force := _get_thrust_force_world()
 	var gravity_force := _get_gravity_force_world()
 	return thrust_force.dot(_frame_airflow_direction) + gravity_force.dot(_frame_airflow_direction)
+
+
+func _should_use_vy_speed_margin_limit() -> bool:
+	if not sustain_turn_vy_enabled:
+		return false
+
+	if not _best_climb_speed_vy_valid:
+		return false
+
+	# Engage while actually climbing, or the instant the pilot commands a wings-level
+	# pull-up, so a climb entry isn't choked by the current-speed drag check before
+	# altitude has started to rise.
+	return _altitude_rising or _has_sustain_turn_climb_intent()
+
+
+func _get_vy_speed_margin_aoa_limit(bound: float) -> float:
+	# Bleed toward the actual computed Vy (already validated > 0), not the drag-check
+	# floor -- the floor only guards the current-speed path, not this gate.
+	var vy_speed := maxf(_best_climb_speed_vy, 0.1)
+	var margin_speed := maxf(sustain_turn_vy_margin_speed, 0.0)
+	var speed_above_vy := _frame_air_speed - vy_speed
+
+	if margin_speed <= 0.0001:
+		if speed_above_vy > 0.0:
+			return bound
+		return 0.0
+
+	var speed_margin_authority := clampf(speed_above_vy / margin_speed, 0.0, 1.0)
+	return lerpf(0.0, bound, speed_margin_authority)
 
 
 func _update_best_climb_speed_vy(delta: float) -> void:
@@ -1281,29 +1344,37 @@ func _has_sustain_turn_climb_intent() -> bool:
 
 
 func _get_sustain_turn_target_speed() -> float:
-	_sustain_turn_using_vy = false
-
-	if _should_use_vy_for_sustain_turn():
-		_sustain_turn_using_vy = true
-		return maxf(_best_climb_speed_vy, sustain_turn_limiter_min_target_airspeed)
-
 	return maxf(_frame_air_speed, sustain_turn_limiter_min_target_airspeed)
 
 
-func _should_use_vy_for_sustain_turn() -> bool:
-	if not sustain_turn_vy_enabled:
-		return false
+func _limit_pitch_input_below_upper_aoa_limit(raw_pitch_input: float, upper_limit_deg: float, fade_degrees: float) -> float:
+	var limited_pitch_input := clampf(raw_pitch_input, -1.0, 1.0)
+	if limited_pitch_input >= 0.0 and aoa_deg <= upper_limit_deg:
+		return limited_pitch_input
 
-	if not _should_apply_sustain_turn_limiter():
-		return false
+	limited_pitch_input *= _get_pitch_authority_below_upper_aoa_limit(upper_limit_deg, fade_degrees)
 
-	if not _best_climb_speed_vy_valid:
-		return false
+	if aoa_deg <= upper_limit_deg:
+		return limited_pitch_input
 
-	if not _has_sustain_turn_climb_intent():
-		return false
+	var recovery_span := maxf(fade_degrees, 1.0)
+	var recovery_input := clampf((aoa_deg - upper_limit_deg) / recovery_span, 0.0, 1.0)
+	return maxf(limited_pitch_input, recovery_input)
 
-	return true
+
+func _limit_pitch_input_above_lower_aoa_limit(raw_pitch_input: float, lower_limit_deg: float, fade_degrees: float) -> float:
+	var limited_pitch_input := clampf(raw_pitch_input, -1.0, 1.0)
+	if limited_pitch_input <= 0.0 and aoa_deg >= lower_limit_deg:
+		return limited_pitch_input
+
+	limited_pitch_input *= _get_pitch_authority_above_lower_aoa_limit(lower_limit_deg, fade_degrees)
+
+	if aoa_deg >= lower_limit_deg:
+		return limited_pitch_input
+
+	var recovery_span := maxf(fade_degrees, 1.0)
+	var recovery_input := -clampf((lower_limit_deg - aoa_deg) / recovery_span, 0.0, 1.0)
+	return minf(limited_pitch_input, recovery_input)
 
 
 func _get_pitch_authority_below_upper_aoa_limit(upper_limit_deg: float, fade_degrees: float) -> float:
