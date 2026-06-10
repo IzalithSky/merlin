@@ -1,0 +1,21 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/missile_visual.gd" id="1_missile_visual"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_missile"]
+albedo_color = Color(1.0, 0.85, 0.0, 1)
+roughness = 0.6
+emission_enabled = true
+emission = Color(0.8, 0.6, 0.0, 1)
+emission_energy_multiplier = 0.4
+
+[sub_resource type="PrismMesh" id="PrismMesh_missile"]
+material = SubResource("StandardMaterial3D_missile")
+size = Vector3(1.2, 4.0, 0.4)
+
+[node name="MissileVisual" type="Node3D"]
+script = ExtResource("1_missile_visual")
+
+[node name="BodyMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(-1, -8.742278e-08, 3.821371e-15, 0, -4.371139e-08, -1, 8.742278e-08, -1, 4.371139e-08, 0, 0, 0)
+mesh = SubResource("PrismMesh_missile")

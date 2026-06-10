@@ -2,41 +2,37 @@ extends RigidBody3D
 
 @export var thrust: float = 12000.0
 @export var drag_coeff: float = 0.002
-@export var torque_strength: float = 15.0
+@export var torque_strength: float = 1500.0
 @export var max_ang_vel_deg: float = 200.0
-@export var max_fuel: float = 12.0
 @export var max_lifetime: float = 15.0
-@export var proximity_radius: float = 20.0
+@export var proximity_radius: float = 50.0
 @export var proximity_fuse_delay: float = 0.4
-@export var explosion_radius: float = 50.0
+@export var explosion_radius: float = 25.0
 @export var explosion_min_damage: float = 10.0
 @export var explosion_max_damage: float = 80.0
 @export var explosion_collision_mask: int = 1
 @export var explosion_scene: PackedScene
 @export var trail_lifespan: float = 2.0
 @export var trail_ttl_after_death: float = 4.0
-@export var slowdown_trigger_distance: float = 300.0
-@export var minimum_thrust_factor: float = 0.6
 @export var target_loss_grace_period: float = 1.5
+@export var explode_on_timeout: bool = true
 
 const TRAIL_SCENE := preload("res://scenes/wing_trail.tscn")
+
+signal died(exploded: bool, position: Vector3)
 
 var target: Node3D = null
 var host: RigidBody3D = null
 
-var _fuel: float = 0.0
-var _base_thrust: float = 0.0
 var _time_since_launch: float = 0.0
 var _time_since_target_lost: float = 0.0
 var _had_target: bool = false
+var _exploded: bool = false
 var _previous_deviation: Vector3 = Vector3.ZERO
 var _trail: Node = null
 
 
 func _ready() -> void:
-	_fuel = max_fuel
-	_base_thrust = thrust
-	_previous_deviation = Vector3.ZERO
 	_had_target = target != null and is_instance_valid(target)
 	body_entered.connect(_on_body_entered)
 	_spawn_trail()
@@ -45,17 +41,16 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_time_since_launch += delta
 
-	if _fuel > 0.0:
-		apply_central_force(-global_transform.basis.z * thrust)
-		_fuel = maxf(_fuel - delta, 0.0)
-
+	apply_central_force(-global_transform.basis.z * thrust)
 	_apply_drag()
 	_apply_stabilisation()
 	_apply_guidance(delta)
 
 	if _time_since_launch >= max_lifetime:
-		_spawn_explosion()
+		if explode_on_timeout:
+			_spawn_explosion()
 		_die()
+		return
 
 	var max_av := deg_to_rad(max_ang_vel_deg)
 	if angular_velocity.length_squared() > max_av * max_av:
@@ -83,6 +78,8 @@ func _apply_guidance(delta: float) -> void:
 		if _had_target:
 			_time_since_target_lost += delta
 			if _time_since_target_lost >= target_loss_grace_period:
+				if explode_on_timeout:
+					_spawn_explosion()
 				_die()
 		return
 
@@ -95,8 +92,6 @@ func _apply_guidance(delta: float) -> void:
 		_spawn_explosion()
 		_die()
 		return
-
-	thrust = _base_thrust * clampf(dist / slowdown_trigger_distance, minimum_thrust_factor, 1.0)
 
 	var variation := deviation - _previous_deviation
 	_previous_deviation = deviation
@@ -121,9 +116,8 @@ func _on_body_entered(body: Node) -> void:
 
 
 func _die() -> void:
+	var death_pos := global_position
 	if _trail != null and is_instance_valid(_trail):
-		if _trail.has_method("clear_trail"):
-			pass
 		if "trail_enabled" in _trail:
 			_trail.set("trail_enabled", false)
 		if "permanent" in _trail:
@@ -131,10 +125,12 @@ func _die() -> void:
 		if "node_ttl" in _trail:
 			_trail.set("node_ttl", trail_ttl_after_death)
 		_trail = null
+	died.emit(_exploded, death_pos)
 	queue_free()
 
 
 func _spawn_explosion() -> void:
+	_exploded = true
 	if explosion_scene != null:
 		var e := explosion_scene.instantiate() as Node3D
 		get_tree().current_scene.add_child(e)

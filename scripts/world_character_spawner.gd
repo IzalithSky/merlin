@@ -7,6 +7,9 @@ const PLANE_TELEMETRY_HUD_SCENE := preload("res://scenes/plane_telemetry_hud.tsc
 const PLANE_TARGETING_HUD_SCENE := preload("res://scenes/plane_targeting_hud.tscn")
 const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
 const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
+const MISSILE_SCENE := preload("res://scenes/missile.tscn")
+const MISSILE_VISUAL_SCENE := preload("res://scenes/missile_visual.tscn")
+const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 const CHARACTER_NAME_PREFIX := "PlayerCharacter_"
 const BOT_PEER_ID_BASE := 1000000
 
@@ -30,8 +33,12 @@ enum CharacterType {
 @export var bot_team_id: int = 2
 
 @onready var _characters: Node3D = $characters
+@onready var _projectiles: Node3D = $projectiles
 
 var _peer_spawn_states: Dictionary = {}
+var _next_missile_id: int = 0
+var _active_missiles: Dictionary = {}
+var _remote_missiles: Dictionary = {}
 var _world_ready_peers: Dictionary = {}
 var _spawn_random := RandomNumberGenerator.new()
 var _local_plane_camera_rig: Node3D
@@ -44,6 +51,8 @@ func _ready() -> void:
 	_spawn_random.randomize()
 	_resolve_bot_follow_target()
 	DisplaySettings.settings_changed.connect(_on_display_settings_changed)
+	if multiplayer.multiplayer_peer != null:
+		_projectiles.child_entered_tree.connect(_on_projectile_entered)
 
 	if multiplayer.multiplayer_peer == null:
 		if bot_count < 1:
@@ -566,6 +575,105 @@ func _clear_local_plane_presentation_target() -> void:
 
 	if _local_targeting_hud != null and _local_targeting_hud.has_method("set_target"):
 		_local_targeting_hud.call("set_target", null)
+
+
+func _physics_process(_delta: float) -> void:
+	if multiplayer.multiplayer_peer == null or not multiplayer.is_server():
+		return
+	for missile_id in _active_missiles.keys():
+		var missile := _active_missiles[missile_id] as Node3D
+		if not is_instance_valid(missile):
+			_active_missiles.erase(missile_id)
+			continue
+		var t := missile.global_transform
+		for peer_id in multiplayer.get_peers():
+			if _is_peer_world_ready(peer_id):
+				cl_missile_state.rpc_id(peer_id, missile_id, t)
+
+
+func _on_projectile_entered(node: Node) -> void:
+	if not multiplayer.is_server():
+		return
+	if not node.has_signal("died"):
+		return
+	var missile_id := _next_missile_id
+	_next_missile_id += 1
+	_active_missiles[missile_id] = node
+	var vel := (node as RigidBody3D).linear_velocity if node is RigidBody3D else Vector3.ZERO
+	node.died.connect(
+		func(exploded: bool, pos: Vector3) -> void: _on_missile_died(missile_id, exploded, pos)
+	)
+	for peer_id in multiplayer.get_peers():
+		if _is_peer_world_ready(peer_id):
+			cl_spawn_missile.rpc_id(peer_id, missile_id, node.global_transform, vel)
+
+
+func _on_missile_died(missile_id: int, exploded: bool, pos: Vector3) -> void:
+	_active_missiles.erase(missile_id)
+	for peer_id in multiplayer.get_peers():
+		if _is_peer_world_ready(peer_id):
+			cl_despawn_missile.rpc_id(peer_id, missile_id, exploded, pos)
+
+
+func _server_fire_missile(firing_plane: Node3D, locked_target: Node3D) -> void:
+	var missile := MISSILE_SCENE.instantiate() as RigidBody3D
+	missile.global_transform = firing_plane.global_transform
+	if "target" in missile:
+		missile.set("target", locked_target)
+	if "host" in missile:
+		missile.set("host", firing_plane)
+	_projectiles.add_child(missile)
+	if firing_plane is RigidBody3D:
+		missile.linear_velocity = (firing_plane as RigidBody3D).linear_velocity
+	missile.add_collision_exception_with(firing_plane)
+
+
+@rpc("any_peer", "reliable")
+func sv_request_fire_missile(firing_peer_id: int, target_peer_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	if multiplayer.get_remote_sender_id() != firing_peer_id:
+		return
+	var firing_plane := _characters.get_node_or_null(_character_name(firing_peer_id)) as Node3D
+	if firing_plane == null or not is_instance_valid(firing_plane):
+		return
+	var locked_target: Node3D = null
+	if target_peer_id >= 0:
+		locked_target = _characters.get_node_or_null(_character_name(target_peer_id)) as Node3D
+	_server_fire_missile(firing_plane, locked_target)
+
+
+@rpc("authority", "reliable")
+func cl_spawn_missile(missile_id: int, t: Transform3D, _velocity: Vector3) -> void:
+	if multiplayer.is_server():
+		return
+	var visual := MISSILE_VISUAL_SCENE.instantiate() as Node3D
+	_projectiles.add_child(visual)
+	visual.global_transform = t
+	_remote_missiles[missile_id] = visual
+
+
+@rpc("authority", "call_remote", "unreliable_ordered", 2)
+func cl_missile_state(missile_id: int, t: Transform3D) -> void:
+	if multiplayer.is_server():
+		return
+	var visual := _remote_missiles.get(missile_id) as Node
+	if visual != null and is_instance_valid(visual):
+		visual.call("apply_state", t)
+
+
+@rpc("authority", "reliable")
+func cl_despawn_missile(missile_id: int, exploded: bool, pos: Vector3) -> void:
+	if multiplayer.is_server():
+		return
+	var visual := _remote_missiles.get(missile_id) as Node
+	if visual != null and is_instance_valid(visual):
+		if exploded:
+			var explosion := EXPLOSION_SCENE.instantiate() as Node3D
+			_projectiles.add_child(explosion)
+			explosion.global_position = pos
+		visual.call("die")
+	_remote_missiles.erase(missile_id)
 
 
 func _on_display_settings_changed() -> void:

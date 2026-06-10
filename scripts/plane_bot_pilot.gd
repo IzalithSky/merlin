@@ -150,6 +150,7 @@ func _physics_process(delta: float) -> void:
 	_update_frame_cache()
 	_update_follow_target_velocity(delta)
 	_update_flight_controls(delta)
+	_update_weapon_targeting()
 	_update_bot_debug_visuals()
 
 
@@ -1271,6 +1272,18 @@ func _get_horizontal_forward_axis() -> Vector3:
 		return Vector3.FORWARD
 
 	return forward_axis.normalized()
+
+
+func _update_weapon_targeting() -> void:
+	var weapon_lock := _plane.get_node_or_null("PlaneWeaponLock")
+	if weapon_lock == null:
+		return
+	var desired_target: Node3D = _follow_target if _has_follow_target() else null
+	weapon_lock.call("set_desired_target", desired_target)
+	if bool(weapon_lock.call("is_locked")):
+		var launcher := _plane.get_node_or_null("PlaneMissileLauncher")
+		if launcher != null:
+			launcher.call("try_fire")
 
 
 func _apply_controls(roll_value: float, pitch_value: float, yaw_value: float, throttle_value: float) -> void:

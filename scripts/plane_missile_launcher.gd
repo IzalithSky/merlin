@@ -30,13 +30,34 @@ func _process(delta: float) -> void:
 		_try_fire(plane)
 
 
+func try_fire() -> void:
+	if _cooldown_remaining > 0.0:
+		return
+	var plane := get_parent() as Node3D
+	if plane == null or not is_instance_valid(plane):
+		return
+	_try_fire(plane)
+
+
 func _try_fire(plane: Node3D) -> void:
 	var locked_target: Node3D = null
 	var weapon_lock := plane.get_node_or_null("PlaneWeaponLock")
 	if weapon_lock != null and is_instance_valid(weapon_lock):
 		locked_target = weapon_lock.call("get_locked_target") as Node3D
 
-	_fire(plane, locked_target)
+	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
+		# Client: ask the server to spawn the missile
+		var target_peer_id := -1
+		if locked_target != null and is_instance_valid(locked_target):
+			var tp: Variant = locked_target.get("peer_id")
+			if tp != null:
+				target_peer_id = int(tp)
+		var spawner := get_tree().current_scene
+		if spawner.has_method("sv_request_fire_missile"):
+			spawner.sv_request_fire_missile.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
+	else:
+		_fire(plane, locked_target)
+
 	_cooldown_remaining = fire_cooldown
 
 
