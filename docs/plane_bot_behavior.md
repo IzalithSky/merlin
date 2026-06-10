@@ -263,10 +263,10 @@ These are `const` rather than `@export` and must be changed in the script. They 
 
 | Constant | Value | Unit | Role |
 |---|---|---|---|
-| `COLLISION_AVOIDANCE_RADIUS` | 40 | m | Predicted miss distance at CPA below which the threat is confirmed. |
-| `COLLISION_AVOIDANCE_LOOKAHEAD` | 2 | s | How far ahead in time to check for a predicted collision. |
+| `COLLISION_AVOIDANCE_RADIUS` | 12 | m | Predicted miss distance at CPA below which the threat is confirmed. |
+| `COLLISION_AVOIDANCE_LOOKAHEAD` | 1.5 | s | How far ahead in time to check for a predicted collision. |
 | `COLLISION_AVOIDANCE_MIN_CLOSING_SPEED` | 40 | m/s | Closing-speed gate; planes closing slower than this are never treated as threats. |
-| `COLLISION_AVOIDANCE_BANK_DEG` | 80 | deg | Target bank angle held during the evasive maneuver. |
+| `COLLISION_AVOIDANCE_BANK_DEG` | 90 | deg | Target bank angle held during the evasive maneuver. |
 | `COLLISION_AVOIDANCE_MIN_DURATION` | 0.5 | s | Minimum time the avoidance maneuver is held after the threat clears. |
 | `COLLISION_AVOIDANCE_RESPONSE_RATE` | 1.5 | /s | Input ramp rate during the avoidance maneuver. |
 

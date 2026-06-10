@@ -84,6 +84,19 @@ The bot writes desired control inputs through the same input interface. The plan
 
 This is important: bots do not use a separate flight model.
 
+## Relative Roll Control
+In addition to direct roll input, the player can fly a relative-roll cursor. Instead of commanding a roll rate, the relative-roll left/right inputs steer a target "up" vector. A closed-loop controller then rolls the aircraft to align its actual up vector with that target, holding the commanded bank hands-off.
+
+Mechanism:
+
+- Left/right input rotates the target-up cursor around the aircraft forward axis at a configurable cursor speed.
+- The roll error is the signed angle between the aircraft's current up vector and the target up vector, measured in the plane perpendicular to the forward axis.
+- The error is converted into a desired roll rate (proportional, clamped), compared against the actual roll angular velocity, and only then turned into roll input. This is the same rate-damped style used elsewhere, so the controller backs off before overshooting the commanded bank.
+- The error is clamped to `relative_roll_max_error_deg`. At 180 degrees the cursor can command a full roll to inverted; a smaller value caps how far from the current bank a single command can target.
+- When relative-roll input stops and the result settles within a deadband, the cursor target is reset to the current up vector so it does not fight direct roll input.
+
+The HUD exposes a clock widget for this mode: 12 o'clock is the current up vector and the needle swings toward the commanded bank, reaching 6 o'clock at the 180 degree (inverted) cap. The widget reads the same clamped error the controller uses, so its travel reflects the actual command authority.
+
 ## Air-Relative State
 The aerodynamic model is based on aircraft motion relative to air, not just global velocity.
 
@@ -179,7 +192,9 @@ Behavior:
 The result is a control limiter, not a stall simulation. Stall-like behavior must come from the shape of the lift and drag tables.
 
 ### Sustain-Turn Limiter
-The sustain limiter attempts to keep turns energy-sustainable by limiting pitch input to an angle of attack whose drag demand can be supported by available forward force.
+The sustain limiter keeps nose-up pitch energy-aware. It runs in one of two modes depending on whether the aircraft is trying to climb. Either mode only limits pitch input; neither changes actual forces.
+
+**Drag-balance mode (default).** When the aircraft is not climbing, the limiter restricts pitch input to an angle of attack whose drag demand can be supported by available forward force.
 
 Available forward force is projected along the current airflow/movement direction:
 
@@ -200,12 +215,30 @@ required = estimated_drag_at_candidate_aoa * drag_margin
 
 The limiter samples candidate AoA values from neutral toward the max-lift bound and keeps the largest candidate whose required force does not exceed available force.
 
-The sustain limiter still only limits pitch input. It does not cheat by changing actual forces.
+**Vy speed-margin mode (climbing).** Drag-balance mode structurally forbids a sustained climb: a climb spends energy, and because climbing makes gravity *subtract* from available forward force, the available term collapses and the pitch cap craters to zero exactly when the pilot is trying to climb. To allow the intended speed-for-altitude trade, the limiter switches modes when the aircraft is climbing.
+
+The climb switch engages when both:
+
+- a valid best-climb speed (Vy) is known, and
+- the aircraft is gaining altitude — either world vertical speed is positive past a hysteresis dead-band, or the pilot is commanding enough nose-up pitch intent to start a climb before altitude has visibly risen.
+
+In this mode, nose-up authority is gated by how far current airspeed sits above Vy:
+
+```text
+authority = clamp((air_speed - Vy) / margin_speed, 0, 1)
+```
+
+Pitch authority is full while airspeed is at or above `Vy + margin_speed` and fades linearly to zero as airspeed bleeds down to Vy. This lets the aircraft convert excess speed into a steep, sustained climb while arresting the pull near Vy rather than dragging toward stall.
+
+Best-climb speed Vy is the air-relative speed that maximizes excess-power climb potential — where `(available_thrust - drag) * speed` is greatest. It is recomputed on a periodic interval from the current aero tables under a max-load-factor constraint, and is exposed to the HUD (value, validity, and whether the Vy gate is currently active).
+
+The sustain limiter still only limits pitch input in either mode. It does not cheat by changing actual forces.
 
 Bot policy:
 
 - While recovering low speed, the bot keeps sustain limiting active.
-- Once above its recovery exit speed, the bot can disable sustain limiting and rely on max-lift limiting only.
+- Once above its recovery exit speed, the bot disables sustain limiting and relies on max-lift limiting only.
+- During ground avoidance and collision avoidance the bot forces sustain limiting off regardless of speed, so the full max-lift pull is available when it is most needed.
 
 ## Aerodynamic Coefficient Tables
 Aerodynamic behavior comes from editable tables:
