@@ -56,8 +56,9 @@ Bot-controlled plane:
 Remote replica:
 
 - Does not simulate flight forces locally.
-- Receives transform snapshots from the owning peer/server.
-- Applies received position and orientation as visual replication.
+- Receives ordered transform snapshots from the owning peer/server.
+- Buffers snapshots briefly and renders them with interpolation.
+- Extrapolates briefly from replicated linear velocity when the buffer underruns.
 
 This means multiplayer is snapshot replication, not deterministic lockstep physics replay.
 
@@ -76,6 +77,8 @@ For a locally simulated plane, each physics tick follows this sequence:
 10. Emit a network state snapshot when the sync interval elapses.
 
 The controller caches quantities that are reused later in the tick so the same velocity, basis, speed, and dynamic-pressure values are not recomputed throughout the force model.
+
+If the plane is already shot down, the active flight-force block is skipped. The body still falls under passive rigid-body physics and continues emitting snapshots so other peers see the wreck move.
 
 ## Ground Impact Damage
 Ground impact damage is evaluated from physics contact data, not from aircraft attitude alone.
@@ -400,15 +403,22 @@ Persisted data includes:
 All four tables are editable at runtime through the plane aerodynamics editor, which presents each table in a separate tab (Lift, Drag, Control, Thrust). The side-force table exists on the controller but is not yet exposed in the editor.
 
 ## Networking Behavior
-Locally simulated planes emit compact transform snapshots for their owning peer.
+Locally simulated planes emit compact transform snapshots on a fixed interval.
 
 Snapshots include:
 
-- peer identifier
-- position
-- orientation
+- `tick`
+- `position`
+- `rotation` as a quaternion
+- `linear_velocity`
 
-Remote planes apply received snapshots and do not run local flight simulation. This avoids two peers simulating the same aircraft differently, but it also means remote aircraft are visual replicas rather than fully predicted physics bodies.
+Remote planes do not run local flight simulation. Instead they keep a short snapshot buffer and render slightly in the past:
+
+- if two snapshots are available, position is interpolated with `lerp` and rotation with quaternion `slerp`
+- if only one snapshot is available, position is extrapolated briefly from the replicated linear velocity
+- stale or out-of-order ticks are ignored
+
+This keeps remote planes visually smooth without trying to run two independent copies of the same aircraft simulation.
 
 ## Health and Shot-Down State
 
@@ -428,9 +438,115 @@ The entire control and thrust block is skipped when `is_shot_down` is true. Spec
 
 Passive physics — gravity, linear damping, and the Jolt integrator — continue to act on the `RigidBody3D`. The plane tumbles and falls under its own momentum without any active stabilisation.
 
+At the moment of shot-down:
+
+- throttle input is forced fully closed
+- explicit angular damping is disabled by setting `angular_damp = 0`
+- a one-time random roll spin impulse is added on the locally simulating instance
+
+Two exports control the added tumble impulse:
+
+- `shot_down_roll_spin_min_deg`
+- `shot_down_roll_spin_max_deg`
+
 A `FlameTrail` child node (two `GPUParticles3D`) is instantiated and attached at the moment of shot-down, travelling with the wreckage.
 
 The plane is not removed from the scene tree on shot-down. Despawn is left to future match logic.
+
+## Tuning Reference
+
+This section describes the main exports and internal constants that shape aircraft behavior.
+
+### Input and Control Response
+
+- `rot_rate`: how quickly pitch, yaw, and roll input ramp toward a commanded value.
+- `rot_decay`: how quickly pitch, yaw, and roll relax back toward neutral when released.
+- `thr_rate`: how quickly throttle input changes.
+- `max_pitch`, `max_yaw`, `max_roll`: per-axis multipliers applied to the shared control-torque budget.
+- `base_control_torque`: base magnitude of player/bot control torque before airspeed-based control-authority scaling.
+
+### Relative Roll Control
+
+- `relative_roll_cursor_speed`: speed at which left/right relative-roll input rotates the target-up cursor.
+- `relative_roll_max_error_deg`: maximum bank error the relative-roll cursor is allowed to command.
+- `relative_roll_error_to_rate_gain`: converts bank-angle error into desired roll rate.
+- `relative_roll_max_desired_rate`: hard cap on desired roll rate from the relative-roll controller.
+- `relative_roll_rate_response_gain`: converts roll-rate error into actual roll input.
+- `relative_roll_deadband_deg`: bank-angle error threshold below which the controller is treated as settled.
+- `relative_roll_rate_deadband`: roll-rate threshold below which the controller is treated as settled.
+
+### Propulsion and Aerodynamics
+
+- `max_thrust`: maximum engine force before thrust-table scaling.
+- `air_density`: density used for dynamic-pressure calculations.
+- `reference_area`: area term used in the coefficient-form lift/drag/side-force equations.
+- `ambient_wind_velocity_world`: world-space wind vector subtracted from rigid-body velocity to produce air-relative velocity.
+- `lift_coefficient_table`: angle-of-attack to lift coefficient curve.
+- `drag_coefficient_table`: angle-of-attack to drag coefficient curve.
+- `side_force_coefficient_table`: sideslip to side-force coefficient curve.
+- `control_authority_coefficient_table`: airspeed to control-authority multiplier curve.
+- `thrust_coefficient_table`: forward airspeed to thrust multiplier curve.
+
+### Directional Stability and Drag
+
+- `alignment_strength`: gain for the dart-like nose-to-velocity alignment torque.
+- `alignment_max_torque`: cap on the alignment torque so stability assist cannot spike arbitrarily hard at high speed.
+- `extra_linear_drag_linear_coefficient`: coarse drag term proportional to speed.
+- `extra_linear_drag_quadratic_coefficient`: coarse drag term proportional to speed squared; usually the main top-speed limiter in the simplified model.
+- `extra_angular_drag_linear_coefficients`: per-axis linear angular damping coefficients in local pitch/yaw/roll space.
+- `extra_angular_drag_quadratic_coefficients`: per-axis quadratic angular damping coefficients in local pitch/yaw/roll space.
+
+### Max-Lift Turn Limiter
+
+- `max_lift_turn_limiter_enabled`: master switch for the max-lift input limiter.
+- `max_lift_turn_limiter_min_airspeed`: airspeed below which the limiter stays inactive to avoid noisy low-speed behaviour.
+- `max_lift_turn_limiter_fade_deg`: angle-of-attack band over which pitch authority fades out as the lift peak is approached.
+
+### Sustain-Turn / Vy Limiter
+
+- `sustain_turn_limiter_enabled`: master switch for the energy-aware sustain limiter.
+- `sustain_turn_limiter_min_target_airspeed`: floor speed used by the drag-balance path when estimating sustainable turn conditions.
+- `sustain_turn_limiter_fade_deg`: angle-of-attack fade band for the sustain limiter.
+- `sustain_turn_limiter_samples`: number of candidate AoA samples checked when solving the drag-balance sustain limit.
+- `sustain_turn_limiter_drag_margin`: safety factor applied to estimated drag demand.
+- `sustain_turn_vy_enabled`: enables the climb-specific Vy gate.
+- `sustain_turn_vy_update_interval`: how often the best-climb-speed estimate is recomputed.
+- `sustain_turn_vy_sample_min_speed`: lower bound of the speed sweep used when solving for Vy.
+- `sustain_turn_vy_sample_max_speed`: upper bound of the speed sweep used when solving for Vy.
+- `sustain_turn_vy_sample_count`: number of sampled speeds in the Vy search.
+- `sustain_turn_vy_max_load_factor`: load-factor cap used while evaluating Vy candidates.
+- `sustain_turn_vy_margin_speed`: speed margin above Vy that grants full pitch authority in climb mode.
+- `sustain_turn_vy_climb_speed_threshold`: vertical-speed hysteresis around zero for deciding whether altitude is rising.
+- `sustain_turn_vy_min_vertical_pull_intent`: minimum upward pull intent that allows Vy mode to engage at climb entry before vertical speed becomes clearly positive.
+
+### Ground Impact Damage
+
+- `ground_impact_damage_speed_threshold`: minimum impact speed that begins applying ground-impact damage.
+- `ground_impact_fatal_speed_threshold`: minimum impact speed that allows the fatal crash branch.
+- `ground_impact_fatal_surface_angle_deg`: minimum angle between movement direction and contacted ground surface that makes a sufficiently fast impact fatal.
+- `ground_impact_max_damage`: maximum proportional damage from a non-fatal ground impact.
+
+### Shot-Down Behavior
+
+- `shot_down_roll_spin_min_deg`: minimum one-shot random roll spin impulse applied when the plane is shot down.
+- `shot_down_roll_spin_max_deg`: maximum one-shot random roll spin impulse applied when the plane is shot down.
+
+### Networking and Debug
+
+- `network_sync_interval`: interval between emitted local snapshots for multiplayer replication.
+- `debug_force_vectors_enabled`: enables local force/torque debug rendering.
+- `team_id`: simple team identifier used by hostility checks and targeting colour logic.
+- `flame_trail_scene`: packed scene instantiated on shot-down to visually mark the wreck.
+
+## Core Internal Constants
+
+- `MIN_AERODYNAMIC_SPEED_SQUARED`: below this, air-relative speed is treated as effectively zero to avoid unstable AoA/sideslip math.
+- `MIN_DIRECTION_VECTOR_LENGTH_SQUARED`: guard threshold for normalizing derived direction vectors such as lift axes or relative-roll targets.
+- `MIN_ANGULAR_SPEED_SQUARED`: guard threshold below which explicit angular-drag computation is skipped.
+- `GROUND_IMPACT_COOLDOWN_SECONDS`: minimum time between ground-impact damage evaluations so one hard contact does not spam repeated hits every physics step.
+- `REMOTE_INTERPOLATION_DELAY`: how far remote replicas render behind real time to keep a two-snapshot interpolation window.
+- `REMOTE_MAX_SNAPSHOTS`: maximum buffered remote snapshots retained per replica.
+- `TABLE_SORT_EPSILON`: epsilon used when collapsing or sampling nearly duplicate aero-table X values.
 
 ---
 
