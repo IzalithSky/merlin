@@ -349,13 +349,13 @@ The resulting local torque is transformed back into world space and applied with
 This is separate from Godot's built-in rigid body angular damping. The explicit model is preferred because it is visible, tunable per axis, and can be represented in debug force/torque output.
 
 ## Directional Stability
-Directional stability is a stabilization assist that uses yaw to align the nose with airflow, and can also damp uncontrolled player pitch/roll axes.
+Directional stability is a stabilization assist that uses yaw to align the nose with airflow, and damps uncontrolled pitch/roll rotation.
 
 ```text
-if no yaw input:
+if player has no yaw input, or if the aircraft is bot-controlled:
   align nose yaw toward airflow in the horizontal plane
 
-if no pitch input:
+if player has no pitch input:
   damp pitch rate toward zero
 
 if no direct roll input and no relative-roll target is active:
@@ -364,7 +364,7 @@ if no direct roll input and no relative-roll target is active:
 
 Each axis is handled independently. A player may be manually driving pitch while still receiving yaw stabilization, or may be using relative roll while still receiving yaw/pitch stabilization.
 
-Bots reuse only the yaw part of this assist. Bot-pilot steering does not use target-driven yaw; yaw is left at neutral and the controller's built-in yaw stabilization aligns the nose with airflow. Bot pitch and roll still come from the bot pilot.
+Bots reuse only the yaw part of this assist. Bot-pilot steering does not use target-driven yaw; yaw is left neutral and the controller's built-in yaw stabilization aligns the nose with airflow. Bot pitch and roll still come from the bot pilot.
 
 Yaw stabilization uses a directional rate-damped pattern:
 
@@ -381,6 +381,13 @@ torque = axis * (desired_rate - local_rate) * response_gain * alignment_strength
 ```
 
 Torque is capped by `alignment_max_torque`. Small angle/rate deadbands suppress chatter near the settled state.
+
+Important details from the current implementation:
+
+- yaw stabilization is active for bots and for players with no yaw input
+- pitch damping is player-only and only opposes pitch rate; it does not try to pitch the nose onto the velocity vector
+- roll damping is player-only and only opposes roll rate; it does not try to level wings to world up
+- roll damping is disabled while direct roll input is active or while relative-roll control is active
 
 This is a simplified stand-in for stabilizing aerodynamic effects from tail surfaces and fuselage shape. It helps the aircraft self-correct toward its movement direction during falls or low-thrust flight.
 
@@ -516,10 +523,10 @@ This section describes the main exports and internal constants that shape aircra
 - `alignment_max_torque`: cap on the alignment torque so stability assist cannot spike arbitrarily hard at high speed.
 - `alignment_angle_to_rate_gain`: converts yaw misalignment angle into a desired local yaw rate.
 - `alignment_max_desired_axis_rate`: hard cap on desired yaw stabilization rate.
-- `alignment_rate_response_gain`: gain applied to pitch/yaw rate damping before converting it into stabilization torque.
+- `alignment_rate_response_gain`: gain applied to yaw alignment and pitch damping before converting them into stabilization torque.
 - `alignment_deadband_deg`: yaw-angle threshold below which yaw stabilization is treated as settled when yaw rate is also small.
 - `alignment_rate_deadband`: pitch/yaw rate threshold below which stabilization is treated as settled.
-- `relative_roll_error_to_rate_gain`, `relative_roll_max_desired_rate`, `relative_roll_rate_response_gain`, `relative_roll_deadband_deg`, `relative_roll_rate_deadband`: reused by passive roll stabilization when direct roll and relative roll are both inactive.
+- `relative_roll_rate_response_gain`, `relative_roll_rate_deadband`: reused by passive roll damping when direct roll and relative roll are both inactive.
 - `extra_linear_drag_linear_coefficient`: coarse drag term proportional to speed.
 - `extra_linear_drag_quadratic_coefficient`: coarse drag term proportional to speed squared; usually the main top-speed limiter in the simplified model.
 - `extra_angular_drag_linear_coefficients`: per-axis linear angular damping coefficients in local pitch/yaw/roll space.
