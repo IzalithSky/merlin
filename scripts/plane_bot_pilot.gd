@@ -391,7 +391,7 @@ func _update_speed_recovery_controls(delta: float, forward_speed: float) -> void
 		delta,
 		_get_speed_recovery_roll_target(forward_speed),
 		_get_speed_recovery_pitch_target(recovery_direction),
-		_get_speed_recovery_yaw_target(recovery_direction),
+		0.0,
 		SPEED_RECOVERY_PITCH_RESPONSE_RATE,
 		SPEED_RECOVERY_FULL_THROTTLE_INPUT
 	)
@@ -725,12 +725,6 @@ func _get_speed_recovery_pitch_target(recovery_direction: Vector3) -> float:
 	var local_direction := _get_local_direction(recovery_direction)
 	var pitch_error := atan2(local_direction.y, -local_direction.z)
 	return _get_pitch_input_for_error(pitch_error)
-
-
-func _get_speed_recovery_yaw_target(recovery_direction: Vector3) -> float:
-	var local_direction := _get_local_direction(recovery_direction)
-	var yaw_error := atan2(local_direction.x, -local_direction.z)
-	return _get_yaw_input_for_error(yaw_error)
 
 
 func _get_speed_recovery_roll_target(forward_speed: float) -> float:
@@ -1158,18 +1152,6 @@ func _get_pitch_input_for_error(pitch_error: float) -> float:
 	)
 
 
-func _get_yaw_input_for_error(yaw_error: float) -> float:
-	return _get_rate_stabilized_axis_input(
-		yaw_error,
-		SPEED_RECOVERY_YAW_ANGLE_TO_RATE_GAIN,
-		SPEED_RECOVERY_MAX_DESIRED_YAW_RATE,
-		_get_local_yaw_rate(),
-		SPEED_RECOVERY_YAW_RATE_RESPONSE_GAIN,
-		-1.0,
-		1.0
-	)
-
-
 func _get_rate_stabilized_axis_input(
 	angle_error: float,
 	angle_to_rate_gain: float,
@@ -1209,10 +1191,6 @@ func _get_rate_stabilized_input_for_desired_rate(
 
 func _get_local_pitch_rate() -> float:
 	return _get_local_angular_velocity().x
-
-
-func _get_local_yaw_rate() -> float:
-	return _get_local_angular_velocity().y
 
 
 func _get_local_angular_velocity() -> Vector3:

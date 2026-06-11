@@ -106,7 +106,7 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var alignment_strength: float = 400.0
 @export var alignment_max_torque: float = 10_000.0
 @export var alignment_angle_to_rate_gain: float = 1.2
-@export var alignment_max_desired_yaw_rate: float = 1.4
+@export var alignment_max_desired_axis_rate: float = 1.4
 @export var alignment_rate_response_gain: float = 0.8
 @export var alignment_deadband_deg: float = 1.0
 @export var alignment_rate_deadband: float = 0.03
@@ -161,6 +161,9 @@ var _bot_target_roll_input := 0.0
 var _bot_target_pitch_input := 0.0
 var _bot_target_yaw_input := 0.0
 var _bot_target_throttle_input := -1.0
+var _player_pitch_control_active := false
+var _player_yaw_control_active := false
+var _player_direct_roll_control_active := false
 
 var aoa_deg := 0.0
 var sideslip_deg := 0.0
@@ -319,6 +322,9 @@ func _apply_spawn_control_defaults() -> void:
 	relative_roll_target_up_world = Vector3.UP
 	relative_roll_error = 0.0
 	relative_roll_input = 0.0
+	_player_pitch_control_active = false
+	_player_yaw_control_active = false
+	_player_direct_roll_control_active = false
 
 
 func _apply_bot_inputs(delta: float) -> void:
@@ -334,6 +340,9 @@ func _apply_bot_inputs(delta: float) -> void:
 	pitch_input = clampf(pitch_input, -1.0, 1.0)
 	yaw_input = clampf(yaw_input, -1.0, 1.0)
 	throttle_input = clampf(throttle_input, -1.0, 1.0)
+	_player_pitch_control_active = false
+	_player_yaw_control_active = false
+	_player_direct_roll_control_active = false
 
 	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
 
@@ -354,13 +363,15 @@ func _collect_inputs(delta: float) -> void:
 
 	var desired_pitch: float = clampf(keyboard_pitch, -1.0, 1.0)
 	var desired_yaw: float = clampf(keyboard_yaw, -1.0, 1.0)
+	_player_pitch_control_active = absf(desired_pitch) > 0.001
+	_player_yaw_control_active = absf(desired_yaw) > 0.001
 
-	if absf(desired_pitch) > 0.001:
+	if _player_pitch_control_active:
 		pitch_input = move_toward(pitch_input, desired_pitch, rotation_rate)
 	else:
 		pitch_input = move_toward(pitch_input, 0.0, rotation_decay)
 
-	if absf(desired_yaw) > 0.001:
+	if _player_yaw_control_active:
 		yaw_input = move_toward(yaw_input, desired_yaw, rotation_rate)
 	else:
 		yaw_input = move_toward(yaw_input, 0.0, rotation_decay)
@@ -381,8 +392,9 @@ func _collect_inputs(delta: float) -> void:
 func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: float) -> void:
 	var direct_roll_direction := _get_direct_roll_direction()
 	var relative_roll_direction := _get_relative_roll_direction()
+	_player_direct_roll_control_active = absf(direct_roll_direction) > 0.001
 
-	if absf(direct_roll_direction) > 0.001:
+	if _player_direct_roll_control_active:
 		_reset_relative_roll_target()
 		relative_roll_input = move_toward(relative_roll_input, 0.0, rotation_decay)
 		roll_input = move_toward(roll_input, direct_roll_direction, rotation_rate)
@@ -450,22 +462,13 @@ func _update_relative_roll_target(delta: float, input_direction: float) -> void:
 
 
 func _update_relative_roll_error() -> void:
-	var target_up := relative_roll_target_up_world
-	target_up -= _frame_forward_axis * target_up.dot(_frame_forward_axis)
-
-	if target_up.length_squared() <= MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+	var roll_error := _get_roll_error_for_target_up(relative_roll_target_up_world)
+	if not is_finite(roll_error):
 		_reset_relative_roll_target()
 		return
 
-	target_up = target_up.normalized()
-
-	relative_roll_error = atan2(
-		target_up.dot(_frame_right_axis),
-		target_up.dot(_frame_up_axis)
-	)
-
 	var max_error := deg_to_rad(maxf(relative_roll_max_error_deg, 1.0))
-	relative_roll_error = clampf(relative_roll_error, -max_error, max_error)
+	relative_roll_error = clampf(roll_error, -max_error, max_error)
 
 	relative_roll_target_up_world = _frame_up_axis.rotated(
 		_frame_forward_axis,
@@ -486,6 +489,106 @@ func _is_relative_roll_settled() -> bool:
 		absf(relative_roll_error) <= error_deadband and
 		absf(get_local_roll_rate()) <= maxf(relative_roll_rate_deadband, 0.0)
 	)
+
+
+func _get_signed_direction_error_about_axis(
+	reference_direction: Vector3,
+	target_direction: Vector3,
+	axis: Vector3
+) -> float:
+	var projected_reference := reference_direction - axis * reference_direction.dot(axis)
+	var projected_target := target_direction - axis * target_direction.dot(axis)
+	if projected_reference.length_squared() <= MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		return NAN
+	if projected_target.length_squared() <= MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		return NAN
+
+	projected_reference = projected_reference.normalized()
+	projected_target = projected_target.normalized()
+	var cross_axis := projected_reference.cross(projected_target)
+	return projected_reference.angle_to(projected_target) * signf(cross_axis.dot(axis))
+
+
+func _get_roll_error_for_target_up(target_up_world: Vector3) -> float:
+	var projected_target_up := target_up_world
+	projected_target_up -= _frame_forward_axis * projected_target_up.dot(_frame_forward_axis)
+	if projected_target_up.length_squared() <= MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		return NAN
+
+	projected_target_up = projected_target_up.normalized()
+	return atan2(
+		projected_target_up.dot(_frame_right_axis),
+		projected_target_up.dot(_frame_up_axis)
+	)
+
+
+func _get_stabilization_torque_for_axis(
+	angle_error: float,
+	local_rate: float,
+	axis_world: Vector3,
+	torque_sign: float,
+	angle_to_rate_gain: float,
+	max_desired_rate: float,
+	rate_response_gain: float,
+	angle_deadband_deg: float,
+	rate_deadband: float
+) -> Vector3:
+	if not is_finite(angle_error):
+		return Vector3.ZERO
+
+	var angle_deadband := deg_to_rad(maxf(angle_deadband_deg, 0.0))
+	var stabilized_rate_deadband := maxf(rate_deadband, 0.0)
+	if absf(angle_error) <= angle_deadband and absf(local_rate) <= stabilized_rate_deadband:
+		return Vector3.ZERO
+
+	var desired_rate := clampf(
+		angle_error * maxf(angle_to_rate_gain, 0.0),
+		-maxf(max_desired_rate, 0.0),
+		maxf(max_desired_rate, 0.0)
+	)
+	var rate_error := desired_rate - local_rate
+	if absf(rate_error) <= 0.000001:
+		return Vector3.ZERO
+
+	var torque := (
+		axis_world *
+		rate_error *
+		torque_sign *
+		maxf(rate_response_gain, 0.0) *
+		maxf(alignment_strength, 0.0) *
+		_frame_air_speed
+	)
+	if alignment_max_torque > 0.0:
+		torque = torque.limit_length(alignment_max_torque)
+	if torque.length_squared() <= 0.0 or not torque.is_finite():
+		return Vector3.ZERO
+	return torque
+
+
+func _get_rate_damping_torque_for_axis(
+	local_rate: float,
+	axis_world: Vector3,
+	torque_sign: float,
+	rate_response_gain: float,
+	rate_deadband: float
+) -> Vector3:
+	var stabilized_rate_deadband := maxf(rate_deadband, 0.0)
+	if absf(local_rate) <= stabilized_rate_deadband:
+		return Vector3.ZERO
+
+	var torque := (
+		axis_world *
+		(-local_rate) *
+		torque_sign *
+		maxf(rate_response_gain, 0.0) *
+		maxf(alignment_strength, 0.0) *
+		_frame_air_speed
+	)
+	if alignment_max_torque > 0.0:
+		torque = torque.limit_length(alignment_max_torque)
+	if torque.length_squared() <= 0.0 or not torque.is_finite():
+		return Vector3.ZERO
+	return torque
 
 
 func compute_control_state(_delta: float) -> void:
@@ -591,45 +694,48 @@ func apply_directional_alignment() -> void:
 	if _frame_air_speed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
 		return
 
-	var yaw_axis := _frame_up_axis
-	var forward := _frame_forward_axis
-	var velocity_direction := _frame_airflow_direction
-	velocity_direction -= yaw_axis * velocity_direction.dot(yaw_axis)
+	var stabilization_torque := Vector3.ZERO
+	var yaw_stabilization_active := is_bot_controlled or not _player_yaw_control_active
+	if yaw_stabilization_active:
+		var yaw_error := _get_signed_direction_error_about_axis(
+			_frame_forward_axis,
+			_frame_airflow_direction,
+			_frame_up_axis
+		)
+		stabilization_torque += _get_stabilization_torque_for_axis(
+			yaw_error,
+			get_local_yaw_rate(),
+			_frame_up_axis,
+			1.0,
+			alignment_angle_to_rate_gain,
+			alignment_max_desired_axis_rate,
+			alignment_rate_response_gain,
+			alignment_deadband_deg,
+			alignment_rate_deadband
+		)
 
-	if velocity_direction.length_squared() < MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
-		return
+	if not is_bot_controlled and not _player_pitch_control_active:
+		stabilization_torque += _get_rate_damping_torque_for_axis(
+			get_local_pitch_rate(),
+			_frame_right_axis,
+			1.0,
+			alignment_rate_response_gain,
+			alignment_rate_deadband
+		)
 
-	velocity_direction = velocity_direction.normalized()
-	var axis := forward.cross(velocity_direction)
-	var yaw_angle := forward.angle_to(velocity_direction) * signf(axis.dot(yaw_axis))
-	var local_yaw_rate := get_local_yaw_rate()
-	var angle_deadband := deg_to_rad(maxf(alignment_deadband_deg, 0.0))
-	var rate_deadband := maxf(alignment_rate_deadband, 0.0)
-	if absf(yaw_angle) <= angle_deadband and absf(local_yaw_rate) <= rate_deadband:
-		return
+	if not is_bot_controlled and not _player_direct_roll_control_active and not relative_roll_target_active:
+		stabilization_torque += _get_rate_damping_torque_for_axis(
+			get_local_roll_rate(),
+			_frame_forward_axis,
+			-1.0,
+			relative_roll_rate_response_gain,
+			relative_roll_rate_deadband
+		)
 
-	var desired_yaw_rate := clampf(
-		yaw_angle * maxf(alignment_angle_to_rate_gain, 0.0),
-		-maxf(alignment_max_desired_yaw_rate, 0.0),
-		maxf(alignment_max_desired_yaw_rate, 0.0)
-	)
-	var yaw_rate_error := desired_yaw_rate - local_yaw_rate
-	if absf(yaw_rate_error) <= 0.000001:
+	if stabilization_torque.length_squared() <= 0.0 or not stabilization_torque.is_finite():
 		return
-
-	var torque := (
-		yaw_axis *
-		yaw_rate_error *
-		maxf(alignment_rate_response_gain, 0.0) *
-		maxf(alignment_strength, 0.0) *
-		_frame_air_speed
-	)
-	if alignment_max_torque > 0.0:
-		torque = torque.limit_length(alignment_max_torque)
-	if torque.length_squared() <= 0.0 or not torque.is_finite():
-		return
-	apply_torque(torque)
-	_push_debug_torque(global_position, torque, DEBUG_COLOR_ALIGNMENT_TORQUE)
+	apply_torque(stabilization_torque)
+	_push_debug_torque(global_position, stabilization_torque, DEBUG_COLOR_ALIGNMENT_TORQUE)
 
 
 func apply_extra_drag_forces() -> void:
@@ -1098,6 +1204,10 @@ func get_local_angular_velocity() -> Vector3:
 
 func get_local_roll_rate() -> float:
 	return get_local_angular_velocity().z
+
+
+func get_local_pitch_rate() -> float:
+	return get_local_angular_velocity().x
 
 
 func get_local_yaw_rate() -> float:

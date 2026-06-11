@@ -349,16 +349,38 @@ The resulting local torque is transformed back into world space and applied with
 This is separate from Godot's built-in rigid body angular damping. The explicit model is preferred because it is visible, tunable per axis, and can be represented in debug force/torque output.
 
 ## Directional Stability
-Directional stability is the dart-like behavior that turns the nose toward the air-relative movement direction.
+Directional stability is a stabilization assist that uses yaw to align the nose with airflow, and can also damp uncontrolled player pitch/roll axes.
 
 ```text
-axis = forward_axis.cross(airflow_direction)
-angle = forward_axis.angle_to(airflow_direction)
-desired_yaw_rate = clamp(angle * alignment_angle_to_rate_gain, ± alignment_max_desired_yaw_rate)
-torque = up_axis * (desired_yaw_rate - local_yaw_rate) * alignment_rate_response_gain * alignment_strength * |v_air|
+if no yaw input:
+  align nose yaw toward airflow in the horizontal plane
+
+if no pitch input:
+  damp pitch rate toward zero
+
+if no direct roll input and no relative-roll target is active:
+  damp roll rate toward zero
 ```
 
-The torque is capped by an alignment torque limit when that limit is enabled. Small angle/rate deadbands suppress chatter near the settled state.
+Each axis is handled independently. A player may be manually driving pitch while still receiving yaw stabilization, or may be using relative roll while still receiving yaw/pitch stabilization.
+
+Bots reuse only the yaw part of this assist. Bot-pilot steering does not use target-driven yaw; yaw is left at neutral and the controller's built-in yaw stabilization aligns the nose with airflow. Bot pitch and roll still come from the bot pilot.
+
+Yaw stabilization uses a directional rate-damped pattern:
+
+```text
+desired_rate = clamp(angle_error * gain, ± max_desired_axis_rate)
+torque = axis * (desired_rate - local_rate) * response_gain * alignment_strength * |v_air|
+```
+
+Pitch and roll stabilization are simpler damping assists:
+
+```text
+desired_rate = 0
+torque = axis * (desired_rate - local_rate) * response_gain * alignment_strength * |v_air|
+```
+
+Torque is capped by `alignment_max_torque`. Small angle/rate deadbands suppress chatter near the settled state.
 
 This is a simplified stand-in for stabilizing aerodynamic effects from tail surfaces and fuselage shape. It helps the aircraft self-correct toward its movement direction during falls or low-thrust flight.
 
@@ -490,13 +512,14 @@ This section describes the main exports and internal constants that shape aircra
 
 ### Directional Stability and Drag
 
-- `alignment_strength`: gain for the dart-like nose-to-velocity alignment torque after yaw-rate error is computed.
+- `alignment_strength`: gain for stabilization torque after per-axis rate error is computed.
 - `alignment_max_torque`: cap on the alignment torque so stability assist cannot spike arbitrarily hard at high speed.
 - `alignment_angle_to_rate_gain`: converts yaw misalignment angle into a desired local yaw rate.
-- `alignment_max_desired_yaw_rate`: hard cap on desired yaw rate from the directional-alignment controller.
-- `alignment_rate_response_gain`: gain applied to yaw-rate error before converting it into alignment torque.
-- `alignment_deadband_deg`: yaw-angle threshold below which alignment is treated as settled when yaw rate is also small.
-- `alignment_rate_deadband`: yaw-rate threshold below which alignment is treated as settled when angle error is also small.
+- `alignment_max_desired_axis_rate`: hard cap on desired yaw stabilization rate.
+- `alignment_rate_response_gain`: gain applied to pitch/yaw rate damping before converting it into stabilization torque.
+- `alignment_deadband_deg`: yaw-angle threshold below which yaw stabilization is treated as settled when yaw rate is also small.
+- `alignment_rate_deadband`: pitch/yaw rate threshold below which stabilization is treated as settled.
+- `relative_roll_error_to_rate_gain`, `relative_roll_max_desired_rate`, `relative_roll_rate_response_gain`, `relative_roll_deadband_deg`, `relative_roll_rate_deadband`: reused by passive roll stabilization when direct roll and relative roll are both inactive.
 - `extra_linear_drag_linear_coefficient`: coarse drag term proportional to speed.
 - `extra_linear_drag_quadratic_coefficient`: coarse drag term proportional to speed squared; usually the main top-speed limiter in the simplified model.
 - `extra_angular_drag_linear_coefficients`: per-axis linear angular damping coefficients in local pitch/yaw/roll space.
