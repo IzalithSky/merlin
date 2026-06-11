@@ -289,6 +289,9 @@ This update records the fixes for the second-pass multiplayer fire-authority and
 - Added a bindable input-decay toggle that disables decay-to-neutral for pitch, roll, and yaw inputs when turned off, causing released controls to hold their last commanded values.
 - `toggle_input_decay` defaults to `I` and starts enabled.
 - Multiplayer lobby now exposes a host-controlled bot count setting, including `0`, and `world_character_spawner.gd` reads that setting before spawning world bots so flight-model tests can start without AI traffic.
+- Added separate analog-axis bindings for `Pitch`, `Yaw`, and `Roll` in the keybindings menu, each with a live input meter and an invert toggle.
+- Plane input collection now reads those analog bindings directly alongside the existing digital actions, so flight sticks and rudder pedals can drive the same control channels without replacing the keyboard path.
+- Analog pitch, yaw, and roll now bypass the digital ramp/decay behavior while active, so stick and pedal deflection maps 1:1 to control input instead of building up over time.
 
 ## Additional June 11 Work
 

@@ -4,7 +4,9 @@ signal bindings_changed
 
 const SAVE_PATH := "user://keybindings.cfg"
 const SECTION := "bindings"
+const ANALOG_SECTION := "analog_bindings"
 const MAX_BINDINGS := 2
+const ANALOG_DEADZONE := 0.08
 
 const ACTIONS: Array[String] = [
 	"pitch_up", "pitch_down",
@@ -47,7 +49,20 @@ const ACTION_LABELS: Dictionary = {
 	"toggle_camera_view": "Camera View",
 }
 
+const ANALOG_ACTIONS: Array[String] = [
+	"pitch_axis",
+	"yaw_axis",
+	"roll_axis",
+]
+
+const ANALOG_LABELS: Dictionary = {
+	"pitch_axis": "Pitch Axis",
+	"yaw_axis": "Yaw Axis",
+	"roll_axis": "Roll Axis",
+}
+
 var _bindings: Dictionary = {}
+var _analog_bindings: Dictionary = {}
 
 
 func _ready() -> void:
@@ -58,6 +73,10 @@ func _ready() -> void:
 
 func get_bindings(action: String) -> Array:
 	return (_bindings.get(action, [-1, -1]) as Array).duplicate(true)
+
+
+func get_analog_binding(action: String) -> Dictionary:
+	return (_analog_bindings.get(action, _make_default_analog_binding()) as Dictionary).duplicate(true)
 
 
 func set_binding(action: String, slot: int, binding: Variant) -> void:
@@ -75,12 +94,41 @@ func set_binding(action: String, slot: int, binding: Variant) -> void:
 	bindings_changed.emit()
 
 
+func set_analog_binding(action: String, binding: Dictionary) -> void:
+	if not action in ANALOG_ACTIONS:
+		return
+
+	_analog_bindings[action] = _normalize_analog_binding(binding)
+	save_bindings()
+	bindings_changed.emit()
+
+
+func set_analog_inverted(action: String, inverted: bool) -> void:
+	if not action in ANALOG_ACTIONS:
+		return
+
+	var binding := get_analog_binding(action)
+	binding["invert"] = inverted
+	_analog_bindings[action] = _normalize_analog_binding(binding)
+	save_bindings()
+	bindings_changed.emit()
+
+
 func clear_action(action: String) -> void:
 	if not action in ACTIONS:
 		return
 
 	_bindings[action] = [-1, -1]
 	_apply_to_input_map()
+	save_bindings()
+	bindings_changed.emit()
+
+
+func clear_analog_binding(action: String) -> void:
+	if not action in ANALOG_ACTIONS:
+		return
+
+	_analog_bindings[action] = _make_default_analog_binding()
 	save_bindings()
 	bindings_changed.emit()
 
@@ -107,11 +155,19 @@ func load_bindings() -> void:
 				_normalize_binding((saved as Array)[1])
 			]
 
+	for action in ANALOG_ACTIONS:
+		if not config.has_section_key(ANALOG_SECTION, action):
+			continue
+		var saved_analog: Variant = config.get_value(ANALOG_SECTION, action)
+		_analog_bindings[action] = _normalize_analog_binding(saved_analog)
+
 
 func save_bindings() -> void:
 	var config := ConfigFile.new()
 	for action in ACTIONS:
 		config.set_value(SECTION, action, _bindings.get(action, [-1, -1]))
+	for action in ANALOG_ACTIONS:
+		config.set_value(ANALOG_SECTION, action, _analog_bindings.get(action, _make_default_analog_binding()))
 
 	var error := config.save(SAVE_PATH)
 	if error != OK:
@@ -120,6 +176,7 @@ func save_bindings() -> void:
 
 func _load_defaults() -> void:
 	_bindings = _make_defaults()
+	_analog_bindings = _make_analog_defaults()
 
 
 func _make_defaults() -> Dictionary:
@@ -145,6 +202,22 @@ func _make_defaults() -> Dictionary:
 		"fire_missile": [_mouse_binding(MOUSE_BUTTON_RIGHT), -1],
 		"fire_autocannon": [_mouse_binding(MOUSE_BUTTON_LEFT), -1],
 		"toggle_camera_view": [KEY_C, -1],
+	}
+
+
+func _make_analog_defaults() -> Dictionary:
+	var defaults := {}
+	for action in ANALOG_ACTIONS:
+		defaults[action] = _make_default_analog_binding()
+	return defaults
+
+
+func _make_default_analog_binding() -> Dictionary:
+	return {
+		"guid": "",
+		"device_name": "",
+		"axis": -1,
+		"invert": false,
 	}
 
 
@@ -180,6 +253,19 @@ func _normalize_binding(binding: Variant) -> Variant:
 	return -1
 
 
+func _normalize_analog_binding(binding: Variant) -> Dictionary:
+	var normalized := _make_default_analog_binding()
+	if not (binding is Dictionary):
+		return normalized
+
+	var analog_binding := binding as Dictionary
+	normalized["guid"] = str(analog_binding.get("guid", ""))
+	normalized["device_name"] = str(analog_binding.get("device_name", ""))
+	normalized["axis"] = int(analog_binding.get("axis", -1))
+	normalized["invert"] = bool(analog_binding.get("invert", false))
+	return normalized
+
+
 func _binding_to_input_event(binding: Variant) -> InputEvent:
 	if binding is int:
 		var keycode := int(binding)
@@ -202,3 +288,62 @@ func _mouse_binding(button_index: MouseButton) -> Dictionary:
 		"type": "mouse",
 		"button_index": int(button_index)
 	}
+
+
+func get_analog_value(action: String) -> float:
+	if not action in ANALOG_ACTIONS:
+		return 0.0
+
+	var binding := get_analog_binding(action)
+	var axis_index := int(binding.get("axis", -1))
+	if axis_index < 0:
+		return 0.0
+
+	var device_id := _find_bound_joypad_id(binding)
+	if device_id < 0:
+		return 0.0
+
+	var value := Input.get_joy_axis(device_id, axis_index)
+	if bool(binding.get("invert", false)):
+		value = -value
+	if absf(value) < ANALOG_DEADZONE:
+		return 0.0
+	return clampf(value, -1.0, 1.0)
+
+
+func get_analog_axis_label(axis_index: int) -> String:
+	match axis_index:
+		JOY_AXIS_LEFT_X:
+			return "Left X"
+		JOY_AXIS_LEFT_Y:
+			return "Left Y"
+		JOY_AXIS_RIGHT_X:
+			return "Right X"
+		JOY_AXIS_RIGHT_Y:
+			return "Right Y"
+		JOY_AXIS_TRIGGER_LEFT:
+			return "Trigger L"
+		JOY_AXIS_TRIGGER_RIGHT:
+			return "Trigger R"
+		_:
+			return "Axis %d" % axis_index
+
+
+func _find_bound_joypad_id(binding: Dictionary) -> int:
+	var target_guid := str(binding.get("guid", ""))
+	var target_name := str(binding.get("device_name", ""))
+	var connected := Input.get_connected_joypads()
+
+	if not target_guid.is_empty():
+		for device_id_variant in connected:
+			var device_id := int(device_id_variant)
+			if Input.get_joy_guid(device_id) == target_guid:
+				return device_id
+
+	if not target_name.is_empty():
+		for device_id_variant in connected:
+			var device_id := int(device_id_variant)
+			if Input.get_joy_name(device_id) == target_name:
+				return device_id
+
+	return -1

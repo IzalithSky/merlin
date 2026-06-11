@@ -361,25 +361,33 @@ func _collect_inputs(delta: float) -> void:
 
 	_collect_roll_input(delta, rotation_rate, rotation_decay)
 
+	var pitch_analog := KeybindingsSettings.get_analog_value("pitch_axis")
 	var keyboard_pitch := 0.0
 	keyboard_pitch += Input.get_action_strength("pitch_up")
 	keyboard_pitch -= Input.get_action_strength("pitch_down")
 
+	var yaw_analog := KeybindingsSettings.get_analog_value("yaw_axis")
 	var keyboard_yaw := 0.0
 	keyboard_yaw += Input.get_action_strength("yaw_left")
 	keyboard_yaw -= Input.get_action_strength("yaw_right")
 
-	var desired_pitch: float = clampf(keyboard_pitch, -1.0, 1.0)
-	var desired_yaw: float = clampf(keyboard_yaw, -1.0, 1.0)
+	var desired_pitch: float = clampf(keyboard_pitch + pitch_analog, -1.0, 1.0)
+	var desired_yaw: float = clampf(keyboard_yaw + yaw_analog, -1.0, 1.0)
+	var pitch_analog_active := absf(pitch_analog) > 0.001
+	var yaw_analog_active := absf(yaw_analog) > 0.001
 	_player_pitch_control_active = absf(desired_pitch) > 0.001
 	_player_yaw_control_active = absf(desired_yaw) > 0.001
 
-	if _player_pitch_control_active:
+	if pitch_analog_active:
+		pitch_input = desired_pitch
+	elif _player_pitch_control_active:
 		pitch_input = move_toward(pitch_input, desired_pitch, rotation_rate)
 	elif _input_decay_enabled:
 		pitch_input = move_toward(pitch_input, 0.0, rotation_decay)
 
-	if _player_yaw_control_active:
+	if yaw_analog_active:
+		yaw_input = desired_yaw
+	elif _player_yaw_control_active:
 		yaw_input = move_toward(yaw_input, desired_yaw, rotation_rate)
 	elif _input_decay_enabled:
 		yaw_input = move_toward(yaw_input, 0.0, rotation_decay)
@@ -398,14 +406,18 @@ func _collect_inputs(delta: float) -> void:
 
 
 func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: float) -> void:
-	var direct_roll_direction := _get_direct_roll_direction()
+	var roll_analog := KeybindingsSettings.get_analog_value("roll_axis")
+	var direct_roll_direction := _get_direct_roll_direction(roll_analog)
 	var relative_roll_direction := _get_relative_roll_direction()
 	_player_direct_roll_control_active = absf(direct_roll_direction) > 0.001
 
 	if _player_direct_roll_control_active:
 		_reset_relative_roll_target()
 		relative_roll_input = move_toward(relative_roll_input, 0.0, rotation_decay)
-		roll_input = move_toward(roll_input, direct_roll_direction, rotation_rate)
+		if absf(roll_analog) > 0.001:
+			roll_input = direct_roll_direction
+		else:
+			roll_input = move_toward(roll_input, direct_roll_direction, rotation_rate)
 		roll_input = clampf(roll_input, -1.0, 1.0)
 		return
 
@@ -433,11 +445,12 @@ func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: flo
 	roll_input = clampf(roll_input, -1.0, 1.0)
 
 
-func _get_direct_roll_direction() -> float:
+func _get_direct_roll_direction(roll_analog: float = 0.0) -> float:
 	var direction := 0.0
 
 	direction += Input.get_action_strength("roll_left")
 	direction -= Input.get_action_strength("roll_right")
+	direction += roll_analog
 
 	return clampf(direction, -1.0, 1.0)
 

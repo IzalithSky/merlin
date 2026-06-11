@@ -2,11 +2,15 @@ extends PanelContainer
 
 signal back_requested
 
-const LISTENING_TEXT := "[press key]"
+const DIGITAL_LISTENING_TEXT := "[press key]"
+const ANALOG_LISTENING_TEXT := "[move axis]"
+const ANALOG_BIND_THRESHOLD := 0.5
 
 var _listening_action := ""
 var _listening_slot := -1
 var _row_buttons: Dictionary = {}
+var _listening_analog_action := ""
+var _analog_rows: Dictionary = {}
 
 @onready var _action_grid: GridContainer = %ActionGrid
 @onready var _back_button: Button = %KeybindingsBackButton
@@ -18,9 +22,34 @@ func _ready() -> void:
 	_back_button.pressed.connect(_on_back_pressed)
 	_reset_button.pressed.connect(_on_reset_pressed)
 	KeybindingsSettings.bindings_changed.connect(_refresh_labels)
+	set_process(true)
 
 
 func _input(event: InputEvent) -> void:
+	if not _listening_analog_action.is_empty():
+		if event is InputEventKey:
+			if not (event as InputEventKey).pressed or (event as InputEventKey).echo:
+				return
+			if (event as InputEventKey).physical_keycode == KEY_ESCAPE:
+				_stop_listening()
+				get_viewport().set_input_as_handled()
+			return
+
+		if event is InputEventJoypadMotion and absf((event as InputEventJoypadMotion).axis_value) >= ANALOG_BIND_THRESHOLD:
+			var existing_binding := KeybindingsSettings.get_analog_binding(_listening_analog_action)
+			KeybindingsSettings.set_analog_binding(
+				_listening_analog_action,
+				{
+					"guid": Input.get_joy_guid((event as InputEventJoypadMotion).device),
+					"device_name": Input.get_joy_name((event as InputEventJoypadMotion).device),
+					"axis": int((event as InputEventJoypadMotion).axis),
+					"invert": bool(existing_binding.get("invert", false)),
+				}
+			)
+			_stop_listening()
+			get_viewport().set_input_as_handled()
+		return
+
 	if _listening_action.is_empty():
 		return
 
@@ -51,6 +80,14 @@ func _input(event: InputEvent) -> void:
 		)
 		_stop_listening()
 		get_viewport().set_input_as_handled()
+
+
+func _process(_delta: float) -> void:
+	for action in KeybindingsSettings.ANALOG_ACTIONS:
+		if not _analog_rows.has(action):
+			continue
+		var row: Dictionary = _analog_rows[action]
+		(row["meter"] as ProgressBar).value = KeybindingsSettings.get_analog_value(action) * 100.0
 
 
 func focus_first() -> void:
@@ -89,7 +126,66 @@ func _build_rows() -> void:
 
 		_row_buttons[action] = [btn1, btn2, clear_btn]
 
+	_build_analog_rows()
 	_refresh_labels()
+
+
+func _build_analog_rows() -> void:
+	var section_label := Label.new()
+	section_label.text = "Analog Axes  —  move an axis to bind, use invert if needed"
+	section_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	section_label.add_theme_font_size_override("font_size", 17)
+	_action_grid.add_child(section_label)
+
+	for _column in 3:
+		_action_grid.add_child(Control.new())
+
+	for action in KeybindingsSettings.ANALOG_ACTIONS:
+		var label := Label.new()
+		label.text = KeybindingsSettings.ANALOG_LABELS.get(action, action)
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		label.add_theme_font_size_override("font_size", 17)
+		_action_grid.add_child(label)
+
+		var bind_button := Button.new()
+		bind_button.custom_minimum_size = Vector2(160, 38)
+		bind_button.add_theme_font_size_override("font_size", 15)
+		bind_button.pressed.connect(_on_analog_bind_pressed.bind(action))
+		_action_grid.add_child(bind_button)
+
+		var analog_controls := HBoxContainer.new()
+		analog_controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		analog_controls.alignment = BoxContainer.ALIGNMENT_BEGIN
+
+		var invert_toggle := CheckButton.new()
+		invert_toggle.text = "Invert"
+		invert_toggle.add_theme_font_size_override("font_size", 14)
+		invert_toggle.toggled.connect(_on_analog_invert_toggled.bind(action))
+		analog_controls.add_child(invert_toggle)
+
+		var meter := ProgressBar.new()
+		meter.custom_minimum_size = Vector2(160, 0)
+		meter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		meter.min_value = -100.0
+		meter.max_value = 100.0
+		meter.show_percentage = false
+		analog_controls.add_child(meter)
+
+		_action_grid.add_child(analog_controls)
+
+		var clear_button := Button.new()
+		clear_button.text = "Clear"
+		clear_button.custom_minimum_size = Vector2(60, 38)
+		clear_button.add_theme_font_size_override("font_size", 15)
+		clear_button.pressed.connect(_on_analog_clear_pressed.bind(action))
+		_action_grid.add_child(clear_button)
+
+		_analog_rows[action] = {
+			"button": bind_button,
+			"invert": invert_toggle,
+			"meter": meter,
+			"clear": clear_button,
+		}
 
 
 func _refresh_labels() -> void:
@@ -103,6 +199,15 @@ func _refresh_labels() -> void:
 		if _listening_action != action:
 			(btns[0] as Button).text = _binding_label(slots[0])
 			(btns[1] as Button).text = _binding_label(slots[1])
+
+	for action in KeybindingsSettings.ANALOG_ACTIONS:
+		if not _analog_rows.has(action):
+			continue
+		var row: Dictionary = _analog_rows[action]
+		var binding := KeybindingsSettings.get_analog_binding(action)
+		if _listening_analog_action != action:
+			(row["button"] as Button).text = _analog_binding_label(binding)
+		(row["invert"] as CheckButton).set_pressed_no_signal(bool(binding.get("invert", false)))
 
 
 func _binding_label(binding: Variant) -> String:
@@ -126,19 +231,32 @@ func _binding_label(binding: Variant) -> String:
 	return "---"
 
 
+func _analog_binding_label(binding: Dictionary) -> String:
+	var axis_index := int(binding.get("axis", -1))
+	if axis_index < 0:
+		return "---"
+
+	var device_name := str(binding.get("device_name", "Joypad"))
+	return "%s / %s" % [device_name.strip_edges(), KeybindingsSettings.get_analog_axis_label(axis_index)]
+
+
 func _on_bind_pressed(action: String, slot: int) -> void:
 	_stop_listening()
 	_listening_action = action
 	_listening_slot = slot
-	(_row_buttons[action] as Array)[slot].text = LISTENING_TEXT
+	(_row_buttons[action] as Array)[slot].text = DIGITAL_LISTENING_TEXT
+
+
+func _on_analog_bind_pressed(action: String) -> void:
+	_stop_listening()
+	_listening_analog_action = action
+	(_analog_rows[action] as Dictionary)["button"].text = ANALOG_LISTENING_TEXT
 
 
 func _stop_listening() -> void:
-	if _listening_action.is_empty():
-		return
-
 	_listening_action = ""
 	_listening_slot = -1
+	_listening_analog_action = ""
 	_refresh_labels()
 
 
@@ -147,6 +265,17 @@ func _on_clear_pressed(action: String) -> void:
 		_stop_listening()
 
 	KeybindingsSettings.clear_action(action)
+
+
+func _on_analog_clear_pressed(action: String) -> void:
+	if _listening_analog_action == action:
+		_stop_listening()
+
+	KeybindingsSettings.clear_analog_binding(action)
+
+
+func _on_analog_invert_toggled(button_pressed: bool, action: String) -> void:
+	KeybindingsSettings.set_analog_inverted(action, button_pressed)
 
 
 func _on_reset_pressed() -> void:

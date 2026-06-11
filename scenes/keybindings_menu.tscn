@@ -3,7 +3,7 @@
 [ext_resource type="Script" path="res://scripts/keybindings_menu.gd" id="1_kbmenu"]
 
 [node name="KeybindingsMenu" type="PanelContainer"]
-custom_minimum_size = Vector2(640, 520)
+custom_minimum_size = Vector2(820, 620)
 script = ExtResource("1_kbmenu")
 
 [node name="Margin" type="MarginContainer" parent="."]
@@ -25,7 +25,7 @@ text = "Key Bindings"
 horizontal_alignment = 1
 
 [node name="ScrollContainer" type="ScrollContainer" parent="Margin/VBox"]
-custom_minimum_size = Vector2(0, 340)
+custom_minimum_size = Vector2(0, 400)
 layout_mode = 2
 size_flags_vertical = 3
 
