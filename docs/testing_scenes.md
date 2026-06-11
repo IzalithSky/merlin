@@ -80,6 +80,30 @@ Recommended order after a gameplay patch:
 3. If the change is networked or stateful, add a narrow harness only if the behavior cannot be reasoned about locally.
 4. Prefer deleting ad hoc harnesses over keeping flaky tests that require special environment setup.
 
+## Current Smoke Set
+
+The repository now has a small headless smoke suite covering both local leaf
+features and one real multiplayer path:
+
+- `res://tests/autocannon_smoke.tscn`
+- `res://tests/bot_autocannon_smoke.tscn`
+- `res://tests/missile_hardpoint_smoke.tscn`
+- `res://tests/test_camera_detach.gd`
+- `res://tests/mp_host_smoke.gd` + `res://tests/mp_client_smoke.gd`
+
+Run them together with:
+
+```bash
+tests/run_headless_smokes.sh
+```
+
+The multiplayer smoke asserts:
+
+- host + client both reach `world_0.tscn`
+- exactly one local non-bot plane exists per peer
+- both peers spawn both player planes
+- host-side damage on the remote player replicates to the client health view
+
 ## Command Guidelines
 
 - Use project-relative scene paths such as `res://scenes/world_0.tscn`.

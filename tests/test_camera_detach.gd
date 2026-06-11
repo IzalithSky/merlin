@@ -1,8 +1,5 @@
 extends SceneTree
 
-# Narrow harness: verifies camera-rig detach behavior after shot-down.
-# Run: godot --headless --path /ssd2/projects/godot/merlin --script test_camera_detach.gd
-
 const CameraRigScene := preload("res://scenes/local_plane_camera_rig.tscn")
 
 var _pass_count := 0
@@ -12,7 +9,6 @@ var _frame := 0
 
 func _process(_delta: float) -> bool:
 	_frame += 1
-	# Wait one frame so all @onready vars are populated.
 	if _frame < 2:
 		return false
 	_run_tests()
@@ -33,7 +29,6 @@ func _run_tests() -> void:
 	_test_fpv_restore_on_detach()
 
 
-# _detach_from_target must set _is_detached = true.
 func _test_detach_sets_is_detached() -> void:
 	var rig: Node = _make_rig()
 	var plane: Node3D = _make_plane_node(Vector3(0, 100, 0), Vector3(0.0, 0.0, 0.0))
@@ -45,21 +40,19 @@ func _test_detach_sets_is_detached() -> void:
 	plane.queue_free()
 
 
-# After detach the rig basis should be identity (global upright).
 func _test_detach_levels_basis() -> void:
 	var rig: Node = _make_rig()
 	var plane: Node3D = _make_plane_node(Vector3(0, 100, 0), Vector3(0.5, 0.3, 0.1))
 	rig.call("set_target", plane)
 	rig.call("_detach_from_target")
 	var rig3d: Node3D = rig as Node3D
-	var b: Basis = rig3d.global_transform.basis
-	var ok: bool = b.is_equal_approx(Basis.IDENTITY)
-	_assert(ok, "basis should be identity after detach, got: %s" % str(b))
+	var basis_value: Basis = rig3d.global_transform.basis
+	var ok: bool = basis_value.is_equal_approx(Basis.IDENTITY)
+	_assert(ok, "basis should be identity after detach, got: %s" % str(basis_value))
 	rig.queue_free()
 	plane.queue_free()
 
 
-# After detach the camera should keep approximately the same world-forward.
 func _test_detach_preserves_forward() -> void:
 	var rig: Node = _make_rig()
 	var plane: Node3D = _make_plane_node(Vector3(0, 100, 0), Vector3(0.0, 0.0, 0.0))
@@ -68,16 +61,15 @@ func _test_detach_preserves_forward() -> void:
 	rig.set("_camera_pitch", deg_to_rad(20.0))
 	rig.call("_apply_camera_look")
 	var pitch_pivot: Node3D = rig.get_node("%CameraPitchPivot") as Node3D
-	var before_fwd: Vector3 = -pitch_pivot.global_transform.basis.z
+	var before_forward: Vector3 = -pitch_pivot.global_transform.basis.z
 	rig.call("_detach_from_target")
-	var after_fwd: Vector3 = -pitch_pivot.global_transform.basis.z
-	var dot: float = before_fwd.dot(after_fwd)
-	_assert(dot > 0.999, "forward direction should be preserved after detach, dot=%.4f" % dot)
+	var after_forward: Vector3 = -pitch_pivot.global_transform.basis.z
+	var dot_value: float = before_forward.dot(after_forward)
+	_assert(dot_value > 0.999, "forward direction should be preserved after detach, dot=%.4f" % dot_value)
 	rig.queue_free()
 	plane.queue_free()
 
 
-# The input guard (_target == null and not _is_detached) must be false when detached.
 func _test_mouse_input_guard_passes_when_detached() -> void:
 	var rig: Node = _make_rig()
 	var plane: Node3D = _make_plane_node(Vector3(0, 100, 0), Vector3(0.0, 0.0, 0.0))
@@ -91,7 +83,6 @@ func _test_mouse_input_guard_passes_when_detached() -> void:
 	plane.queue_free()
 
 
-# set_target() should clear _is_detached.
 func _test_set_target_clears_detached() -> void:
 	var rig: Node = _make_rig()
 	var plane: Node3D = _make_plane_node(Vector3(0, 100, 0), Vector3(0.0, 0.0, 0.0))
@@ -104,7 +95,6 @@ func _test_set_target_clears_detached() -> void:
 	plane.queue_free()
 
 
-# FPV mode should hide BodyMesh on the target plane.
 func _test_fpv_hides_mesh() -> void:
 	var rig: Node = _make_rig()
 	var plane: Node3D = _make_plane_node_with_mesh(Vector3(0, 100, 0))
@@ -119,7 +109,6 @@ func _test_fpv_hides_mesh() -> void:
 	plane.queue_free()
 
 
-# FPV camera transform should be at identity (no arm offset).
 func _test_fpv_camera_at_origin() -> void:
 	var rig: Node = _make_rig()
 	var plane: Node3D = _make_plane_node(Vector3(0, 100, 0), Vector3(0.0, 0.0, 0.0))
@@ -137,7 +126,6 @@ func _test_fpv_camera_at_origin() -> void:
 	plane.queue_free()
 
 
-# set_target() should exit FPV and restore mesh on the old target.
 func _test_fpv_restore_on_set_target() -> void:
 	var rig: Node = _make_rig()
 	var plane: Node3D = _make_plane_node_with_mesh(Vector3(0, 100, 0))
@@ -154,7 +142,6 @@ func _test_fpv_restore_on_set_target() -> void:
 	plane2.queue_free()
 
 
-# _detach_from_target() should exit FPV and restore mesh.
 func _test_fpv_restore_on_detach() -> void:
 	var rig: Node = _make_rig()
 	var plane: Node3D = _make_plane_node_with_mesh(Vector3(0, 100, 0))
@@ -169,8 +156,6 @@ func _test_fpv_restore_on_detach() -> void:
 	plane.queue_free()
 
 
-# -----------------------------------------------------------------------
-
 func _make_rig() -> Node:
 	var rig: Node = CameraRigScene.instantiate()
 	get_root().add_child(rig)
@@ -178,19 +163,19 @@ func _make_rig() -> Node:
 
 
 func _make_plane_node(pos: Vector3, euler_rad: Vector3) -> Node3D:
-	var n := Node3D.new()
-	get_root().add_child(n)
-	n.global_position = pos
-	n.global_transform.basis = Basis.from_euler(euler_rad).orthonormalized()
-	return n
+	var node := Node3D.new()
+	get_root().add_child(node)
+	node.global_position = pos
+	node.global_transform.basis = Basis.from_euler(euler_rad).orthonormalized()
+	return node
 
 
 func _make_plane_node_with_mesh(pos: Vector3) -> Node3D:
-	var n: Node3D = _make_plane_node(pos, Vector3.ZERO)
+	var node: Node3D = _make_plane_node(pos, Vector3.ZERO)
 	var mesh := MeshInstance3D.new()
 	mesh.name = "BodyMesh"
-	n.add_child(mesh)
-	return n
+	node.add_child(mesh)
+	return node
 
 
 func _assert(condition: bool, msg: String) -> void:

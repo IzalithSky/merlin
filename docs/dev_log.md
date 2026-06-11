@@ -246,6 +246,7 @@ This update records the fixes for the second-pass multiplayer fire-authority and
   - #2 Health does not work in multiplayer
   - #3 Snapshot protocol
   - #4 Missile replication bandwidth
+  - #9 Tests
   - #10 Input-layer quirks
   - #11 Server-side fire authority reads state that never reaches the server
   - #12 Ground-impact surface normal is double-rotated
@@ -255,7 +256,6 @@ This update records the fixes for the second-pass multiplayer fire-authority and
   - #6 Stringly-typed contracts
   - #7 Multiplayer bot spawning/identity cleanup
   - #8 Broad documentation drift pass
-  - #9 Automated smoke tests / test harness
   - #13 `team_id` assignment / HUD friend-foe correctness
 
 3. Item #4: missile replication bandwidth
@@ -263,6 +263,12 @@ This update records the fixes for the second-pass multiplayer fire-authority and
 - Missile spawn RPCs now include the initial launch velocity and locked target peer id.
 - Remote peers now run a lightweight local `missile_visual.gd` guidance simulation seeded from spawn data, with authoritative despawn/explosion still coming from the server.
 - This reduces missile replication traffic from transform spam every physics tick to spawn/despawn events only for the normal case.
+
+4. Item #9: tests
+- Moved the camera-detach harness under `tests/` so it lives with the rest of the smoke coverage.
+- Added a two-process host/join multiplayer smoke using `tests/mp_host_smoke.gd` and `tests/mp_client_smoke.gd`.
+- The multiplayer smoke asserts both peers load the real world scene, each peer owns exactly one local non-bot plane, and host-side damage on peer 2 replicates back to the client health view.
+- Added `tests/run_headless_smokes.sh` as a single runner for the current headless smoke set.
 
 ## Additional June 11 Work
 
