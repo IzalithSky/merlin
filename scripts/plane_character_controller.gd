@@ -105,6 +105,11 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 ]
 @export var alignment_strength: float = 400.0
 @export var alignment_max_torque: float = 10_000.0
+@export var alignment_angle_to_rate_gain: float = 1.2
+@export var alignment_max_desired_yaw_rate: float = 1.4
+@export var alignment_rate_response_gain: float = 0.8
+@export var alignment_deadband_deg: float = 1.0
+@export var alignment_rate_deadband: float = 0.03
 @export var extra_linear_drag_linear_coefficient: float = 0.0
 @export var extra_linear_drag_quadratic_coefficient: float = 0.16
 @export var extra_angular_drag_linear_coefficients: Vector3 = Vector3(20000.0, 12000.0, 20000.0)
@@ -597,13 +602,34 @@ func apply_directional_alignment() -> void:
 	velocity_direction = velocity_direction.normalized()
 	var axis := forward.cross(velocity_direction)
 	var yaw_angle := forward.angle_to(velocity_direction) * signf(axis.dot(yaw_axis))
+	var local_yaw_rate := get_local_yaw_rate()
+	var angle_deadband := deg_to_rad(maxf(alignment_deadband_deg, 0.0))
+	var rate_deadband := maxf(alignment_rate_deadband, 0.0)
+	if absf(yaw_angle) <= angle_deadband and absf(local_yaw_rate) <= rate_deadband:
+		return
 
-	if absf(yaw_angle) > 0.01:
-		var torque := yaw_axis * yaw_angle * alignment_strength * _frame_air_speed
-		if alignment_max_torque > 0.0:
-			torque = torque.limit_length(alignment_max_torque)
-		apply_torque(torque)
-		_push_debug_torque(global_position, torque, DEBUG_COLOR_ALIGNMENT_TORQUE)
+	var desired_yaw_rate := clampf(
+		yaw_angle * maxf(alignment_angle_to_rate_gain, 0.0),
+		-maxf(alignment_max_desired_yaw_rate, 0.0),
+		maxf(alignment_max_desired_yaw_rate, 0.0)
+	)
+	var yaw_rate_error := desired_yaw_rate - local_yaw_rate
+	if absf(yaw_rate_error) <= 0.000001:
+		return
+
+	var torque := (
+		yaw_axis *
+		yaw_rate_error *
+		maxf(alignment_rate_response_gain, 0.0) *
+		maxf(alignment_strength, 0.0) *
+		_frame_air_speed
+	)
+	if alignment_max_torque > 0.0:
+		torque = torque.limit_length(alignment_max_torque)
+	if torque.length_squared() <= 0.0 or not torque.is_finite():
+		return
+	apply_torque(torque)
+	_push_debug_torque(global_position, torque, DEBUG_COLOR_ALIGNMENT_TORQUE)
 
 
 func apply_extra_drag_forces() -> void:
@@ -1072,6 +1098,10 @@ func get_local_angular_velocity() -> Vector3:
 
 func get_local_roll_rate() -> float:
 	return get_local_angular_velocity().z
+
+
+func get_local_yaw_rate() -> float:
+	return get_local_angular_velocity().y
 
 
 func get_best_climb_speed_vy() -> float:
