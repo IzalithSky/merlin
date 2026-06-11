@@ -88,6 +88,10 @@ func _process(_delta: float) -> void:
 
 
 func _handle_input() -> void:
+	if _owner_plane != null and is_instance_valid(_owner_plane) and _owner_plane.get("is_shot_down") == true:
+		_clear_selection()
+		return
+
 	if Input.is_action_just_pressed("target_select"):
 		_select_nearest_to_center()
 	elif Input.is_action_just_pressed("target_deselect"):

@@ -45,6 +45,15 @@ func _physics_process(delta: float) -> void:
 
 
 func _update_lock(delta: float) -> void:
+	var owner_plane := get_parent() as Node3D
+	if owner_plane != null and owner_plane.get("is_shot_down") == true:
+		_desired_target = null
+		if _locked:
+			_locked = false
+			lock_lost.emit()
+		_lock_progress = 0.0
+		return
+
 	if _desired_target != null and not is_instance_valid(_desired_target):
 		_desired_target = null
 
@@ -80,7 +89,7 @@ func _check_lock_envelope(target: Node3D) -> bool:
 	if target == null or not is_instance_valid(target):
 		return false
 	var owner_plane := get_parent() as Node3D
-	if owner_plane == null:
+	if owner_plane == null or owner_plane.get("is_shot_down") == true:
 		return false
 	var to_target := target.global_position - owner_plane.global_position
 	var dist := to_target.length()

@@ -732,6 +732,8 @@ func sv_request_fire_missile(firing_peer_id: int, target_peer_id: int) -> void:
 	var firing_plane := _characters.get_node_or_null(_character_name(firing_peer_id)) as Node3D
 	if firing_plane == null or not is_instance_valid(firing_plane):
 		return
+	if firing_plane.get("is_shot_down") == true:
+		return
 	var locked_target: Node3D = null
 	if target_peer_id >= 0:
 		locked_target = _characters.get_node_or_null(_character_name(target_peer_id)) as Node3D

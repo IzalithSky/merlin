@@ -6,6 +6,7 @@ extends Node3D
 @export var camera_min_fov: float = 20.0
 @export var camera_max_fov: float = 90.0
 @export var follow_lerp_speed: float = 0.0
+@export var shot_down_detach_delay_sec: float = 2.0
 
 @onready var _camera: Camera3D = %Camera3D
 @onready var _camera_yaw_pivot: Node3D = %CameraYawPivot
@@ -14,6 +15,7 @@ extends Node3D
 var _target: Node3D
 var _camera_yaw := 0.0
 var _camera_pitch := 0.0
+var _shot_down_detach_deadline := -1.0
 
 
 func _ready() -> void:
@@ -28,8 +30,10 @@ func get_camera() -> Camera3D:
 
 func set_target(target: Node3D = null) -> void:
 	_target = target
+	_shot_down_detach_deadline = -1.0
 	if _target != null:
 		global_position = _target.global_position
+		global_transform.basis = _target.global_transform.basis.orthonormalized()
 		call_deferred("_capture_mouse")
 	else:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -70,7 +74,21 @@ func _physics_process(delta: float) -> void:
 
 	if not is_instance_valid(_target):
 		_target = null
+		_shot_down_detach_deadline = -1.0
 		return
+
+	var target_shot_down: bool = _target.get("is_shot_down") == true
+	if target_shot_down:
+		if _shot_down_detach_deadline < 0.0:
+			if shot_down_detach_delay_sec <= 0.0:
+				_detach_from_target()
+				return
+			_shot_down_detach_deadline = Time.get_ticks_msec() / 1000.0 + shot_down_detach_delay_sec
+		elif (Time.get_ticks_msec() / 1000.0) >= _shot_down_detach_deadline:
+			_detach_from_target()
+			return
+	else:
+		_shot_down_detach_deadline = -1.0
 
 	var target_position := _target.global_position
 	if follow_lerp_speed <= 0.0:
@@ -79,6 +97,11 @@ func _physics_process(delta: float) -> void:
 		var blend := clampf(follow_lerp_speed * delta, 0.0, 1.0)
 		global_position = global_position.lerp(target_position, blend)
 	global_transform.basis = _target.global_transform.basis.orthonormalized()
+
+
+func _detach_from_target() -> void:
+	_target = null
+	_shot_down_detach_deadline = -1.0
 
 
 func _capture_mouse() -> void:

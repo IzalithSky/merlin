@@ -26,6 +26,9 @@ func _process(delta: float) -> void:
 	if not _is_local_player(plane):
 		return
 
+	if plane.get("is_shot_down") == true:
+		return
+
 	if Input.is_action_just_pressed("fire_missile") and _cooldown_remaining <= 0.0:
 		_try_fire(plane)
 
@@ -36,10 +39,15 @@ func try_fire() -> void:
 	var plane := get_parent() as Node3D
 	if plane == null or not is_instance_valid(plane):
 		return
+	if plane.get("is_shot_down") == true:
+		return
 	_try_fire(plane)
 
 
 func _try_fire(plane: Node3D) -> void:
+	if plane.get("is_shot_down") == true:
+		return
+
 	var locked_target: Node3D = null
 	var weapon_lock := plane.get_node_or_null("PlaneWeaponLock")
 	if weapon_lock != null and is_instance_valid(weapon_lock):
