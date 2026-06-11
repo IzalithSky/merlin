@@ -2,7 +2,6 @@ extends Node3D
 
 signal detached
 
-@export var mouse_sensitivity: float = 0.006
 @export var camera_max_pitch_deg: float = 89.0
 @export var camera_zoom_step: float = 4.0
 @export var camera_min_fov: float = 20.0
@@ -21,6 +20,7 @@ var _shot_down_detach_deadline := -1.0
 var _is_detached := false
 var _first_person := false
 var _third_person_camera_transform := Transform3D.IDENTITY
+var _mouse_sensitivity: float = 0.006
 
 
 func _ready() -> void:
@@ -28,6 +28,19 @@ func _ready() -> void:
 	_camera_yaw = _camera_yaw_pivot.rotation.y
 	_camera_pitch = _camera_pitch_pivot.rotation.x
 	_apply_camera_look()
+	_sync_sensitivity_from_settings()
+	var ds := get_node_or_null("/root/DisplaySettings")
+	if ds != null and ds.has_signal("settings_changed"):
+		ds.settings_changed.connect(_sync_sensitivity_from_settings)
+
+
+func _sync_sensitivity_from_settings() -> void:
+	var ds := get_node_or_null("/root/DisplaySettings")
+	if ds == null:
+		return
+	var val: Variant = ds.get("mouse_sensitivity")
+	if val is float:
+		_mouse_sensitivity = val
 
 
 func get_camera() -> Camera3D:
@@ -73,8 +86,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		_camera_yaw -= event.relative.x * mouse_sensitivity
-		_camera_pitch -= event.relative.y * mouse_sensitivity
+		_camera_yaw -= event.relative.x * _mouse_sensitivity
+		_camera_pitch -= event.relative.y * _mouse_sensitivity
 		var max_pitch := deg_to_rad(camera_max_pitch_deg)
 		_camera_pitch = clampf(_camera_pitch, -max_pitch, max_pitch)
 		_apply_camera_look()
