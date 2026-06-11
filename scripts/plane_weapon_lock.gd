@@ -28,6 +28,12 @@ func get_locked_target() -> Node3D:
 	return null
 
 
+func get_desired_target() -> Node3D:
+	if _desired_target != null and is_instance_valid(_desired_target):
+		return _desired_target
+	return null
+
+
 func get_lock_progress() -> float:
 	return _lock_progress
 

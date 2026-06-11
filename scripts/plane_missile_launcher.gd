@@ -3,13 +3,17 @@ extends Node
 const MISSILE_SCENE := preload("res://scenes/missile.tscn")
 
 @export var fire_cooldown: float = 1.0
+@export var launch_lateral_offset: float = 5.0
+@export var launch_vertical_offset: float = 0.0
+@export var launch_forward_offset: float = 0.0
 
 var _cooldown_remaining: float = 0.0
-var _projectiles_container: Node3D = null
+var _projectiles_container: Node = null
+var _next_hardpoint_index: int = 0
 
 
 func _ready() -> void:
-	_projectiles_container = get_tree().current_scene.get_node_or_null("projectiles") as Node3D
+	_projectiles_container = get_tree().current_scene.get_node_or_null("projectiles")
 	if _projectiles_container == null:
 		push_warning("PlaneMissileLauncher: no 'projectiles' node found in scene root; missiles will be added to scene root")
 		_projectiles_container = get_tree().current_scene
@@ -71,7 +75,7 @@ func _try_fire(plane: Node3D) -> void:
 
 func _fire(plane: Node3D, locked_target: Node3D) -> void:
 	var missile := MISSILE_SCENE.instantiate() as RigidBody3D
-	missile.global_transform = plane.global_transform
+	missile.global_transform = get_and_advance_launch_transform(plane)
 	if "target" in missile:
 		missile.set("target", locked_target)
 	if "host" in missile:
@@ -84,6 +88,19 @@ func _fire(plane: Node3D, locked_target: Node3D) -> void:
 
 	if missile.has_method("add_collision_exception_with"):
 		missile.add_collision_exception_with(plane)
+
+
+func get_and_advance_launch_transform(plane: Node3D) -> Transform3D:
+	var side_sign := -1.0 if _next_hardpoint_index % 2 == 0 else 1.0
+	_next_hardpoint_index += 1
+
+	var basis := plane.global_transform.basis
+	var origin := plane.global_position
+	origin += basis.x * launch_lateral_offset * side_sign
+	origin += basis.y * launch_vertical_offset
+	origin += -basis.z * launch_forward_offset
+
+	return Transform3D(plane.global_transform.basis, origin)
 
 
 func _is_local_player(plane: Node3D) -> bool:

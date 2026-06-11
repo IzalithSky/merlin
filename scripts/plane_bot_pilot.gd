@@ -93,6 +93,7 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 @export var overshoot_throttle_gain: float = 0.08
 @export var killzone_distance: float = 250.0
 @export var killzone_tolerance: float = 150.0
+@export var autocannon_fire_max_range: float = 650.0
 @export var avoid_missiles: bool = true
 @export var debug_bot_visuals_enabled := true
 @export var checkpoints: Array[Vector3] = [
@@ -1302,6 +1303,35 @@ func _update_weapon_targeting() -> void:
 		var launcher := _plane.get_node_or_null("PlaneMissileLauncher")
 		if launcher != null:
 			launcher.call("try_fire")
+
+	if _should_fire_autocannon(desired_target):
+		var autocannon := _plane.get_node_or_null("Autocannon")
+		if autocannon != null:
+			autocannon.call("try_fire")
+
+
+func _should_fire_autocannon(target: Node3D) -> bool:
+	if target == null or not is_instance_valid(target):
+		return false
+
+	var max_range := maxf(autocannon_fire_max_range, 0.0)
+	if max_range <= 0.0:
+		return false
+
+	var to_target := target.global_position - _frame_position
+	var distance := to_target.length()
+	if distance <= 0.001 or distance > max_range:
+		return false
+
+	var autocannon := _plane.get_node_or_null("Autocannon")
+	if autocannon == null:
+		return false
+
+	var cone_half_angle_deg := float(autocannon.get("lead_cone_half_angle_deg"))
+	var forward_axis := _frame_forward_axis.normalized()
+	var direction_to_target := to_target / distance
+	var angle := acos(clampf(forward_axis.dot(direction_to_target), -1.0, 1.0))
+	return angle <= deg_to_rad(cone_half_angle_deg)
 
 
 func _apply_controls(roll_value: float, pitch_value: float, yaw_value: float, throttle_value: float) -> void:

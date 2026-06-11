@@ -1,0 +1,18 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/bullet_visual.gd" id="1_bullet_visual"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_bullet_visual_body"]
+albedo_color = Color(1, 0.4, 0.7, 1)
+roughness = 0.7
+
+[sub_resource type="PrismMesh" id="PrismMesh_bullet_visual_body"]
+material = SubResource("StandardMaterial3D_bullet_visual_body")
+size = Vector3(0.1, 0.6, 0.1)
+
+[node name="BulletVisual" type="Node3D"]
+script = ExtResource("1_bullet_visual")
+
+[node name="BodyMesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(-1, -8.742278e-08, 3.821371e-15, 0, -4.371139e-08, -1, 8.742278e-08, -1, 4.371139e-08, 0, 0, 0)
+mesh = SubResource("PrismMesh_bullet_visual_body")

@@ -6,12 +6,14 @@ const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
 const BOT_DUEL_CAMERA_SCENE := preload("res://scenes/bot_duel_camera.tscn")
 const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 
-@export var spawn_altitude: float = 2500.0
-@export var bot_separation: float = 900.0
+@export var spawn_altitude: float = 500.0
+@export var bot_separation: float = 1500.0
 @export var initial_forward_speed: float = 160.0
 @export var bot_default_altitude: float = 2500.0
 @export var bot_killzone_distance: float = 250.0
 @export var bot_killzone_tolerance: float = 150.0
+@export var bot_autocannon_fire_max_range: float = 650.0
+@export var bot_autocannon_lead_cone_half_angle_deg: float = 30.0
 
 @onready var _characters: Node3D = $characters
 
@@ -23,8 +25,8 @@ func _ready() -> void:
 
 	var bot_a := _spawn_bot("BotA", 1000000, Vector3(-bot_separation * 0.5, spawn_altitude, 0.0))
 	var bot_b := _spawn_bot("BotB", 1000001, Vector3(bot_separation * 0.5, spawn_altitude, 0.0))
-	_face_plane_at(bot_a, bot_b.global_position)
-	_face_plane_at(bot_b, bot_a.global_position)
+	_face_plane_in_direction(bot_a, Vector3.FORWARD)
+	_face_plane_in_direction(bot_b, Vector3.FORWARD)
 	_seed_forward_speed(bot_a)
 	_seed_forward_speed(bot_b)
 
@@ -86,8 +88,12 @@ func _attach_bot_pilot(plane: RigidBody3D) -> Node:
 	pilot.set("default_altitude", bot_default_altitude)
 	pilot.set("killzone_distance", bot_killzone_distance)
 	pilot.set("killzone_tolerance", bot_killzone_tolerance)
+	pilot.set("autocannon_fire_max_range", bot_autocannon_fire_max_range)
 	if _has_display_settings():
 		pilot.set("debug_bot_visuals_enabled", DisplaySettings.bot_debug_enabled)
+	var autocannon := plane.get_node_or_null("Autocannon")
+	if autocannon != null:
+		autocannon.set("lead_cone_half_angle_deg", bot_autocannon_lead_cone_half_angle_deg)
 	if pilot.has_method("climb_to_altitude"):
 		pilot.call("climb_to_altitude", bot_default_altitude)
 	return pilot
@@ -95,6 +101,12 @@ func _attach_bot_pilot(plane: RigidBody3D) -> Node:
 
 func _face_plane_at(plane: Node3D, target_point: Vector3) -> void:
 	plane.rotation = Vector3(0.0, _yaw_towards(plane.global_position, target_point), 0.0)
+
+
+func _face_plane_in_direction(plane: Node3D, direction_world: Vector3) -> void:
+	if direction_world.length_squared() <= 0.000001:
+		return
+	plane.rotation = Vector3(0.0, _yaw_towards(Vector3.ZERO, direction_world.normalized()), 0.0)
 
 
 func _yaw_towards(from_point: Vector3, to_point: Vector3) -> float:

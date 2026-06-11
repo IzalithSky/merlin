@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://d1o81vttixei4" path="res://scripts/plane_wing_trails.gd" id="3_wing_trails"]
 [ext_resource type="Script" path="res://scripts/plane_weapon_lock.gd" id="4_weapon_lock"]
 [ext_resource type="Script" path="res://scripts/plane_missile_launcher.gd" id="5_launcher"]
+[ext_resource type="Script" path="res://scripts/autocannon.gd" id="8_gun"]
 [ext_resource type="PackedScene" path="res://scenes/health.tscn" id="6_health"]
 [ext_resource type="PackedScene" path="res://scenes/flame_trail.tscn" id="7_flame_trail"]
 
@@ -43,6 +44,9 @@ script = ExtResource("4_weapon_lock")
 
 [node name="PlaneMissileLauncher" type="Node" parent="."]
 script = ExtResource("5_launcher")
+
+[node name="Autocannon" type="Node" parent="."]
+script = ExtResource("8_gun")
 
 [node name="WingTrails" type="Node3D" parent="." unique_id=1860878340]
 script = ExtResource("3_wing_trails")

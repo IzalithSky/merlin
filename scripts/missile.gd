@@ -21,7 +21,7 @@ extends RigidBody3D
 
 const TRAIL_SCENE := preload("res://scenes/wing_trail.tscn")
 
-signal died(exploded: bool, position: Vector3)
+signal died(exploded: bool, hit_position: Vector3)
 
 var target: Node3D = null
 var host: RigidBody3D = null

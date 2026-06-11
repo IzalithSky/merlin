@@ -24,23 +24,33 @@ func _input(event: InputEvent) -> void:
 	if _listening_action.is_empty():
 		return
 
-	if not event is InputEventKey:
-		return
+	if event is InputEventKey:
+		if not (event as InputEventKey).pressed or (event as InputEventKey).echo:
+			return
 
-	if not (event as InputEventKey).pressed or (event as InputEventKey).echo:
-		return
+		if (event as InputEventKey).physical_keycode == KEY_ESCAPE:
+			_stop_listening()
+			get_viewport().set_input_as_handled()
+			return
 
-	if (event as InputEventKey).physical_keycode == KEY_ESCAPE:
+		KeybindingsSettings.set_binding(
+			_listening_action, _listening_slot,
+			(event as InputEventKey).physical_keycode
+		)
 		_stop_listening()
 		get_viewport().set_input_as_handled()
 		return
 
-	KeybindingsSettings.set_binding(
-		_listening_action, _listening_slot,
-		(event as InputEventKey).physical_keycode
-	)
-	_stop_listening()
-	get_viewport().set_input_as_handled()
+	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+		KeybindingsSettings.set_binding(
+			_listening_action, _listening_slot,
+			{
+				"type": "mouse",
+				"button_index": int((event as InputEventMouseButton).button_index)
+			}
+		)
+		_stop_listening()
+		get_viewport().set_input_as_handled()
 
 
 func focus_first() -> void:
@@ -91,15 +101,29 @@ func _refresh_labels() -> void:
 		var btns: Array = _row_buttons[action]
 
 		if _listening_action != action:
-			(btns[0] as Button).text = _keycode_label(int(slots[0]))
-			(btns[1] as Button).text = _keycode_label(int(slots[1]))
+			(btns[0] as Button).text = _binding_label(slots[0])
+			(btns[1] as Button).text = _binding_label(slots[1])
 
 
-func _keycode_label(physical_keycode: int) -> String:
-	if physical_keycode < 0:
-		return "---"
+func _binding_label(binding: Variant) -> String:
+	if binding is int:
+		var physical_keycode := int(binding)
+		if physical_keycode < 0:
+			return "---"
+		return OS.get_keycode_string(physical_keycode as Key)
 
-	return OS.get_keycode_string(physical_keycode as Key)
+	if binding is Dictionary and str((binding as Dictionary).get("type", "")) == "mouse":
+		match int((binding as Dictionary).get("button_index", -1)):
+			MOUSE_BUTTON_LEFT:
+				return "LMB"
+			MOUSE_BUTTON_RIGHT:
+				return "RMB"
+			MOUSE_BUTTON_MIDDLE:
+				return "MMB"
+			_:
+				return "Mouse %d" % int((binding as Dictionary).get("button_index", -1))
+
+	return "---"
 
 
 func _on_bind_pressed(action: String, slot: int) -> void:

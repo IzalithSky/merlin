@@ -1,13 +1,13 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://bn6q7c54ulev3"]
 
-[ext_resource type="Script" path="res://scripts/bot_duel_scene.gd" id="1_duel"]
+[ext_resource type="Script" uid="uid://2gvimt7u2576" path="res://scripts/bot_duel_scene.gd" id="1_duel"]
 [ext_resource type="PackedScene" path="res://scenes/game_menu_ui.tscn" id="2_menu"]
 
-[node name="BotDuel" type="Node3D"]
+[node name="BotDuel" type="Node3D" unique_id=1379911028]
 script = ExtResource("1_duel")
 
-[node name="characters" type="Node3D" parent="."]
+[node name="characters" type="Node3D" parent="." unique_id=831435094]
 
-[node name="projectiles" type="Node3D" parent="."]
+[node name="projectiles" type="Node3D" parent="." unique_id=411283291]
 
-[node name="ui" parent="." instance=ExtResource("2_menu")]
+[node name="ui" parent="." unique_id=116068142 instance=ExtResource("2_menu")]

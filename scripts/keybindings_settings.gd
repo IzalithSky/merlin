@@ -16,6 +16,7 @@ const ACTIONS: Array[String] = [
 	"target_select", "target_deselect",
 	"target_cycle_next", "target_cycle_prev",
 	"fire_missile",
+	"fire_autocannon",
 	"toggle_camera_view",
 ]
 
@@ -36,6 +37,7 @@ const ACTION_LABELS: Dictionary = {
 	"target_cycle_next": "Target Next",
 	"target_cycle_prev": "Target Prev",
 	"fire_missile": "Fire Missile",
+	"fire_autocannon": "Fire Autocannon",
 	"toggle_camera_view": "Camera View",
 }
 
@@ -49,10 +51,10 @@ func _ready() -> void:
 
 
 func get_bindings(action: String) -> Array:
-	return (_bindings.get(action, [-1, -1]) as Array).duplicate()
+	return (_bindings.get(action, [-1, -1]) as Array).duplicate(true)
 
 
-func set_binding(action: String, slot: int, physical_keycode: int) -> void:
+func set_binding(action: String, slot: int, binding: Variant) -> void:
 	if not action in ACTIONS:
 		return
 	if slot < 0 or slot >= MAX_BINDINGS:
@@ -61,7 +63,7 @@ func set_binding(action: String, slot: int, physical_keycode: int) -> void:
 	if not _bindings.has(action):
 		_bindings[action] = [-1, -1]
 
-	_bindings[action][slot] = physical_keycode
+	_bindings[action][slot] = _normalize_binding(binding)
 	_apply_to_input_map()
 	save_bindings()
 	bindings_changed.emit()
@@ -94,7 +96,10 @@ func load_bindings() -> void:
 			continue
 		var saved: Variant = config.get_value(SECTION, action)
 		if saved is Array and (saved as Array).size() == MAX_BINDINGS:
-			_bindings[action] = [int((saved as Array)[0]), int((saved as Array)[1])]
+			_bindings[action] = [
+				_normalize_binding((saved as Array)[0]),
+				_normalize_binding((saved as Array)[1])
+			]
 
 
 func save_bindings() -> void:
@@ -124,11 +129,12 @@ func _make_defaults() -> Dictionary:
 		"limiter_override": [KEY_CTRL, -1],
 		"relative_roll_left": [KEY_A, -1],
 		"relative_roll_right": [KEY_D, -1],
-		"target_select": [KEY_T, -1],
+		"target_select": [KEY_R, -1],
 		"target_deselect": [KEY_G, -1],
 		"target_cycle_next": [KEY_Y, -1],
 		"target_cycle_prev": [-1, -1],
-		"fire_missile": [KEY_F, -1],
+		"fire_missile": [_mouse_binding(MOUSE_BUTTON_RIGHT), -1],
+		"fire_autocannon": [_mouse_binding(MOUSE_BUTTON_LEFT), -1],
 		"toggle_camera_view": [KEY_C, -1],
 	}
 
@@ -142,9 +148,48 @@ func _apply_to_input_map() -> void:
 			continue
 
 		var slots: Array = _bindings.get(action, [-1, -1])
-		for keycode in slots:
-			if int(keycode) < 0:
+		for binding in slots:
+			var normalized: Variant = _normalize_binding(binding)
+			if normalized is int and int(normalized) < 0:
 				continue
-			var event := InputEventKey.new()
-			event.physical_keycode = int(keycode) as Key
-			InputMap.action_add_event(action, event)
+			var event: InputEvent = _binding_to_input_event(normalized)
+			if event != null:
+				InputMap.action_add_event(action, event)
+
+
+func _normalize_binding(binding: Variant) -> Variant:
+	if binding is Dictionary:
+		var dict_binding := binding as Dictionary
+		var binding_type := str(dict_binding.get("type", ""))
+		if binding_type == "mouse":
+			return {
+				"type": "mouse",
+				"button_index": int(dict_binding.get("button_index", -1))
+			}
+	if binding is int:
+		return int(binding)
+	return -1
+
+
+func _binding_to_input_event(binding: Variant) -> InputEvent:
+	if binding is int:
+		var keycode := int(binding)
+		if keycode < 0:
+			return null
+		var key_event := InputEventKey.new()
+		key_event.physical_keycode = keycode as Key
+		return key_event
+
+	if binding is Dictionary and str((binding as Dictionary).get("type", "")) == "mouse":
+		var mouse_event := InputEventMouseButton.new()
+		mouse_event.button_index = int((binding as Dictionary).get("button_index", -1)) as MouseButton
+		return mouse_event
+
+	return null
+
+
+func _mouse_binding(button_index: MouseButton) -> Dictionary:
+	return {
+		"type": "mouse",
+		"button_index": int(button_index)
+	}
