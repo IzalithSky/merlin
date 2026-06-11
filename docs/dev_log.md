@@ -292,6 +292,7 @@ This update records the fixes for the second-pass multiplayer fire-authority and
 - Added separate analog-axis bindings for `Pitch`, `Yaw`, and `Roll` in the keybindings menu, each with a live input meter and an invert toggle.
 - Plane input collection now reads those analog bindings directly alongside the existing digital actions, so flight sticks and rudder pedals can drive the same control channels without replacing the keyboard path.
 - Analog pitch, yaw, and roll now bypass the digital ramp/decay behavior while active, so stick and pedal deflection maps 1:1 to control input instead of building up over time.
+- Added a tunable local camera shake that activates when AoA exceeds the lift-table-derived max-lift threshold, scaling with exceedance magnitude instead of raw pitch input.
 
 ## Additional June 11 Work
 

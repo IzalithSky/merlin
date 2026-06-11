@@ -8,6 +8,9 @@ signal detached
 @export var camera_max_fov: float = 90.0
 @export var follow_lerp_speed: float = 0.0
 @export var shot_down_detach_delay_sec: float = 2.0
+@export var max_lift_aoa_shake_translation_magnitude: float = 0.12
+@export var max_lift_aoa_shake_rotation_deg: float = 0.6
+@export var max_lift_aoa_shake_frequency_hz: float = 18.0
 
 @onready var _camera: Camera3D = %Camera3D
 @onready var _camera_yaw_pivot: Node3D = %CameraYawPivot
@@ -21,6 +24,7 @@ var _is_detached := false
 var _first_person := false
 var _third_person_camera_transform := Transform3D.IDENTITY
 var _mouse_sensitivity: float = 0.006
+var _shake_time := 0.0
 
 
 func _ready() -> void:
@@ -58,6 +62,7 @@ func set_target(target: Node3D = null) -> void:
 		call_deferred("_capture_mouse")
 	else:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	_apply_max_lift_aoa_shake(0.0)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -95,14 +100,17 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if _is_detached:
+		_apply_max_lift_aoa_shake(0.0)
 		return
 
 	if _target == null:
+		_apply_max_lift_aoa_shake(0.0)
 		return
 
 	if not is_instance_valid(_target):
 		_target = null
 		_shot_down_detach_deadline = -1.0
+		_apply_max_lift_aoa_shake(0.0)
 		return
 
 	var target_shot_down: bool = _target.get("is_shot_down") == true
@@ -125,6 +133,7 @@ func _physics_process(delta: float) -> void:
 		var blend := clampf(follow_lerp_speed * delta, 0.0, 1.0)
 		global_position = global_position.lerp(target_position, blend)
 	global_transform.basis = _target.global_transform.basis.orthonormalized()
+	_apply_max_lift_aoa_shake(delta)
 
 
 func _detach_from_target() -> void:
@@ -180,3 +189,34 @@ func _is_game_menu_open() -> bool:
 		if menu.has_method("is_open") and menu.is_open():
 			return true
 	return false
+
+
+func _apply_max_lift_aoa_shake(delta: float) -> void:
+	if _camera == null:
+		return
+
+	var base_transform := Transform3D.IDENTITY if _first_person else _third_person_camera_transform
+	var shake_ratio := 0.0
+	if _target != null and is_instance_valid(_target) and _target.has_method("get_max_lift_aoa_exceedance_ratio"):
+		shake_ratio = clampf(float(_target.call("get_max_lift_aoa_exceedance_ratio")), 0.0, 1.0)
+
+	if shake_ratio <= 0.0:
+		_camera.transform = base_transform
+		return
+
+	_shake_time += maxf(delta, 0.0)
+	var frequency := TAU * maxf(max_lift_aoa_shake_frequency_hz, 0.0)
+	var phase := _shake_time * frequency
+	var translation_offset := Vector3(
+		sin(phase * 1.31),
+		sin(phase * 0.97 + 1.2),
+		0.0
+	) * (max_lift_aoa_shake_translation_magnitude * shake_ratio)
+	var rotation_offset := Vector3(
+		deg_to_rad(max_lift_aoa_shake_rotation_deg) * shake_ratio * sin(phase * 1.17 + 0.4),
+		deg_to_rad(max_lift_aoa_shake_rotation_deg) * shake_ratio * sin(phase * 1.53 + 2.1),
+		0.0
+	)
+
+	var shaken_basis := base_transform.basis * Basis.from_euler(rotation_offset)
+	_camera.transform = Transform3D(shaken_basis, base_transform.origin + translation_offset)

@@ -1210,6 +1210,18 @@ func get_aoa_deg() -> float:
 	return aoa_deg
 
 
+func get_max_lift_aoa_exceedance_ratio() -> float:
+	if _positive_max_lift_aoa_deg <= _negative_max_lift_aoa_deg:
+		return 0.0
+
+	var fade_degrees := maxf(max_lift_turn_limiter_fade_deg, 0.001)
+	if aoa_deg > _positive_max_lift_aoa_deg:
+		return clampf((aoa_deg - _positive_max_lift_aoa_deg) / fade_degrees, 0.0, 1.0)
+	if aoa_deg < _negative_max_lift_aoa_deg:
+		return clampf((_negative_max_lift_aoa_deg - aoa_deg) / fade_degrees, 0.0, 1.0)
+	return 0.0
+
+
 func get_pitch_input() -> float:
 	return pitch_input
 

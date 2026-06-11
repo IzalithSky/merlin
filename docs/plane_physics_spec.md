@@ -418,6 +418,8 @@ The HUD can display basic flight telemetry and optional advanced rows. Advanced 
 
 The main telemetry block also shows live `Pitch Assist`, `Stabilizers`, and `Input Decay` indicators so the player can see whether the limiter path, stabilization torques, and decay-to-neutral behavior are currently active.
 
+The local follow camera also applies a tunable shake when angle of attack exceeds the positive or negative max-lift AoA derived from the lift table. The shake magnitude is parameterized on the camera rig and scales with how far past the max-lift threshold the current AoA has moved.
+
 The force-balance snapshot projects forces onto the current velocity direction:
 
 ```text
