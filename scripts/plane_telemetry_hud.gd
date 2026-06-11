@@ -1,5 +1,8 @@
 extends CanvasLayer
 
+const NOSE_DIRECTION_TEXTURE_PATH := "res://textures/hud/nose_sprite.png"
+const VELOCITY_DIRECTION_TEXTURE_PATH := "res://textures/hud/heading_sprite.png"
+
 @onready var _airspeed_value: Label = %AirspeedValue
 @onready var _vertical_speed_value: Label = %VerticalSpeedValue
 @onready var _altitude_value: Label = %AltitudeValue
@@ -19,35 +22,53 @@ extends CanvasLayer
 @onready var _vy_speed_value: Label = %VySpeedValue
 @onready var _vy_active_value: Label = %VyActiveValue
 @onready var _hp_value: Label = %HpValue
+@onready var _nose_direction_indicator: TextureRect = %NoseDirectionIndicator
+@onready var _velocity_direction_indicator: TextureRect = %VelocityDirectionIndicator
 
 var _target: RigidBody3D
+var _camera: Camera3D
 var _advanced_hud_nodes: Array[CanvasItem] = []
 var _advanced_hud_enabled := true
 var _relative_roll_clock_enabled := true
+var _global_direction_markers_enabled := true
 var _base_root_size := Vector2.ZERO
+var _indicator_half_size := Vector2.ZERO
+
+const GLOBAL_DIRECTION_MARKER_DISTANCE := 1000.0
+const MIN_DIRECTION_SPEED_SQUARED := 0.01
 
 
 func _ready() -> void:
 	_base_root_size = $Root.size
+	_indicator_half_size = _nose_direction_indicator.size * 0.5
+	_assign_global_direction_indicator_textures()
 	_collect_advanced_hud_nodes()
 	DisplaySettings.settings_changed.connect(_apply_display_settings)
 	_apply_display_settings()
 	_reset_labels()
+	_reset_global_direction_indicators()
 
 
 func set_target(target: Node3D = null) -> void:
 	_target = target as RigidBody3D
 	if _target == null:
 		_reset_labels()
+		_reset_global_direction_indicators()
+
+
+func set_camera(cam: Camera3D) -> void:
+	_camera = cam
 
 
 func _process(_delta: float) -> void:
 	if _target == null:
+		_reset_global_direction_indicators()
 		return
 
 	if not is_instance_valid(_target):
 		_target = null
 		_reset_labels()
+		_reset_global_direction_indicators()
 		return
 
 	var forward_axis := -_target.global_transform.basis.z
@@ -99,6 +120,7 @@ func _process(_delta: float) -> void:
 		_update_vy_debug()
 
 	_update_relative_roll_clock()
+	_update_global_direction_indicators()
 
 
 func _reset_labels() -> void:
@@ -190,6 +212,67 @@ func _reset_force_balance_debug() -> void:
 	_net_along_value.text = "--"
 
 
+func _assign_global_direction_indicator_textures() -> void:
+	_assign_indicator_texture(_nose_direction_indicator, NOSE_DIRECTION_TEXTURE_PATH)
+	_assign_indicator_texture(_velocity_direction_indicator, VELOCITY_DIRECTION_TEXTURE_PATH)
+
+
+func _assign_indicator_texture(indicator: TextureRect, resource_path: String) -> void:
+	if indicator == null:
+		return
+
+	var image := Image.load_from_file(ProjectSettings.globalize_path(resource_path))
+	if image == null or image.is_empty():
+		return
+
+	indicator.texture = ImageTexture.create_from_image(image)
+
+
+func _reset_global_direction_indicators() -> void:
+	if _nose_direction_indicator != null:
+		_nose_direction_indicator.visible = false
+	if _velocity_direction_indicator != null:
+		_velocity_direction_indicator.visible = false
+
+
+func _update_global_direction_indicators() -> void:
+	if _camera == null or not is_instance_valid(_camera) or _target == null:
+		_reset_global_direction_indicators()
+		return
+
+	if not _global_direction_markers_enabled:
+		_reset_global_direction_indicators()
+		return
+
+	var nose_direction := -_target.global_transform.basis.z
+	_update_global_direction_indicator(_nose_direction_indicator, nose_direction)
+
+	var velocity := _target.linear_velocity
+	if velocity.length_squared() <= MIN_DIRECTION_SPEED_SQUARED:
+		_velocity_direction_indicator.visible = false
+	else:
+		_update_global_direction_indicator(_velocity_direction_indicator, velocity)
+
+
+func _update_global_direction_indicator(indicator: TextureRect, direction_world: Vector3) -> void:
+	if indicator == null:
+		return
+
+	var direction_length_squared := direction_world.length_squared()
+	if direction_length_squared <= 0.000001:
+		indicator.visible = false
+		return
+
+	var marker_world_position := _camera.global_position + direction_world.normalized() * GLOBAL_DIRECTION_MARKER_DISTANCE
+	if _camera.is_position_behind(marker_world_position):
+		indicator.visible = false
+		return
+
+	var screen_position := _camera.unproject_position(marker_world_position)
+	indicator.position = screen_position - _indicator_half_size
+	indicator.visible = true
+
+
 func _read_snapshot_float(snapshot: Dictionary, key: String) -> float:
 	return float(snapshot.get(key, 0.0))
 
@@ -238,6 +321,7 @@ func _collect_advanced_hud_nodes() -> void:
 func _apply_display_settings() -> void:
 	_advanced_hud_enabled = DisplaySettings.advanced_hud_enabled
 	_relative_roll_clock_enabled = DisplaySettings.relative_roll_clock_enabled
+	_global_direction_markers_enabled = DisplaySettings.global_direction_markers_enabled
 	for hud_node in _advanced_hud_nodes:
 		hud_node.visible = _advanced_hud_enabled
 
@@ -246,6 +330,8 @@ func _apply_display_settings() -> void:
 
 	if not _relative_roll_clock_enabled and _relative_roll_clock != null:
 		_relative_roll_clock.visible = false
+	if not _global_direction_markers_enabled:
+		_reset_global_direction_indicators()
 
 	call_deferred("_fit_to_contents")
 

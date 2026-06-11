@@ -631,6 +631,11 @@ func _bind_local_plane_presentation(character: Node3D) -> void:
 	if _local_plane_hud != null and _local_plane_hud.has_method("set_target"):
 		_local_plane_hud.call("set_target", character)
 
+	if _local_plane_camera_rig != null and _local_plane_camera_rig.has_method("get_camera"):
+		var cam := _local_plane_camera_rig.call("get_camera") as Camera3D
+		if _local_plane_hud != null and _local_plane_hud.has_method("set_camera"):
+			_local_plane_hud.call("set_camera", cam)
+
 	if _local_targeting_hud != null:
 		if _local_targeting_hud.has_method("set_target"):
 			_local_targeting_hud.call("set_target", character)
@@ -660,6 +665,8 @@ func _clear_local_plane_presentation_target() -> void:
 
 	if _local_plane_hud != null and _local_plane_hud.has_method("set_target"):
 		_local_plane_hud.call("set_target", null)
+	if _local_plane_hud != null and _local_plane_hud.has_method("set_camera"):
+		_local_plane_hud.call("set_camera", null)
 
 	if _local_targeting_hud != null and _local_targeting_hud.has_method("set_target"):
 		_local_targeting_hud.call("set_target", null)

@@ -8,11 +8,13 @@ const KEY_DEBUG_FORCE_ARROWS := "debug_force_arrows"
 const KEY_BOT_DEBUG := "bot_debug"
 const KEY_ADVANCED_HUD := "advanced_hud"
 const KEY_RELATIVE_ROLL_CLOCK := "relative_roll_clock"
+const KEY_GLOBAL_DIRECTION_MARKERS := "global_direction_markers"
 
 var debug_force_arrows_enabled := true
 var bot_debug_enabled := true
 var advanced_hud_enabled := true
 var relative_roll_clock_enabled := true
+var global_direction_markers_enabled := true
 
 
 func _ready() -> void:
@@ -27,12 +29,14 @@ func load_settings() -> void:
 		bot_debug_enabled = true
 		advanced_hud_enabled = true
 		relative_roll_clock_enabled = true
+		global_direction_markers_enabled = true
 		return
 
 	debug_force_arrows_enabled = bool(config.get_value(SECTION, KEY_DEBUG_FORCE_ARROWS, true))
 	bot_debug_enabled = bool(config.get_value(SECTION, KEY_BOT_DEBUG, true))
 	advanced_hud_enabled = bool(config.get_value(SECTION, KEY_ADVANCED_HUD, true))
 	relative_roll_clock_enabled = bool(config.get_value(SECTION, KEY_RELATIVE_ROLL_CLOCK, true))
+	global_direction_markers_enabled = bool(config.get_value(SECTION, KEY_GLOBAL_DIRECTION_MARKERS, true))
 
 
 func save_settings() -> void:
@@ -41,6 +45,7 @@ func save_settings() -> void:
 	config.set_value(SECTION, KEY_BOT_DEBUG, bot_debug_enabled)
 	config.set_value(SECTION, KEY_ADVANCED_HUD, advanced_hud_enabled)
 	config.set_value(SECTION, KEY_RELATIVE_ROLL_CLOCK, relative_roll_clock_enabled)
+	config.set_value(SECTION, KEY_GLOBAL_DIRECTION_MARKERS, global_direction_markers_enabled)
 
 	var error := config.save(SAVE_PATH)
 	if error != OK:
@@ -79,5 +84,14 @@ func set_relative_roll_clock_enabled(enabled: bool) -> void:
 		return
 
 	relative_roll_clock_enabled = enabled
+	save_settings()
+	settings_changed.emit()
+
+
+func set_global_direction_markers_enabled(enabled: bool) -> void:
+	if global_direction_markers_enabled == enabled:
+		return
+
+	global_direction_markers_enabled = enabled
 	save_settings()
 	settings_changed.emit()
