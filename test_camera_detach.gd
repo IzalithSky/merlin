@@ -27,6 +27,10 @@ func _run_tests() -> void:
 	_test_detach_preserves_forward()
 	_test_mouse_input_guard_passes_when_detached()
 	_test_set_target_clears_detached()
+	_test_fpv_hides_mesh()
+	_test_fpv_camera_at_origin()
+	_test_fpv_restore_on_set_target()
+	_test_fpv_restore_on_detach()
 
 
 # _detach_from_target must set _is_detached = true.
@@ -100,6 +104,71 @@ func _test_set_target_clears_detached() -> void:
 	plane.queue_free()
 
 
+# FPV mode should hide BodyMesh on the target plane.
+func _test_fpv_hides_mesh() -> void:
+	var rig: Node = _make_rig()
+	var plane: Node3D = _make_plane_node_with_mesh(Vector3(0, 100, 0))
+	rig.call("set_target", plane)
+	var mesh: Node3D = plane.get_node("BodyMesh") as Node3D
+	_assert(mesh.visible, "mesh should be visible in third-person")
+	rig.call("_set_first_person", true)
+	_assert(not mesh.visible, "mesh should be hidden in first-person")
+	rig.call("_set_first_person", false)
+	_assert(mesh.visible, "mesh should be visible again after returning to third-person")
+	rig.queue_free()
+	plane.queue_free()
+
+
+# FPV camera transform should be at identity (no arm offset).
+func _test_fpv_camera_at_origin() -> void:
+	var rig: Node = _make_rig()
+	var plane: Node3D = _make_plane_node(Vector3(0, 100, 0), Vector3(0.0, 0.0, 0.0))
+	rig.call("set_target", plane)
+	var camera: Camera3D = rig.call("get_camera") as Camera3D
+	var third_person_z: float = camera.transform.origin.z
+	_assert(abs(third_person_z) > 1.0, "third-person camera should have non-zero Z offset (arm)")
+	rig.call("_set_first_person", true)
+	var fpv_origin: Vector3 = camera.transform.origin
+	_assert(fpv_origin.is_zero_approx(), "FPV camera should be at local origin (no arm)")
+	rig.call("_set_first_person", false)
+	var restored_z: float = camera.transform.origin.z
+	_assert(absf(restored_z - third_person_z) < 0.001, "camera arm should be restored after leaving FPV")
+	rig.queue_free()
+	plane.queue_free()
+
+
+# set_target() should exit FPV and restore mesh on the old target.
+func _test_fpv_restore_on_set_target() -> void:
+	var rig: Node = _make_rig()
+	var plane: Node3D = _make_plane_node_with_mesh(Vector3(0, 100, 0))
+	var plane2: Node3D = _make_plane_node_with_mesh(Vector3(0, 200, 0))
+	rig.call("set_target", plane)
+	rig.call("_set_first_person", true)
+	_assert(not (plane.get_node("BodyMesh") as Node3D).visible, "mesh hidden in FPV")
+	rig.call("set_target", plane2)
+	_assert((plane.get_node("BodyMesh") as Node3D).visible, "old target mesh restored on retarget")
+	var fp_after: bool = rig.get("_first_person")
+	_assert(not fp_after, "FPV should be off after set_target")
+	rig.queue_free()
+	plane.queue_free()
+	plane2.queue_free()
+
+
+# _detach_from_target() should exit FPV and restore mesh.
+func _test_fpv_restore_on_detach() -> void:
+	var rig: Node = _make_rig()
+	var plane: Node3D = _make_plane_node_with_mesh(Vector3(0, 100, 0))
+	rig.call("set_target", plane)
+	rig.call("_set_first_person", true)
+	_assert(not (plane.get_node("BodyMesh") as Node3D).visible, "mesh hidden in FPV before detach")
+	rig.call("_detach_from_target")
+	_assert((plane.get_node("BodyMesh") as Node3D).visible, "mesh restored after detach")
+	var fp_after: bool = rig.get("_first_person")
+	_assert(not fp_after, "FPV should be off after detach")
+	rig.queue_free()
+	plane.queue_free()
+
+
 # -----------------------------------------------------------------------
 
 func _make_rig() -> Node:
@@ -113,6 +182,14 @@ func _make_plane_node(pos: Vector3, euler_rad: Vector3) -> Node3D:
 	get_root().add_child(n)
 	n.global_position = pos
 	n.global_transform.basis = Basis.from_euler(euler_rad).orthonormalized()
+	return n
+
+
+func _make_plane_node_with_mesh(pos: Vector3) -> Node3D:
+	var n: Node3D = _make_plane_node(pos, Vector3.ZERO)
+	var mesh := MeshInstance3D.new()
+	mesh.name = "BodyMesh"
+	n.add_child(mesh)
 	return n
 
 

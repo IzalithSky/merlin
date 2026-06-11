@@ -19,9 +19,12 @@ var _camera_yaw := 0.0
 var _camera_pitch := 0.0
 var _shot_down_detach_deadline := -1.0
 var _is_detached := false
+var _first_person := false
+var _third_person_camera_transform := Transform3D.IDENTITY
 
 
 func _ready() -> void:
+	_third_person_camera_transform = _camera.transform
 	_camera_yaw = _camera_yaw_pivot.rotation.y
 	_camera_pitch = _camera_pitch_pivot.rotation.x
 	_apply_camera_look()
@@ -32,6 +35,7 @@ func get_camera() -> Camera3D:
 
 
 func set_target(target: Node3D = null) -> void:
+	_set_first_person(false)
 	_target = target
 	_is_detached = false
 	_shot_down_detach_deadline = -1.0
@@ -52,6 +56,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+		return
+
+	if event.is_action_pressed("toggle_camera_view") and _target != null and not _is_detached:
+		_set_first_person(not _first_person)
 		return
 
 	if event is InputEventMouseButton and event.pressed:
@@ -107,6 +115,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _detach_from_target() -> void:
+	_set_first_person(false)
 	_target = null
 	_shot_down_detach_deadline = -1.0
 	_is_detached = true
@@ -129,6 +138,16 @@ func _detach_from_target() -> void:
 	_camera_yaw = atan2(-world_fwd.x, -world_fwd.z)
 	_apply_camera_look()
 	detached.emit()
+
+
+func _set_first_person(value: bool) -> void:
+	_first_person = value
+	if is_node_ready():
+		_camera.transform = Transform3D.IDENTITY if _first_person else _third_person_camera_transform
+	if _target != null:
+		var body_mesh := _target.get_node_or_null("BodyMesh") as MeshInstance3D
+		if body_mesh != null:
+			body_mesh.visible = not _first_person
 
 
 func _capture_mouse() -> void:

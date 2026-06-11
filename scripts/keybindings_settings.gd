@@ -16,6 +16,7 @@ const ACTIONS: Array[String] = [
 	"target_select", "target_deselect",
 	"target_cycle_next", "target_cycle_prev",
 	"fire_missile",
+	"toggle_camera_view",
 ]
 
 const ACTION_LABELS: Dictionary = {
@@ -35,6 +36,7 @@ const ACTION_LABELS: Dictionary = {
 	"target_cycle_next": "Target Next",
 	"target_cycle_prev": "Target Prev",
 	"fire_missile": "Fire Missile",
+	"toggle_camera_view": "Camera View",
 }
 
 var _bindings: Dictionary = {}
@@ -127,6 +129,7 @@ func _make_defaults() -> Dictionary:
 		"target_cycle_next": [KEY_Y, -1],
 		"target_cycle_prev": [-1, -1],
 		"fire_missile": [KEY_F, -1],
+		"toggle_camera_view": [KEY_C, -1],
 	}
 
 
