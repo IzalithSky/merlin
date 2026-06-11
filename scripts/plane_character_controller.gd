@@ -164,6 +164,9 @@ var _bot_target_throttle_input := -1.0
 var _player_pitch_control_active := false
 var _player_yaw_control_active := false
 var _player_direct_roll_control_active := false
+var _pitch_assist_enabled := true
+var _stabilization_assist_enabled := true
+var _input_decay_enabled := true
 
 var aoa_deg := 0.0
 var sideslip_deg := 0.0
@@ -325,6 +328,9 @@ func _apply_spawn_control_defaults() -> void:
 	_player_pitch_control_active = false
 	_player_yaw_control_active = false
 	_player_direct_roll_control_active = false
+	_pitch_assist_enabled = true
+	_stabilization_assist_enabled = true
+	_input_decay_enabled = true
 
 
 func _apply_bot_inputs(delta: float) -> void:
@@ -348,6 +354,8 @@ func _apply_bot_inputs(delta: float) -> void:
 
 
 func _collect_inputs(delta: float) -> void:
+	_handle_assist_toggle_inputs()
+
 	var rotation_rate := rot_rate * delta
 	var rotation_decay := rot_decay * delta
 
@@ -368,12 +376,12 @@ func _collect_inputs(delta: float) -> void:
 
 	if _player_pitch_control_active:
 		pitch_input = move_toward(pitch_input, desired_pitch, rotation_rate)
-	else:
+	elif _input_decay_enabled:
 		pitch_input = move_toward(pitch_input, 0.0, rotation_decay)
 
 	if _player_yaw_control_active:
 		yaw_input = move_toward(yaw_input, desired_yaw, rotation_rate)
-	else:
+	elif _input_decay_enabled:
 		yaw_input = move_toward(yaw_input, 0.0, rotation_decay)
 
 	pitch_input = clamp(pitch_input, -1.0, 1.0)
@@ -419,8 +427,9 @@ func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: flo
 
 		return
 
-	relative_roll_input = move_toward(relative_roll_input, 0.0, rotation_decay)
-	roll_input = move_toward(roll_input, 0.0, rotation_decay)
+	if _input_decay_enabled:
+		relative_roll_input = move_toward(relative_roll_input, 0.0, rotation_decay)
+		roll_input = move_toward(roll_input, 0.0, rotation_decay)
 	roll_input = clampf(roll_input, -1.0, 1.0)
 
 
@@ -692,6 +701,8 @@ func apply_aerodynamic_forces() -> void:
 
 func apply_directional_alignment() -> void:
 	if _frame_air_speed_squared < MIN_AERODYNAMIC_SPEED_SQUARED:
+		return
+	if not is_bot_controlled and not _stabilization_assist_enabled:
 		return
 
 	var stabilization_torque := Vector3.ZERO
@@ -1439,6 +1450,8 @@ func _get_turn_limited_pitch_input(raw_pitch_input: float) -> float:
 
 func _get_max_lift_limited_pitch_input(raw_pitch_input: float) -> float:
 	var limited_pitch_input := clampf(raw_pitch_input, -1.0, 1.0)
+	if not _pitch_assist_enabled:
+		return limited_pitch_input
 	if not max_lift_turn_limiter_enabled:
 		return limited_pitch_input
 
@@ -1492,6 +1505,8 @@ func _get_sustain_turn_limited_pitch_input(raw_pitch_input: float) -> float:
 
 
 func _should_apply_sustain_turn_limiter() -> bool:
+	if not _pitch_assist_enabled:
+		return false
 	if not sustain_turn_limiter_enabled:
 		return false
 
@@ -1511,6 +1526,29 @@ func _should_apply_sustain_turn_limiter() -> bool:
 		return false
 
 	return true
+
+
+func _handle_assist_toggle_inputs() -> void:
+	if not is_local_player:
+		return
+	if Input.is_action_just_pressed("toggle_pitch_assist"):
+		_pitch_assist_enabled = not _pitch_assist_enabled
+	if Input.is_action_just_pressed("toggle_stabilization_assist"):
+		_stabilization_assist_enabled = not _stabilization_assist_enabled
+	if Input.is_action_just_pressed("toggle_input_decay"):
+		_input_decay_enabled = not _input_decay_enabled
+
+
+func is_pitch_assist_enabled() -> bool:
+	return _pitch_assist_enabled
+
+
+func is_stabilization_assist_enabled() -> bool:
+	return _stabilization_assist_enabled
+
+
+func is_input_decay_enabled() -> bool:
+	return _input_decay_enabled
 
 
 func _get_sustainable_aoa_limit(positive_limit: bool) -> float:

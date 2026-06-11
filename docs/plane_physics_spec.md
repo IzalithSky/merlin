@@ -115,6 +115,8 @@ The bot writes desired control inputs through the same input interface. The plan
 
 This is important: bots do not use a separate flight model.
 
+The player also has runtime control toggles. `toggle_pitch_assist` bypasses both pitch limiter stages when turned off. `toggle_stabilization_assist` disables the player stabilization torques for pitch, roll, and yaw when turned off. `toggle_input_decay` disables the automatic decay-to-neutral behavior for pitch, yaw, and roll inputs, so releasing those controls holds the last commanded input value. All three toggles default to on.
+
 ## Relative Roll Control
 In addition to direct roll input, the player can fly a relative-roll cursor. Instead of commanding a roll rate, the relative-roll left/right inputs steer a target "up" vector. A closed-loop controller then rolls the aircraft to align its actual up vector with that target, holding the commanded bank hands-off.
 
@@ -204,6 +206,8 @@ requested_pitch
 ```
 
 Both player and bot input pass through this path unless the caller explicitly changes limiter mode.
+
+For the local player, turning pitch assist off bypasses both limiter stages entirely and feeds the requested pitch input straight into control torque.
 
 ### Max-Lift Turn Limiter
 The max-lift limiter prevents pitch input from commanding angle of attack beyond the peak lift region of the lift curve.
@@ -351,6 +355,8 @@ This is separate from Godot's built-in rigid body angular damping. The explicit 
 ## Directional Stability
 Directional stability is a stabilization assist that uses yaw to align the nose with airflow, and damps uncontrolled pitch/roll rotation.
 
+For the local player, this stabilization path can be disabled at runtime with the stabilization-assist toggle. Bots continue using the stabilization path.
+
 ```text
 if player has no yaw input, or if the aircraft is bot-controlled:
   align nose yaw toward airflow in the horizontal plane
@@ -409,6 +415,8 @@ The force debug renderer can display the major force and torque contributors:
 - alignment torque
 
 The HUD can display basic flight telemetry and optional advanced rows. Advanced rows include angle of attack, input bars, and a force-balance projection.
+
+The main telemetry block also shows live `Pitch Assist`, `Stabilizers`, and `Input Decay` indicators so the player can see whether the limiter path, stabilization torques, and decay-to-neutral behavior are currently active.
 
 The force-balance snapshot projects forces onto the current velocity direction:
 

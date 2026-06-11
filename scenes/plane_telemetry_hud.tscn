@@ -139,6 +139,36 @@ layout_mode = 2
 text = "--"
 horizontal_alignment = 2
 
+[node name="PitchAssistLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Pitch Assist"
+
+[node name="PitchAssistValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
+[node name="StabilizationAssistLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Stabilizers"
+
+[node name="StabilizationAssistValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
+[node name="InputDecayLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Input Decay"
+
+[node name="InputDecayValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
 [node name="PitchInputLabel" type="Label" parent="Root/Panel/Margin/Grid"]
 layout_mode = 2
 text = "Pitch Input"

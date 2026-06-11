@@ -282,6 +282,13 @@ This update records the fixes for the second-pass multiplayer fire-authority and
 - Bot spawn configuration now assigns bots to team `1` while leaving player aircraft in the default unassigned bucket.
 - `is_hostile_to()` now treats unassigned or missing teams as hostile by default, so the targeting HUD no longer renders every contact as friendly.
 
+8. Assist toggles and keybindings
+- Added a bindable pitch-assist toggle that disables both the max-lift and sustain-turn pitch limiter stack when turned off.
+- Added a bindable stabilization-assist toggle that disables player pitch/roll/yaw stabilization torque when turned off.
+- Both assists default to on; `toggle_pitch_assist` defaults to `O` and `toggle_stabilization_assist` defaults to `P`.
+- Added a bindable input-decay toggle that disables decay-to-neutral for pitch, roll, and yaw inputs when turned off, causing released controls to hold their last commanded values.
+- `toggle_input_decay` defaults to `I` and starts enabled.
+
 ## Additional June 11 Work
 
 4. Shot-down presentation and control cleanup

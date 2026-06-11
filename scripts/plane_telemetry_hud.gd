@@ -8,6 +8,9 @@ const VELOCITY_DIRECTION_TEXTURE_PATH := "res://textures/hud/heading_sprite.png"
 @onready var _altitude_value: Label = %AltitudeValue
 @onready var _throttle_value: Label = %ThrottleValue
 @onready var _aoa_value: Label = %AoaValue
+@onready var _pitch_assist_value: Label = %PitchAssistValue
+@onready var _stabilization_assist_value: Label = %StabilizationAssistValue
+@onready var _input_decay_value: Label = %InputDecayValue
 @onready var _pitch_input_bar: ProgressBar = %PitchInputBar
 @onready var _yaw_input_bar: ProgressBar = %YawInputBar
 @onready var _roll_input_bar: ProgressBar = %RollInputBar
@@ -84,6 +87,9 @@ func _process(_delta: float) -> void:
 	var yaw_input := 0.0
 	var roll_input := 0.0
 	var throttle_input := -1.0
+	var pitch_assist_enabled := true
+	var stabilization_assist_enabled := true
+	var input_decay_enabled := true
 
 	if _target.has_method("get_throttle_percent"):
 		throttle_percent = float(_target.call("get_throttle_percent"))
@@ -97,11 +103,20 @@ func _process(_delta: float) -> void:
 		roll_input = float(_target.call("get_roll_input"))
 	if _target.has_method("get_throttle_input"):
 		throttle_input = float(_target.call("get_throttle_input"))
+	if _target.has_method("is_pitch_assist_enabled"):
+		pitch_assist_enabled = bool(_target.call("is_pitch_assist_enabled"))
+	if _target.has_method("is_stabilization_assist_enabled"):
+		stabilization_assist_enabled = bool(_target.call("is_stabilization_assist_enabled"))
+	if _target.has_method("is_input_decay_enabled"):
+		input_decay_enabled = bool(_target.call("is_input_decay_enabled"))
 
 	_airspeed_value.text = "%.1f m/s" % airspeed_forward
 	_vertical_speed_value.text = "%.1f m/s" % vertical_speed
 	_altitude_value.text = "%.1f m" % altitude
 	_throttle_value.text = "%.0f %%" % throttle_percent
+	_pitch_assist_value.text = "ON" if pitch_assist_enabled else "OFF"
+	_stabilization_assist_value.text = "ON" if stabilization_assist_enabled else "OFF"
+	_input_decay_value.text = "ON" if input_decay_enabled else "OFF"
 
 	var health := _target.get_node_or_null("Health")
 	if health != null:
@@ -133,6 +148,9 @@ func _reset_labels() -> void:
 	_throttle_value.text = "--"
 	_hp_value.text = "--"
 	_aoa_value.text = "--"
+	_pitch_assist_value.text = "--"
+	_stabilization_assist_value.text = "--"
+	_input_decay_value.text = "--"
 	_pitch_input_bar.value = 0.0
 	_yaw_input_bar.value = 0.0
 	_roll_input_bar.value = 0.0
