@@ -65,4 +65,5 @@ Desktop.ini
 
 # Local agent/tool state
 .codex/
+.claude/
 .agents/

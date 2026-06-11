@@ -33,6 +33,9 @@ func _ready() -> void:
 	pilot_a.call("set_follow_target", bot_b, true)
 	pilot_b.call("set_follow_target", bot_a, true)
 
+	if _has_display_settings():
+		DISPLAY_SETTINGS_APPLIER.apply_to_tree(_characters)
+
 	_spawn_camera(bot_a, bot_b)
 
 

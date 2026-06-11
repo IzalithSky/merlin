@@ -63,6 +63,9 @@ func _ready() -> void:
 	var pilot := _attach_bot_pilot(_bot)
 	pilot.call("set_follow_target", _dummy_target, true)
 
+	if _has_display_settings():
+		DISPLAY_SETTINGS_APPLIER.apply_to_tree(_characters)
+
 	_spawn_camera(_bot, _dummy_target)
 	_update_killzone_marker()
 	_record_tactical_measurement()
