@@ -1,6 +1,6 @@
 extends RigidBody3D
 
-signal local_state_changed(peer_id: int, character_position: Vector3, yaw: float, pitch: float, roll: float)
+signal local_state_changed(peer_id: int, snapshot: Dictionary)
 
 const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer_3d.gd")
@@ -124,6 +124,8 @@ const DEBUG_COLOR_DAMPING := Color(0.8, 0.8, 0.8, 1.0)
 const DEBUG_COLOR_ROLL_FORCE := Color(0.97, 0.35, 0.95, 1.0)
 const DEBUG_COLOR_PITCH_YAW_FORCE := Color(0.1, 0.95, 0.95, 1.0)
 const DEBUG_COLOR_ALIGNMENT_TORQUE := Color(1.0, 0.95, 0.3, 1.0)
+const REMOTE_INTERPOLATION_DELAY := 0.1
+const REMOTE_MAX_SNAPSHOTS := 4
 
 @export var flame_trail_scene: PackedScene
 
@@ -179,6 +181,8 @@ var _sustain_turn_vy_update_timer := 0.0
 var _sustain_turn_using_vy := false
 var _altitude_rising := false
 var _flame_trail: Node3D
+var _snapshot_tick: int = 0
+var _remote_snapshots: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -238,6 +242,13 @@ func _physics_process(delta: float) -> void:
 	if _sync_timer >= max(network_sync_interval, 0.001):
 		_sync_timer = 0.0
 		_emit_local_state()
+
+
+func _process(_delta: float) -> void:
+	if _is_simulated_locally():
+		return
+
+	_update_remote_interpolation()
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
@@ -598,19 +609,33 @@ func apply_extra_drag_forces() -> void:
 		_push_debug_force(global_position, _debug_last_damping_force_world, DEBUG_COLOR_DAMPING)
 
 
-func apply_remote_state(character_position: Vector3, yaw: float, pitch: float, roll: float) -> void:
+func apply_remote_state(snapshot: Dictionary) -> void:
 	if is_local_player:
 		return
 
-	global_position = character_position
-	rotation = Vector3(pitch, yaw, roll)
-	linear_velocity = Vector3.ZERO
-	angular_velocity = Vector3.ZERO
+	var tick := int(snapshot.get("tick", -1))
+	if tick >= 0 and not _remote_snapshots.is_empty():
+		var latest_tick := int(_remote_snapshots.back().get("tick", -1))
+		if tick <= latest_tick:
+			return
+
+	var received_at := Time.get_ticks_usec() * 0.000001
+	var stored_snapshot := {
+		"tick": tick,
+		"position": snapshot.get("position", global_position),
+		"rotation": snapshot.get("rotation", global_transform.basis.get_rotation_quaternion()),
+		"linear_velocity": snapshot.get("linear_velocity", Vector3.ZERO),
+		"received_at": received_at,
+	}
+	_remote_snapshots.append(stored_snapshot)
+	while _remote_snapshots.size() > REMOTE_MAX_SNAPSHOTS:
+		_remote_snapshots.pop_front()
 
 
 func apply_spawn_state(character_position: Vector3, yaw: float) -> void:
 	global_position = character_position
 	rotation = Vector3(0.0, yaw, 0.0)
+	_remote_snapshots.clear()
 
 
 func _apply_local_player_mode() -> void:
@@ -619,6 +644,7 @@ func _apply_local_player_mode() -> void:
 	if _is_simulated_locally():
 		sleeping = false
 		can_sleep = false
+		_remote_snapshots.clear()
 	else:
 		roll_input = 0.0
 		pitch_input = 0.0
@@ -674,8 +700,57 @@ func set_sustain_turn_limiter_runtime_enabled(enabled: bool) -> void:
 
 
 func _emit_local_state() -> void:
-	var euler := global_transform.basis.get_euler()
-	local_state_changed.emit(peer_id, global_position, euler.y, euler.x, euler.z)
+	_snapshot_tick += 1
+	local_state_changed.emit(peer_id, _build_snapshot())
+
+
+func _build_snapshot() -> Dictionary:
+	return {
+		"tick": _snapshot_tick,
+		"position": global_position,
+		"rotation": global_transform.basis.orthonormalized().get_rotation_quaternion(),
+		"linear_velocity": linear_velocity,
+	}
+
+
+func _update_remote_interpolation() -> void:
+	if _remote_snapshots.is_empty():
+		return
+
+	var now := Time.get_ticks_usec() * 0.000001
+	var render_time := now - REMOTE_INTERPOLATION_DELAY
+	while _remote_snapshots.size() >= 2 and float(_remote_snapshots[1]["received_at"]) <= render_time:
+		_remote_snapshots.pop_front()
+
+	if _remote_snapshots.size() >= 2:
+		var from_snapshot := _remote_snapshots[0]
+		var to_snapshot := _remote_snapshots[1]
+		var from_time := float(from_snapshot["received_at"])
+		var to_time := float(to_snapshot["received_at"])
+		var alpha := 1.0
+		if to_time > from_time:
+			alpha = clampf((render_time - from_time) / (to_time - from_time), 0.0, 1.0)
+		_apply_remote_pose(
+			Vector3(from_snapshot["position"]).lerp(Vector3(to_snapshot["position"]), alpha),
+			Quaternion(from_snapshot["rotation"]).slerp(Quaternion(to_snapshot["rotation"]), alpha)
+		)
+		return
+
+	var latest_snapshot := _remote_snapshots[0]
+	var latest_position := Vector3(latest_snapshot["position"])
+	var latest_velocity := Vector3(latest_snapshot["linear_velocity"])
+	var extrapolation := maxf(now - float(latest_snapshot["received_at"]), 0.0)
+	_apply_remote_pose(
+		latest_position + latest_velocity * extrapolation,
+		Quaternion(latest_snapshot["rotation"])
+	)
+
+
+func _apply_remote_pose(position: Vector3, rotation_quaternion: Quaternion) -> void:
+	global_position = position
+	global_basis = Basis(rotation_quaternion.normalized())
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
 
 
 func _ensure_force_debug_renderer() -> void:

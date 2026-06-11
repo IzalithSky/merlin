@@ -1,6 +1,6 @@
 extends Node3D
 
-signal local_state_changed(peer_id: int, character_position: Vector3, yaw: float, pitch: float, roll: float)
+signal local_state_changed(peer_id: int, snapshot: Dictionary)
 
 @export var move_speed: float = 1200.0
 @export var mouse_sensitivity: float = 0.002
@@ -17,6 +17,7 @@ var is_local_player := false
 var _yaw := 0.0
 var _pitch := 0.0
 var _velocity := Vector3.ZERO
+var _snapshot_tick := 0
 
 
 func _ready() -> void:
@@ -102,10 +103,16 @@ func _process(delta: float) -> void:
 	_emit_local_state()
 
 
-func apply_remote_state(character_position: Vector3, yaw: float, pitch: float, _roll: float) -> void:
-	global_position = character_position
-	_yaw = yaw
-	_pitch = clamp(pitch, -MAX_PITCH, MAX_PITCH)
+func apply_remote_state(snapshot: Dictionary) -> void:
+	var position: Vector3 = snapshot.get("position", global_position)
+	var rotation_quaternion: Quaternion = snapshot.get(
+		"rotation",
+		Basis.from_euler(Vector3(_pitch, _yaw, 0.0)).get_rotation_quaternion()
+	)
+	global_position = position
+	var euler := Basis(rotation_quaternion.normalized()).get_euler()
+	_yaw = euler.y
+	_pitch = clamp(euler.x, -MAX_PITCH, MAX_PITCH)
 	_apply_look_rotation()
 
 
@@ -139,7 +146,13 @@ func _capture_mouse() -> void:
 
 
 func _emit_local_state() -> void:
-	local_state_changed.emit(peer_id, global_position, _yaw, _pitch, 0.0)
+	_snapshot_tick += 1
+	local_state_changed.emit(peer_id, {
+		"tick": _snapshot_tick,
+		"position": global_position,
+		"rotation": Quaternion(Basis.from_euler(Vector3(_pitch, _yaw, 0.0)).orthonormalized()),
+		"linear_velocity": _velocity,
+	})
 
 
 func _is_game_menu_open() -> bool:
