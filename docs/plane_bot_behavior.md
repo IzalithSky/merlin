@@ -1,5 +1,7 @@
 # Plane Bot Behavior
 
+Status: partial — implemented for current single-player and multiplayer bot behavior, but still subject to the larger authority migration and controller split planned in `docs/dev_plan.md`.
+
 ## Scope
 This document explains the principles behind the current plane bot implementation.
 
@@ -29,7 +31,7 @@ This keeps bot decisions authority-side and prevents clients from simulating dif
 
 The spawner:
 
-- assigns reserved bot peer IDs
+- records bot entries in the spawn registry and tracks bot identity separately from transport-peer classification
 - creates bot spawn states
 - spawns bot plane characters
 - enables bot control on authority-owned bot planes

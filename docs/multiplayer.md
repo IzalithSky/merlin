@@ -1,5 +1,7 @@
 # Godot Multiplayer Notes
 
+Status: target design — this document describes the intended server-authoritative architecture. The current implementation only partially matches it.
+
 This document summarizes how Godot 4 multiplayer works and what networking
 architecture makes sense for Merlin.
 

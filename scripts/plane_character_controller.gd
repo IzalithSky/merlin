@@ -1168,9 +1168,14 @@ func get_force_balance_snapshot() -> Dictionary:
 func is_hostile_to(other: Node) -> bool:
 	if other == null or not is_instance_valid(other):
 		return true
+	if other == self:
+		return false
 	if not ("team_id" in other):
 		return true
-	return int(other.get("team_id")) != team_id
+	var other_team_id := int(other.get("team_id"))
+	if team_id <= 0 or other_team_id <= 0:
+		return true
+	return other_team_id != team_id
 
 
 func get_throttle_percent() -> float:

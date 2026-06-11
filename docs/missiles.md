@@ -1,5 +1,7 @@
 # Missiles and Target Locking
 
+Status: partial — implemented and current for runtime behavior; live default values should be read from the `@export` fields in `scripts/missile.gd`, `scripts/plane_missile_launcher.gd`, and `scripts/plane_weapon_lock.gd`.
+
 ## Overview
 
 The weapon system has three layers that always run in sequence: **selection**
@@ -74,9 +76,9 @@ and `_locked` becomes false immediately — there is no hysteresis on loss.
 
 | Export | Default | Effect |
 |---|---|---|
-| `lock_cone_half_angle_deg` | 15° | Half-angle of the nose cone. Wider = easier to acquire but allows off-bore shots. Typical fighters: 15–25°. |
-| `lock_max_range` | 4000 m | Maximum range at which lock can be acquired or maintained. Should exceed the missile's `max_fuel × speed` so a lock is always achievable before the missile runs out. |
-| `lock_time_sec` | 1.5 s | Time to go from 0 → full lock while continuously in the envelope. Shorter = more forgiving to player aim; longer = rewards sustained pursuit. |
+| `lock_cone_half_angle_deg` | Half-angle of the nose cone. Wider = easier to acquire but allows off-bore shots. |
+| `lock_max_range` | Maximum range at which lock can be acquired or maintained. |
+| `lock_time_sec` | Time to go from 0 → full lock while continuously in the envelope. |
 
 ### HUD feedback
 
@@ -127,38 +129,40 @@ controlled by `explode_on_timeout`.
 
 ### Tuning exports
 
-| Export | Default | Notes |
-|---|---|---|
-| `thrust` | 12 000 N | Constant nose force for the whole flight. Missiles are 80 kg so this gives ~150 m/s² initial acceleration. Raise if missiles can't catch fast targets. |
-| `drag_coeff` | 0.1 | Quadratic drag coefficient. Sets terminal velocity: `v_eq = sqrt(thrust / drag_coeff)`. At 0.1 this caps at ~346 m/s. Lower = faster missile but harder to redirect at range. |
-| `lateral_force` | 80 000 N | Direct force applied perpendicular to current velocity, toward the intercept direction. This is what actually bends the flight path — without it, only nose-direction thrust redirects the missile and high-speed turns are impossible. Scale with `thrust` if changing thrust significantly. |
-| `torque_strength` | 150 N·m | Angular acceleration for guidance and stabilisation. Too low → lazy turns and missed targets. Too high → oscillation. |
-| `max_ang_vel_deg` | 200°/s | Hard cap on angular velocity. Primary limiter on how tight a turn the missile can make. |
-| `max_lifetime` | 15 s | Hard kill: missile dies at this age regardless of target state. |
-| `proximity_radius` | 50 m | Detonation trigger distance. Larger = easier to hit but allows near-misses to still kill. |
-| `proximity_fuse_delay` | 0.4 s | Arming time after launch. Prevents self-fragging on the launcher's own collision shape. |
-| `target_loss_grace_period` | 1.5 s | How long the missile keeps flying ballistic after target disappears before dying. |
-| `explode_on_timeout` | true | When true, both the grace-period expiry and the `max_lifetime` hard kill trigger a full explosion. When false, both conditions cause a quiet removal with no VFX or damage. |
+The current defaults live in `scripts/missile.gd`; this table documents behavior.
 
-### Damage exports (no-op until an HP system exists)
+| Export | Meaning |
+|---|---|
+| `thrust` | Constant nose force for the whole flight. |
+| `drag_coeff` | Quadratic drag coefficient; lower values raise terminal speed. |
+| `lateral_force` | Direct steering force perpendicular to current velocity. |
+| `torque_strength` | Angular response strength for guidance and stabilisation. |
+| `max_ang_vel_deg` | Hard angular-rate cap for turn authority. |
+| `max_lifetime` | Hard kill age regardless of target state. |
+| `proximity_radius` | Detonation trigger distance. |
+| `proximity_fuse_delay` | Post-launch arming delay. |
+| `target_loss_grace_period` | Ballistic grace period after a valid target disappears. |
+| `explode_on_timeout` | Chooses explosion versus quiet removal on timeout. |
 
-| Export | Default | Notes |
-|---|---|---|
-| `explosion_radius` | 50 m | Radius of the damage query sphere. |
-| `explosion_min_damage` | 10 | Damage at the edge of the sphere. |
-| `explosion_max_damage` | 80 | Damage at ground zero. |
-| `explosion_collision_mask` | 1 | Physics layers scanned for damage receivers. |
+### Damage exports
+
+| Export | Meaning |
+|---|---|
+| `explosion_radius` | Radius of the damage query sphere. |
+| `explosion_min_damage` | Damage at the edge of the sphere. |
+| `explosion_max_damage` | Damage at ground zero. |
+| `explosion_collision_mask` | Physics layers scanned for damage receivers. |
 
 Damage delivery uses duck-typing: `receiver.take_damage(amount)` is called only
-if the collider or one of its direct children exposes that method. Nothing
-currently does, so the explosion is VFX-only.
+if the collider or one of its direct children exposes that method. In the
+current project, planes with `Health` receive real explosion damage.
 
 ### Trail exports
 
-| Export | Default | Notes |
-|---|---|---|
-| `trail_lifespan` | 2.0 s | How long each trail segment persists while the missile is alive. |
-| `trail_ttl_after_death` | 4.0 s | After detonation, the trail lingers for this duration then fades. |
+| Export | Meaning |
+|---|---|
+| `trail_lifespan` | How long each trail segment persists while the missile is alive. |
+| `trail_ttl_after_death` | How long the trail lingers after detonation before fading. |
 
 ---
 
@@ -167,9 +171,9 @@ currently does, so the explosion is VFX-only.
 One `PlaneMissileLauncher` node lives on every plane. It polls player input or
 responds to the bot pilot and calls `_try_fire`.
 
-| Export | Default | Notes |
-|---|---|---|
-| `fire_cooldown` | 1.0 s | Minimum interval between consecutive shots. |
+| Export | Meaning |
+|---|---|
+| `fire_cooldown` | Minimum interval between consecutive shots. |
 
 **Player**: fires on `fire_missile` (default key **F**). If `PlaneWeaponLock`
 reports a locked target, the missile is guided; otherwise it flies straight.

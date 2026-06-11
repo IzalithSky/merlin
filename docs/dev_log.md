@@ -270,6 +270,18 @@ This update records the fixes for the second-pass multiplayer fire-authority and
 - The multiplayer smoke asserts both peers load the real world scene, each peer owns exactly one local non-bot plane, and host-side damage on peer 2 replicates back to the client health view.
 - Added `tests/run_headless_smokes.sh` as a single runner for the current headless smoke set.
 
+5. Interim multiplayer hardening
+- `sv_request_fire_missile` now enforces a server-side missile cooldown keyed by firing peer and validates any named missile target against the firer's server-side lock envelope before homing is granted.
+- `submit_character_state` now sanitizes submitted position and velocity deltas before the server applies and rebroadcasts a client snapshot, reducing blind-relay teleport and speed-spike abuse until the input-intent migration lands.
+
+6. Multiplayer bot spawn / identity cleanup
+- The server world-ready path now actually calls `_spawn_bots(true)`, so multiplayer sessions spawn bots instead of leaving the documented MP bot path dead.
+- Bot identity checks now consult a bot registry populated at spawn time instead of relying on `_is_bot_peer` magic-range arithmetic.
+
+7. HUD team / friend-foe fix
+- Bot spawn configuration now assigns bots to team `1` while leaving player aircraft in the default unassigned bucket.
+- `is_hostile_to()` now treats unassigned or missing teams as hostile by default, so the targeting HUD no longer renders every contact as friendly.
+
 ## Additional June 11 Work
 
 4. Shot-down presentation and control cleanup

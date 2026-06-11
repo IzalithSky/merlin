@@ -808,6 +808,8 @@ func _find_collision_threat() -> float:
 	var best_direction := 0.0
 
 	for other in _cached_player_characters:
+		if not is_instance_valid(other):
+			continue
 		if other == _plane:
 			continue
 		var other_vel := _get_node_velocity(other)
@@ -900,7 +902,7 @@ func _has_follow_target() -> bool:
 	return false
 
 
-func _get_node_velocity(body: Node3D) -> Vector3:
+func _get_node_velocity(body: Variant) -> Vector3:
 	if body == null or not is_instance_valid(body):
 		return Vector3.ZERO
 	if body.has_method("get_replicated_velocity"):
@@ -970,6 +972,8 @@ func _find_player_target() -> Node3D:
 	var best_target: Node3D
 	var best_distance_squared := INF
 	for candidate_node in _cached_player_characters:
+		if not is_instance_valid(candidate_node):
+			continue
 		if candidate_node == _plane:
 			continue
 		if _is_bot_character(candidate_node):
@@ -983,7 +987,9 @@ func _find_player_target() -> Node3D:
 	return best_target
 
 
-func _is_bot_character(candidate: Node3D) -> bool:
+func _is_bot_character(candidate: Variant) -> bool:
+	if not is_instance_valid(candidate):
+		return false
 	var bot_value: Variant = candidate.get("is_bot_controlled")
 	return bot_value != null and bool(bot_value)
 

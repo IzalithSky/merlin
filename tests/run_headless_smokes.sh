@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GODOT_BIN="${GODOT_BIN:-/ssd2/godot/4.6.1/Godot_v4.6.1-stable_linux.x86_64}"
+: "${GODOT_BIN:?Set GODOT_BIN to your Godot executable path before running this script.}"
 TMP_DIR="${TMPDIR:-/tmp}"
 HOST_LOG="$TMP_DIR/merlin_mp_host.log"
 CLIENT_LOG="$TMP_DIR/merlin_mp_client.log"

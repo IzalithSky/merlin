@@ -15,6 +15,8 @@ const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 const AUTOCANNON_SCRIPT := preload("res://scripts/autocannon.gd")
 const CHARACTER_NAME_PREFIX := "PlayerCharacter_"
 const BOT_PEER_ID_BASE := 1000000
+const MAX_SUBMITTED_POSITION_DELTA := 250.0
+const MAX_SUBMITTED_LINEAR_VELOCITY := 1000.0
 
 enum CharacterType {
 	CAMERA_CUBE,
@@ -43,6 +45,8 @@ var _next_bullet_id: int = 0
 var _active_bullets: Dictionary = {}
 var _active_bullet_visuals: Dictionary = {}
 var _gun_cooldowns: Dictionary = {}
+var _missile_cooldowns: Dictionary = {}
+var _bot_peer_ids: Dictionary = {}
 var _world_ready_peers: Dictionary = {}
 var _spawn_random := RandomNumberGenerator.new()
 var _local_plane_camera_rig: Node3D
@@ -73,6 +77,7 @@ func _ready() -> void:
 		_world_ready_peers[multiplayer.get_unique_id()] = true
 		_register_initial_peers()
 		_spawn_registered_characters_locally()
+		_spawn_bots(true)
 	else:
 		call_deferred("_request_world_sync")
 
@@ -111,6 +116,7 @@ func _spawn_bots(broadcast_to_clients: bool) -> void:
 
 		var bot_spawn_state := _build_bot_spawn_state(bot_index, resolved_bot_count)
 		_peer_spawn_states[bot_peer_id] = bot_spawn_state
+		_bot_peer_ids[bot_peer_id] = true
 		_spawn_character(
 			bot_peer_id,
 			false,
@@ -135,6 +141,7 @@ func _spawn_single_player_bots(total_participants: int) -> void:
 
 		var bot_spawn_state := _build_radial_spawn_state(bot_index + 1, radial_count)
 		_peer_spawn_states[bot_peer_id] = bot_spawn_state
+		_bot_peer_ids[bot_peer_id] = true
 		_spawn_character(
 			bot_peer_id,
 			false,
@@ -157,6 +164,8 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 
 	var bot_peer := _is_bot_peer(peer_id)
 	var bot_active := bot_peer and (multiplayer.multiplayer_peer == null or multiplayer.is_server())
+	if "team_id" in character:
+		character.set("team_id", 1 if bot_peer else 0)
 	if character.has_method("set_bot_controlled"):
 		character.call("set_bot_controlled", bot_active)
 
@@ -183,10 +192,7 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 
 
 func _is_bot_peer(peer_id: int) -> bool:
-	if bot_count <= 0:
-		return false
-
-	return peer_id >= BOT_PEER_ID_BASE and peer_id < BOT_PEER_ID_BASE + bot_count
+	return _bot_peer_ids.has(peer_id)
 
 
 func _spawn_character(peer_id: int, local_player: bool, character_position: Vector3, yaw: float) -> Node3D:
@@ -296,8 +302,14 @@ func submit_character_state(snapshot: Dictionary) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	_apply_character_state_locally(sender_id, snapshot)
-	_broadcast_character_state(sender_id, snapshot)
+	var character := _characters.get_node_or_null(_character_name(sender_id)) as Node3D
+	if character == null or not is_instance_valid(character):
+		return
+	if character.get("is_shot_down") == true:
+		return
+	var sanitized_snapshot := _sanitize_submitted_snapshot(character, snapshot)
+	_apply_character_state_locally(sender_id, sanitized_snapshot)
+	_broadcast_character_state(sender_id, sanitized_snapshot)
 
 
 @rpc("authority", "call_remote", "unreliable_ordered", 2)
@@ -314,6 +326,20 @@ func _apply_character_state_locally(peer_id: int, snapshot: Dictionary) -> void:
 		return
 
 	character.apply_remote_state(snapshot)
+
+
+func _sanitize_submitted_snapshot(character: Node3D, snapshot: Dictionary) -> Dictionary:
+	var sanitized_snapshot := snapshot.duplicate()
+	var submitted_position := Vector3(sanitized_snapshot.get("position", character.global_position))
+	var submitted_velocity := Vector3(sanitized_snapshot.get("linear_velocity", Vector3.ZERO))
+	var position_delta := submitted_position - character.global_position
+	if position_delta.length() > MAX_SUBMITTED_POSITION_DELTA:
+		submitted_position = character.global_position + position_delta.limit_length(MAX_SUBMITTED_POSITION_DELTA)
+	if submitted_velocity.length() > MAX_SUBMITTED_LINEAR_VELOCITY:
+		submitted_velocity = submitted_velocity.limit_length(MAX_SUBMITTED_LINEAR_VELOCITY)
+	sanitized_snapshot["position"] = submitted_position
+	sanitized_snapshot["linear_velocity"] = submitted_velocity
+	return sanitized_snapshot
 
 
 func _spawn_registered_characters_locally() -> void:
@@ -701,6 +727,12 @@ func _physics_process(_delta: float) -> void:
 			_gun_cooldowns.erase(peer_id)
 		else:
 			_gun_cooldowns[peer_id] = cooldown
+	for peer_id in _missile_cooldowns.keys():
+		var cooldown := maxf(float(_missile_cooldowns[peer_id]) - _delta, 0.0)
+		if cooldown <= 0.0:
+			_missile_cooldowns.erase(peer_id)
+		else:
+			_missile_cooldowns[peer_id] = cooldown
 
 
 func _on_projectile_entered(node: Node) -> void:
@@ -814,6 +846,25 @@ func _resolve_autocannon_target(plane: Node3D, target_peer_id: int) -> Node3D:
 	return target
 
 
+func _resolve_missile_target(plane: Node3D, target_peer_id: int) -> Node3D:
+	if target_peer_id < 0:
+		return null
+
+	var target := _characters.get_node_or_null(_character_name(target_peer_id)) as Node3D
+	if target == null or not is_instance_valid(target):
+		return null
+	if target.get("is_shot_down") == true:
+		return null
+
+	var weapon_lock := plane.get_node_or_null("PlaneWeaponLock")
+	if weapon_lock == null or not is_instance_valid(weapon_lock):
+		return null
+	if weapon_lock.has_method("is_target_in_envelope") and not bool(weapon_lock.call("is_target_in_envelope", target)):
+		return null
+
+	return target
+
+
 func _on_bullet_died(_hit: bool, pos: Vector3, bullet_id: int) -> void:
 	_active_bullets.erase(bullet_id)
 	for peer_id in multiplayer.get_peers():
@@ -832,9 +883,13 @@ func sv_request_fire_missile(firing_peer_id: int, target_peer_id: int) -> void:
 		return
 	if firing_plane.get("is_shot_down") == true:
 		return
-	var locked_target: Node3D = null
-	if target_peer_id >= 0:
-		locked_target = _characters.get_node_or_null(_character_name(target_peer_id)) as Node3D
+	var cooldown := float(_missile_cooldowns.get(firing_peer_id, 0.0))
+	if cooldown > 0.0:
+		return
+	var locked_target := _resolve_missile_target(firing_plane, target_peer_id)
+	var launcher := firing_plane.get_node_or_null("PlaneMissileLauncher")
+	if launcher != null and is_instance_valid(launcher):
+		_missile_cooldowns[firing_peer_id] = float(launcher.get("fire_cooldown"))
 	_server_fire_missile(firing_plane, locked_target)
 
 
