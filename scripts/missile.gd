@@ -35,6 +35,7 @@ var _trail: Node = null
 
 
 func _ready() -> void:
+	add_to_group("missile")
 	_had_target = target != null and is_instance_valid(target)
 	body_entered.connect(_on_body_entered)
 	_spawn_trail()

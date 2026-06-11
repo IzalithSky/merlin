@@ -18,6 +18,7 @@ extends CanvasLayer
 @onready var _relative_roll_clock: Control = %RelativeRollClock
 @onready var _vy_speed_value: Label = %VySpeedValue
 @onready var _vy_active_value: Label = %VyActiveValue
+@onready var _hp_value: Label = %HpValue
 
 var _target: RigidBody3D
 var _advanced_hud_nodes: Array[CanvasItem] = []
@@ -77,6 +78,14 @@ func _process(_delta: float) -> void:
 	_altitude_value.text = "%.1f m" % altitude
 	_throttle_value.text = "%.0f %%" % throttle_percent
 
+	var health := _target.get_node_or_null("Health")
+	if health != null:
+		var max_hp: float = float(health.get("max_hp"))
+		var current_hp: float = float(health.get("current_hp"))
+		_hp_value.text = "%d / %d" % [int(current_hp), int(max_hp)]
+	else:
+		_hp_value.text = "--"
+
 	if not _advanced_hud_enabled:
 		_reset_advanced_labels()
 		return
@@ -96,6 +105,7 @@ func _reset_labels() -> void:
 	_vertical_speed_value.text = "--"
 	_altitude_value.text = "--"
 	_throttle_value.text = "--"
+	_hp_value.text = "--"
 	_aoa_value.text = "--"
 	_pitch_input_bar.value = 0.0
 	_yaw_input_bar.value = 0.0

@@ -20,7 +20,7 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var max_pitch: float = 1.0
 @export var max_yaw: float = 0.5
 @export var max_roll: float = 2.5
-@export var base_control_torque: float = 24_000.0
+@export var base_control_torque: float = 32_000.0
 @export var max_lift_turn_limiter_enabled: bool = true
 @export var max_lift_turn_limiter_min_airspeed: float = 5.0
 @export var max_lift_turn_limiter_fade_deg: float = 10.0
@@ -125,9 +125,12 @@ const DEBUG_COLOR_ROLL_FORCE := Color(0.97, 0.35, 0.95, 1.0)
 const DEBUG_COLOR_PITCH_YAW_FORCE := Color(0.1, 0.95, 0.95, 1.0)
 const DEBUG_COLOR_ALIGNMENT_TORQUE := Color(1.0, 0.95, 0.3, 1.0)
 
+@export var flame_trail_scene: PackedScene
+
 var peer_id := 1
 var is_local_player := false
 var is_bot_controlled := false
+var is_shot_down := false
 
 var roll_input := 0.0
 var pitch_input := 0.0
@@ -184,6 +187,9 @@ func _ready() -> void:
 	_apply_persisted_aero_tables()
 	_ensure_force_debug_renderer()
 	_apply_local_player_mode()
+	var health := get_node_or_null("Health")
+	if health != null:
+		health.shot_down.connect(_on_shot_down)
 
 
 func configure(new_peer_id: int, local_player: bool) -> void:
@@ -200,6 +206,9 @@ func configure(new_peer_id: int, local_player: bool) -> void:
 func _physics_process(delta: float) -> void:
 	if not _is_simulated_locally():
 		_clear_force_debug_frame()
+		return
+
+	if is_shot_down:
 		return
 
 	_begin_force_debug_frame()
@@ -611,6 +620,18 @@ func _apply_local_player_mode() -> void:
 		throttle_input = -1.0
 
 	_update_force_debug_renderer_state()
+
+
+func _on_shot_down() -> void:
+	is_shot_down = true
+	throttle_input = -1.0
+	if _force_debug_renderer != null and _force_debug_renderer.has_method("clear_frame"):
+		_force_debug_renderer.call("clear_frame")
+	if _force_debug_renderer != null:
+		_force_debug_renderer.visible = false
+	if flame_trail_scene != null:
+		var trail := flame_trail_scene.instantiate() as Node3D
+		add_child(trail)
 
 
 func set_bot_controlled(enabled: bool) -> void:

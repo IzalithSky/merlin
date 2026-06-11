@@ -92,6 +92,7 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 @export var overshoot_throttle_gain: float = 0.08
 @export var killzone_distance: float = 250.0
 @export var killzone_tolerance: float = 150.0
+@export var avoid_missiles: bool = true
 @export var debug_bot_visuals_enabled := true
 @export var checkpoints: Array[Vector3] = [
 	Vector3(0.0, 1500.0, 0.0),
@@ -147,6 +148,13 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _plane.get("is_shot_down") == true:
+		if _bot_debug_renderer != null:
+			if _bot_debug_renderer.has_method("clear"):
+				_bot_debug_renderer.call("clear")
+			_bot_debug_renderer.visible = false
+			_bot_debug_renderer = null
+		return
 	_update_frame_cache()
 	_update_follow_target_velocity(delta)
 	_update_flight_controls(delta)
@@ -799,7 +807,11 @@ func _find_collision_threat() -> float:
 	var best_tca := INF
 	var best_direction := 0.0
 
-	for candidate in scene_tree.get_nodes_in_group("player_character"):
+	var candidates: Array = scene_tree.get_nodes_in_group("player_character")
+	if avoid_missiles:
+		candidates.append_array(scene_tree.get_nodes_in_group("missile"))
+
+	for candidate in candidates:
 		if candidate == _plane or not candidate is Node3D:
 			continue
 
@@ -1278,7 +1290,10 @@ func _update_weapon_targeting() -> void:
 	var weapon_lock := _plane.get_node_or_null("PlaneWeaponLock")
 	if weapon_lock == null:
 		return
-	var desired_target: Node3D = _follow_target if _has_follow_target() else null
+	var raw_target: Node3D = _follow_target if _has_follow_target() else null
+	if raw_target != null and raw_target.get("is_shot_down") == true:
+		raw_target = null
+	var desired_target: Node3D = raw_target
 	weapon_lock.call("set_desired_target", desired_target)
 	if bool(weapon_lock.call("is_locked")):
 		var launcher := _plane.get_node_or_null("PlaneMissileLauncher")

@@ -5,6 +5,8 @@
 [ext_resource type="Script" uid="uid://d1o81vttixei4" path="res://scripts/plane_wing_trails.gd" id="3_wing_trails"]
 [ext_resource type="Script" path="res://scripts/plane_weapon_lock.gd" id="4_weapon_lock"]
 [ext_resource type="Script" path="res://scripts/plane_missile_launcher.gd" id="5_launcher"]
+[ext_resource type="PackedScene" path="res://scenes/health.tscn" id="6_health"]
+[ext_resource type="PackedScene" path="res://scenes/flame_trail.tscn" id="7_flame_trail"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_plane_collision"]
 size = Vector3(10, 1, 10)
@@ -25,6 +27,7 @@ max_contacts_reported = 4
 linear_damp_mode = 1
 angular_damp_mode = 1
 script = ExtResource("1_plane")
+flame_trail_scene = ExtResource("7_flame_trail")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=251207333]
 shape = SubResource("BoxShape3D_plane_collision")
@@ -32,6 +35,8 @@ shape = SubResource("BoxShape3D_plane_collision")
 [node name="BodyMesh" type="MeshInstance3D" parent="." unique_id=219576509]
 transform = Transform3D(-1, -8.742278e-08, 3.821371e-15, 0, -4.371139e-08, -1, 8.742278e-08, -1, 4.371139e-08, 0, 0, 0)
 mesh = SubResource("PrismMesh_plane_body")
+
+[node name="Health" parent="." instance=ExtResource("6_health")]
 
 [node name="PlaneWeaponLock" type="Node" parent="."]
 script = ExtResource("4_weapon_lock")

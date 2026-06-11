@@ -270,6 +270,16 @@ These are `const` rather than `@export` and must be changed in the script. They 
 | `COLLISION_AVOIDANCE_MIN_DURATION` | 0.5 | s | Minimum time the avoidance maneuver is held after the threat clears. |
 | `COLLISION_AVOIDANCE_RESPONSE_RATE` | 1.5 | /s | Input ramp rate during the avoidance maneuver. |
 
+## Shot-Down Behaviour
+
+When the bot's own plane is shot down (`is_shot_down == true` on the plane controller), `_physics_process` early-returns immediately. This stops all flight control writes, weapon targeting, and debug visual updates in a single gate. The underlying plane controller also stops applying thrust and control torques at its own gate, so the plane falls freely under physics.
+
+When the bot's **follow target** is shot down, `_update_weapon_targeting` clears it as the desired lock target that frame. The bot continues to fly toward the target geometrically (the flight controller is unaware of HP state), but it stops attempting to lock and fire. A future improvement could make the bot break off and search for a new target when its chase target goes down.
+
+Bots never lock a shot-down plane — `plane_weapon_lock.gd`'s `_is_lockable` filter rejects any target with `is_shot_down == true`, so lock progress resets immediately if a target is shot down mid-lock.
+
+---
+
 ## Limits
 The bot is still a simple behavior controller, not a full combat AI.
 

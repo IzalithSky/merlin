@@ -382,6 +382,30 @@ Snapshots include:
 
 Remote planes apply received snapshots and do not run local flight simulation. This avoids two peers simulating the same aircraft differently, but it also means remote aircraft are visual replicas rather than fully predicted physics bodies.
 
+## Health and Shot-Down State
+
+Each `PlaneCharacter` carries a `Health` child node (see `docs/health.md`). When HP reaches zero, `Health` emits `shot_down` and `plane_character_controller` sets `is_shot_down = true`.
+
+**Effect on the per-tick flow:**
+
+The entire control and thrust block is skipped when `is_shot_down` is true. Specifically, `_physics_process` returns immediately after the simulation-authority check, so none of the following run:
+
+- `_apply_bot_inputs` / `_collect_inputs`
+- `compute_control_state`
+- `apply_thrust`
+- `apply_plane_torque`
+- `apply_aerodynamic_forces`
+- `apply_extra_drag_forces`
+- `apply_directional_alignment`
+
+Passive physics — gravity, linear damping, and the Jolt integrator — continue to act on the `RigidBody3D`. The plane tumbles and falls under its own momentum without any active stabilisation.
+
+A `FlameTrail` child node (two `GPUParticles3D`) is instantiated and attached at the moment of shot-down, travelling with the wreckage.
+
+The plane is not removed from the scene tree on shot-down. Despawn is left to future match logic.
+
+---
+
 ## Current Simplifications
 - One lumped rigid body represents the whole aircraft.
 - Lift and drag are central forces.

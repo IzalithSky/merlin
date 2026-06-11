@@ -92,4 +92,6 @@ func _check_lock_envelope(target: Node3D) -> bool:
 
 
 func _is_lockable(target: Node3D) -> bool:
-	return is_instance_valid(target)
+	if not is_instance_valid(target):
+		return false
+	return target.get("is_shot_down") != true
