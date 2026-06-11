@@ -121,7 +121,7 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var team_id: int = 0
 @export var ground_impact_damage_speed_threshold: float = 35.0
 @export var ground_impact_fatal_speed_threshold: float = 50.0
-@export var ground_impact_fatal_surface_angle_deg: float = 15.0
+@export var ground_impact_fatal_surface_angle_deg: float = 25.0
 @export var ground_impact_max_damage: float = 80.0
 
 const TABLE_SORT_EPSILON := 0.0001
@@ -820,8 +820,7 @@ func _handle_ground_impact_contacts(state: PhysicsDirectBodyState3D) -> void:
 		if not is_instance_valid(collider) or not _is_ground_body(collider):
 			continue
 
-		var local_normal := state.get_contact_local_normal(contact_index)
-		var surface_normal_world := global_transform.basis.orthonormalized() * local_normal
+		var surface_normal_world := state.get_contact_local_normal(contact_index)
 		impact_angle_deg = _get_surface_impact_angle_deg(surface_normal_world, linear_velocity)
 		if impact_angle_deg >= 0.0:
 			break
@@ -994,6 +993,14 @@ func _apply_remote_pose(remote_position: Vector3, rotation_quaternion: Quaternio
 	global_basis = Basis(rotation_quaternion.normalized())
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
+
+
+func get_replicated_velocity() -> Vector3:
+	if _is_simulated_locally():
+		return linear_velocity
+	if not _remote_snapshots.is_empty():
+		return Vector3(_remote_snapshots.back().get("linear_velocity", Vector3.ZERO))
+	return linear_velocity
 
 
 func _ensure_force_debug_renderer() -> void:

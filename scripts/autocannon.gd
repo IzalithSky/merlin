@@ -46,9 +46,14 @@ func try_fire() -> void:
 
 func _try_fire(plane: Node3D) -> void:
 	var desired_target: Node3D = null
+	var target_peer_id := -1
 	var weapon_lock := plane.get_node_or_null("PlaneWeaponLock")
 	if weapon_lock != null and is_instance_valid(weapon_lock) and weapon_lock.has_method("get_desired_target"):
 		desired_target = weapon_lock.call("get_desired_target") as Node3D
+	if desired_target != null and is_instance_valid(desired_target):
+		var peer_value: Variant = desired_target.get("peer_id")
+		if peer_value != null:
+			target_peer_id = int(peer_value)
 
 	var aim_direction := compute_aim_direction(
 		plane,
@@ -60,13 +65,17 @@ func _try_fire(plane: Node3D) -> void:
 	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
 		var spawner := get_tree().current_scene
 		if spawner.has_method("sv_request_fire_autocannon"):
-			spawner.sv_request_fire_autocannon.rpc_id(1, multiplayer.get_unique_id())
+			spawner.sv_request_fire_autocannon.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
 		else:
 			_fire_local(plane, aim_direction)
 	elif multiplayer.multiplayer_peer != null and multiplayer.is_server():
 		var spawner := get_tree().current_scene
+		var firing_peer_id := multiplayer.get_unique_id()
+		var peer_value: Variant = plane.get("peer_id")
+		if peer_value != null:
+			firing_peer_id = int(peer_value)
 		if spawner.has_method("_server_fire_autocannon"):
-			spawner.call("_server_fire_autocannon", plane, multiplayer.get_unique_id())
+			spawner.call("_server_fire_autocannon", plane, firing_peer_id, target_peer_id)
 		else:
 			_fire_local(plane, aim_direction)
 	else:
@@ -104,13 +113,8 @@ static func compute_aim_direction(
 	if target == null or not is_instance_valid(target):
 		return nose
 
-	var target_velocity := Vector3.ZERO
-	if target is RigidBody3D:
-		target_velocity = (target as RigidBody3D).linear_velocity
-
-	var plane_velocity := Vector3.ZERO
-	if plane is RigidBody3D:
-		plane_velocity = (plane as RigidBody3D).linear_velocity
+	var target_velocity := _get_replication_aware_velocity(target)
+	var plane_velocity := _get_replication_aware_velocity(plane)
 
 	var relative_position := target.global_position - plane.global_position
 	var relative_velocity := target_velocity - plane_velocity
@@ -172,6 +176,16 @@ static func _clamp_direction_to_cone(
 	if axis.length_squared() <= 0.000001:
 		return normalized_nose
 	return normalized_nose.rotated(axis.normalized(), max_angle).normalized()
+
+
+static func _get_replication_aware_velocity(body: Node3D) -> Vector3:
+	if body == null or not is_instance_valid(body):
+		return Vector3.ZERO
+	if body.has_method("get_replicated_velocity"):
+		return body.call("get_replicated_velocity")
+	if body is RigidBody3D:
+		return (body as RigidBody3D).linear_velocity
+	return Vector3.ZERO
 
 
 func _is_local_player(plane: Node3D) -> bool:

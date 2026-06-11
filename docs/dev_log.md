@@ -218,11 +218,51 @@ This update records which items from `docs/architecture_review.md` have been com
 - Not done yet:
   - #1 Client-authoritative relay architecture
   - #4 Missile replication bandwidth
+
+---
+
+Date: June 11, 2026
+
+## Architecture Review Follow-up (Items #11 and #12)
+
+This update records the fixes for the second-pass multiplayer fire-authority and ground-impact findings from `docs/architecture_review.md`.
+
+## Completed Review Items
+
+1. Item #11: server-side autocannon lead state now reaches the server
+- Client autocannon fire requests now include `target_peer_id`, matching the existing missile request pattern.
+- Server-side autocannon spawning now resolves that peer to a real plane and validates it against the server's own lock envelope before using it for lead aim.
+- Replicated planes now expose their latest buffered snapshot velocity through `get_replicated_velocity()`, so server-side lead aim no longer reads zero velocity from remote replicas.
+- Bot pursuit / collision checks that depend on remote plane velocity now use the same replicated-velocity accessor instead of the zeroed rigid-body property.
+- Server-hosted autocannon fire now keys cooldowns by the plane's actual `peer_id`, avoiding the shared host/bot cooldown slot.
+
+2. Item #12: ground-impact crash angle now uses the real contact normal
+- Ground-impact handling now uses `get_contact_local_normal()` as returned by Godot instead of rotating it by the plane basis a second time.
+- Retuned `ground_impact_fatal_surface_angle_deg` upward to `25.0` so fatal crash classification remains based on genuinely steep impacts after removing the attitude-dependent normal distortion.
+
+## Review Status Summary (Updated Again)
+
+- Done:
+  - #2 Health does not work in multiplayer
+  - #3 Snapshot protocol
+  - #4 Missile replication bandwidth
+  - #10 Input-layer quirks
+  - #11 Server-side fire authority reads state that never reaches the server
+  - #12 Ground-impact surface normal is double-rotated
+- Not done yet:
+  - #1 Client-authoritative relay architecture
   - #5 God objects / responsibility split
   - #6 Stringly-typed contracts
   - #7 Multiplayer bot spawning/identity cleanup
   - #8 Broad documentation drift pass
   - #9 Automated smoke tests / test harness
+  - #13 `team_id` assignment / HUD friend-foe correctness
+
+3. Item #4: missile replication bandwidth
+- Removed per-tick `cl_missile_state` unicast updates from the server missile path.
+- Missile spawn RPCs now include the initial launch velocity and locked target peer id.
+- Remote peers now run a lightweight local `missile_visual.gd` guidance simulation seeded from spawn data, with authoritative despawn/explosion still coming from the server.
+- This reduces missile replication traffic from transform spam every physics tick to spawn/despawn events only for the normal case.
 
 ## Additional June 11 Work
 

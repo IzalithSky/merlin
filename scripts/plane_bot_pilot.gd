@@ -810,9 +810,7 @@ func _find_collision_threat() -> float:
 	for other in _cached_player_characters:
 		if other == _plane:
 			continue
-		var other_vel := Vector3.ZERO
-		if other is RigidBody3D:
-			other_vel = (other as RigidBody3D).linear_velocity
+		var other_vel := _get_node_velocity(other)
 
 		var threat_direction := _get_collision_threat_direction(other, other_vel, best_tca)
 		if threat_direction["detected"]:
@@ -880,7 +878,7 @@ func _update_follow_target_velocity(delta: float) -> void:
 
 	var target_position := _follow_target.global_position
 	if _follow_target is RigidBody3D:
-		_follow_target_velocity = (_follow_target as RigidBody3D).linear_velocity
+		_follow_target_velocity = _get_node_velocity(_follow_target)
 	elif _has_follow_target_sample and delta > 0.0:
 		_follow_target_velocity = (target_position - _last_follow_target_position) / delta
 	else:
@@ -900,6 +898,16 @@ func _has_follow_target() -> bool:
 	_has_follow_target_sample = false
 	_follow_target_velocity = Vector3.ZERO
 	return false
+
+
+func _get_node_velocity(body: Node3D) -> Vector3:
+	if body == null or not is_instance_valid(body):
+		return Vector3.ZERO
+	if body.has_method("get_replicated_velocity"):
+		return body.call("get_replicated_velocity")
+	if body is RigidBody3D:
+		return (body as RigidBody3D).linear_velocity
+	return Vector3.ZERO
 
 
 func _get_follow_throttle_target(destination_point: Vector3) -> float:

@@ -701,15 +701,6 @@ func _physics_process(_delta: float) -> void:
 			_gun_cooldowns.erase(peer_id)
 		else:
 			_gun_cooldowns[peer_id] = cooldown
-	for missile_id in _active_missiles.keys():
-		var missile := _active_missiles[missile_id] as Node3D
-		if not is_instance_valid(missile):
-			_active_missiles.erase(missile_id)
-			continue
-		var t := missile.global_transform
-		for peer_id in multiplayer.get_peers():
-			if _is_peer_world_ready(peer_id):
-				cl_missile_state.rpc_id(peer_id, missile_id, t)
 
 
 func _on_projectile_entered(node: Node) -> void:
@@ -723,12 +714,18 @@ func _on_projectile_entered(node: Node) -> void:
 	_next_missile_id += 1
 	_active_missiles[missile_id] = node
 	var vel := (node as RigidBody3D).linear_velocity if node is RigidBody3D else Vector3.ZERO
+	var target_peer_id := -1
+	var target_node := node.get("target") as Node3D
+	if target_node != null and is_instance_valid(target_node):
+		var peer_value: Variant = target_node.get("peer_id")
+		if peer_value != null:
+			target_peer_id = int(peer_value)
 	node.died.connect(
 		func(exploded: bool, pos: Vector3) -> void: _on_missile_died(missile_id, exploded, pos)
 	)
 	for peer_id in multiplayer.get_peers():
 		if _is_peer_world_ready(peer_id):
-			cl_spawn_missile.rpc_id(peer_id, missile_id, node.global_transform, vel)
+			cl_spawn_missile.rpc_id(peer_id, missile_id, node.global_transform, vel, target_peer_id)
 
 
 func _on_missile_died(missile_id: int, exploded: bool, pos: Vector3) -> void:
@@ -755,15 +752,12 @@ func _server_fire_missile(firing_plane: Node3D, locked_target: Node3D) -> void:
 	missile.add_collision_exception_with(firing_plane)
 
 
-func _server_fire_autocannon(plane: Node3D, firing_peer_id: int) -> void:
+func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_peer_id: int = -1) -> void:
 	var autocannon := plane.get_node_or_null("Autocannon")
 	if autocannon == null or not is_instance_valid(autocannon):
 		return
 
-	var weapon_lock := plane.get_node_or_null("PlaneWeaponLock")
-	var desired_target: Node3D = null
-	if weapon_lock != null and weapon_lock.has_method("get_desired_target"):
-		desired_target = weapon_lock.call("get_desired_target") as Node3D
+	var desired_target := _resolve_autocannon_target(plane, target_peer_id)
 
 	var aim_direction := AUTOCANNON_SCRIPT.compute_aim_direction(
 		plane,
@@ -801,6 +795,25 @@ func _server_fire_autocannon(plane: Node3D, firing_peer_id: int) -> void:
 			cl_spawn_bullet.rpc_id(peer_id, bullet_id, bullet.global_position, bullet.linear_velocity)
 
 
+func _resolve_autocannon_target(plane: Node3D, target_peer_id: int) -> Node3D:
+	if target_peer_id < 0:
+		return null
+
+	var target := _characters.get_node_or_null(_character_name(target_peer_id)) as Node3D
+	if target == null or not is_instance_valid(target):
+		return null
+	if target.get("is_shot_down") == true:
+		return null
+
+	var weapon_lock := plane.get_node_or_null("PlaneWeaponLock")
+	if weapon_lock == null or not is_instance_valid(weapon_lock):
+		return null
+	if weapon_lock.has_method("is_target_in_envelope") and not bool(weapon_lock.call("is_target_in_envelope", target)):
+		return null
+
+	return target
+
+
 func _on_bullet_died(_hit: bool, pos: Vector3, bullet_id: int) -> void:
 	_active_bullets.erase(bullet_id)
 	for peer_id in multiplayer.get_peers():
@@ -826,7 +839,7 @@ func sv_request_fire_missile(firing_peer_id: int, target_peer_id: int) -> void:
 
 
 @rpc("any_peer", "reliable")
-func sv_request_fire_autocannon(firing_peer_id: int) -> void:
+func sv_request_fire_autocannon(firing_peer_id: int, target_peer_id: int) -> void:
 	if not multiplayer.is_server():
 		return
 	if multiplayer.get_remote_sender_id() != firing_peer_id:
@@ -839,16 +852,19 @@ func sv_request_fire_autocannon(firing_peer_id: int) -> void:
 	var cooldown := float(_gun_cooldowns.get(firing_peer_id, 0.0))
 	if cooldown > 0.0:
 		return
-	_server_fire_autocannon(plane, firing_peer_id)
+	_server_fire_autocannon(plane, firing_peer_id, target_peer_id)
 
 
 @rpc("authority", "reliable")
-func cl_spawn_missile(missile_id: int, t: Transform3D, _velocity: Vector3) -> void:
+func cl_spawn_missile(missile_id: int, t: Transform3D, velocity: Vector3, target_peer_id: int) -> void:
 	if multiplayer.is_server():
 		return
 	var visual := MISSILE_VISUAL_SCENE.instantiate() as Node3D
 	_projectiles.add_child(visual)
-	visual.global_transform = t
+	if visual.has_method("init"):
+		visual.call("init", t, velocity, _resolve_remote_missile_target(target_peer_id))
+	else:
+		visual.global_transform = t
 	_remote_missiles[missile_id] = visual
 
 
@@ -862,15 +878,6 @@ func cl_spawn_bullet(bullet_id: int, pos: Vector3, vel: Vector3) -> void:
 	_active_bullet_visuals[bullet_id] = visual
 
 
-@rpc("authority", "call_remote", "unreliable_ordered", 2)
-func cl_missile_state(missile_id: int, t: Transform3D) -> void:
-	if multiplayer.is_server():
-		return
-	var visual := _remote_missiles.get(missile_id) as Node
-	if visual != null and is_instance_valid(visual):
-		visual.call("apply_state", t)
-
-
 @rpc("authority", "reliable")
 func cl_despawn_missile(missile_id: int, exploded: bool, pos: Vector3) -> void:
 	if multiplayer.is_server():
@@ -881,8 +888,17 @@ func cl_despawn_missile(missile_id: int, exploded: bool, pos: Vector3) -> void:
 			var explosion := EXPLOSION_SCENE.instantiate() as Node3D
 			_projectiles.add_child(explosion)
 			explosion.global_position = pos
-		visual.call("die")
+		if visual.has_method("despawn"):
+			visual.call("despawn", pos)
+		else:
+			visual.call("die")
 	_remote_missiles.erase(missile_id)
+
+
+func _resolve_remote_missile_target(target_peer_id: int) -> Node3D:
+	if target_peer_id < 0:
+		return null
+	return _characters.get_node_or_null(_character_name(target_peer_id)) as Node3D
 
 
 @rpc("authority", "call_remote", "reliable", 0)

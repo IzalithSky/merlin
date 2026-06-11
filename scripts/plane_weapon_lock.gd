@@ -46,6 +46,10 @@ func is_in_envelope() -> bool:
 	return _check_lock_envelope(_desired_target)
 
 
+func is_target_in_envelope(target: Node3D) -> bool:
+	return _check_lock_envelope(target)
+
+
 func _physics_process(delta: float) -> void:
 	_update_lock(delta)
 

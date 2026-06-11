@@ -180,8 +180,9 @@ separate fire key — locking is sufficient.
 
 **Multiplayer**: in a networked session, clients send `sv_request_fire_missile`
 to the server instead of spawning locally. The server owns all missile
-simulation; clients receive visual replicas via `cl_spawn_missile` /
-`cl_missile_state` / `cl_despawn_missile` RPCs. See `world_character_spawner.gd`.
+simulation; clients receive spawn/despawn events only, then run a local visual
+replica seeded with the spawn transform, launch velocity, and locked target peer
+id. See `world_character_spawner.gd` and `missile_visual.gd`.
 
 ---
 
