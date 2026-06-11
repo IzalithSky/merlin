@@ -92,6 +92,19 @@ The telemetry HUD (`plane_telemetry_hud.gd`) reads `current_hp` and `max_hp` dir
 
 ---
 
+## Multiplayer
+
+Damage remains server-authoritative in multiplayer:
+
+- Missile explosions call `take_damage()` only on the server-side `Health` instance.
+- `world_character_spawner.gd` listens for `damaged` and `shot_down` on each spawned plane and relays health changes to clients with reliable RPCs.
+- Remote peers apply the replicated HP to their local `Health` nodes, so HUDs and other readers of `current_hp` stay in sync.
+- When a plane is shot down, clients receive a reliable shot-down event, the local `Health` node emits `shot_down`, and `plane_character_controller.gd` runs the same wreckage path everywhere.
+
+Shot-down peers also stop contributing client-authored movement: the server rejects any later `submit_character_state` packets for a dead plane, and remote replicas ignore stale movement packets after their local `is_shot_down` flag is set.
+
+---
+
 ## Tuning
 
 | Parameter | Location | Notes |

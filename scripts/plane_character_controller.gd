@@ -178,6 +178,7 @@ var _best_climb_speed_vy_valid := false
 var _sustain_turn_vy_update_timer := 0.0
 var _sustain_turn_using_vy := false
 var _altitude_rising := false
+var _flame_trail: Node3D
 
 
 func _ready() -> void:
@@ -209,6 +210,11 @@ func _physics_process(delta: float) -> void:
 		return
 
 	if is_shot_down:
+		_clear_force_debug_frame()
+		_sync_timer += delta
+		if _sync_timer >= max(network_sync_interval, 0.001):
+			_sync_timer = 0.0
+			_emit_local_state()
 		return
 
 	_begin_force_debug_frame()
@@ -623,15 +629,21 @@ func _apply_local_player_mode() -> void:
 
 
 func _on_shot_down() -> void:
+	if is_shot_down:
+		return
 	is_shot_down = true
 	throttle_input = -1.0
 	if _force_debug_renderer != null and _force_debug_renderer.has_method("clear_frame"):
 		_force_debug_renderer.call("clear_frame")
 	if _force_debug_renderer != null:
 		_force_debug_renderer.visible = false
-	if flame_trail_scene != null:
-		var trail := flame_trail_scene.instantiate() as Node3D
-		add_child(trail)
+	if flame_trail_scene != null and _flame_trail == null:
+		_flame_trail = flame_trail_scene.instantiate() as Node3D
+		add_child(_flame_trail)
+
+
+func apply_remote_shot_down() -> void:
+	_on_shot_down()
 
 
 func set_bot_controlled(enabled: bool) -> void:

@@ -21,3 +21,21 @@ func take_damage(amount: float) -> void:
 	if current_hp <= 0.0:
 		_dead = true
 		shot_down.emit()
+
+
+func apply_current_hp_from_network(value: float) -> void:
+	var clamped_value := clampf(value, 0.0, max_hp)
+	var previous_hp := current_hp
+	current_hp = clamped_value
+	if current_hp > 0.0:
+		_dead = false
+	if current_hp < previous_hp:
+		damaged.emit(previous_hp - current_hp, current_hp)
+
+
+func apply_shot_down_from_network() -> void:
+	current_hp = 0.0
+	if _dead:
+		return
+	_dead = true
+	shot_down.emit()
