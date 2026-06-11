@@ -31,6 +31,7 @@ var _advanced_hud_nodes: Array[CanvasItem] = []
 var _advanced_hud_enabled := true
 var _relative_roll_clock_enabled := true
 var _global_direction_markers_enabled := true
+var _shot_down_detached := false
 var _base_root_size := Vector2.ZERO
 var _indicator_half_size := Vector2.ZERO
 
@@ -54,6 +55,8 @@ func set_target(target: Node3D = null) -> void:
 	if _target == null:
 		_reset_labels()
 		_reset_global_direction_indicators()
+	else:
+		_shot_down_detached = false
 
 
 func set_camera(cam: Camera3D) -> void:
@@ -235,12 +238,17 @@ func _reset_global_direction_indicators() -> void:
 		_velocity_direction_indicator.visible = false
 
 
+func on_camera_rig_detached() -> void:
+	_shot_down_detached = true
+	_reset_global_direction_indicators()
+
+
 func _update_global_direction_indicators() -> void:
 	if _camera == null or not is_instance_valid(_camera) or _target == null:
 		_reset_global_direction_indicators()
 		return
 
-	if not _global_direction_markers_enabled:
+	if not _global_direction_markers_enabled or _shot_down_detached:
 		_reset_global_direction_indicators()
 		return
 

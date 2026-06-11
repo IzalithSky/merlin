@@ -1,5 +1,7 @@
 extends Node3D
 
+signal detached
+
 @export var mouse_sensitivity: float = 0.006
 @export var camera_max_pitch_deg: float = 89.0
 @export var camera_zoom_step: float = 4.0
@@ -16,6 +18,7 @@ var _target: Node3D
 var _camera_yaw := 0.0
 var _camera_pitch := 0.0
 var _shot_down_detach_deadline := -1.0
+var _is_detached := false
 
 
 func _ready() -> void:
@@ -30,6 +33,7 @@ func get_camera() -> Camera3D:
 
 func set_target(target: Node3D = null) -> void:
 	_target = target
+	_is_detached = false
 	_shot_down_detach_deadline = -1.0
 	if _target != null:
 		global_position = _target.global_position
@@ -40,7 +44,7 @@ func set_target(target: Node3D = null) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _target == null:
+	if _target == null and not _is_detached:
 		return
 
 	if _is_game_menu_open():
@@ -69,6 +73,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _is_detached:
+		return
+
 	if _target == null:
 		return
 
@@ -102,6 +109,26 @@ func _physics_process(delta: float) -> void:
 func _detach_from_target() -> void:
 	_target = null
 	_shot_down_detach_deadline = -1.0
+	_is_detached = true
+
+	if _camera_pitch_pivot == null:
+		detached.emit()
+		return
+
+	# Capture world-space look direction before changing the rig basis.
+	# world_fwd = (-sin(yaw)*cos(pitch), sin(pitch), -cos(yaw)*cos(pitch))
+	# so we can recover yaw/pitch for an identity-basis rig.
+	var world_fwd := -_camera_pitch_pivot.global_transform.basis.z
+
+	# Level the rig to global upright.
+	global_transform.basis = Basis.IDENTITY
+
+	# Decompose world_fwd back into yaw and pitch so the camera keeps
+	# pointing the same direction after the basis reset.
+	_camera_pitch = asin(clampf(world_fwd.y, -1.0, 1.0))
+	_camera_yaw = atan2(-world_fwd.x, -world_fwd.z)
+	_apply_camera_look()
+	detached.emit()
 
 
 func _capture_mouse() -> void:

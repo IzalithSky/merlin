@@ -644,6 +644,19 @@ func _bind_local_plane_presentation(character: Node3D) -> void:
 			if _local_targeting_hud.has_method("set_camera"):
 				_local_targeting_hud.call("set_camera", cam)
 
+	if (
+		_local_plane_camera_rig != null
+		and _local_plane_hud != null
+		and _local_plane_hud.has_method("on_camera_rig_detached")
+		and _local_plane_camera_rig.has_signal("detached")
+		and not _local_plane_camera_rig.is_connected(
+			"detached", Callable(_local_plane_hud, "on_camera_rig_detached")
+		)
+	):
+		_local_plane_camera_rig.connect(
+			"detached", Callable(_local_plane_hud, "on_camera_rig_detached")
+		)
+
 
 func _ensure_local_plane_presentation() -> void:
 	if _local_plane_camera_rig == null:
