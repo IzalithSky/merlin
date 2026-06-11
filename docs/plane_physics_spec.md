@@ -77,6 +77,34 @@ For a locally simulated plane, each physics tick follows this sequence:
 
 The controller caches quantities that are reused later in the tick so the same velocity, basis, speed, and dynamic-pressure values are not recomputed throughout the force model.
 
+## Ground Impact Damage
+Ground impact damage is evaluated from physics contact data, not from aircraft attitude alone.
+
+For locally simulated planes, the controller inspects rigid-body contacts during `_integrate_forces()`. When the plane contacts ground geometry, it reads the contact surface normal and compares it against the plane's movement direction.
+
+The impact angle is computed as:
+
+```text
+0 degrees   = movement is parallel to the ground surface
+90 degrees  = movement is straight into the ground surface
+```
+
+This means shallow, skimming contact produces a small impact angle, while a steep dive into the terrain produces a large impact angle.
+
+The damage rules are:
+
+- below `ground_impact_damage_speed_threshold`: no ground-impact damage
+- above `ground_impact_damage_speed_threshold`: proportional damage up to `ground_impact_max_damage`
+- at or above `ground_impact_fatal_speed_threshold` and `ground_impact_fatal_surface_angle_deg`: immediate full-HP loss
+
+`ground_impact_fatal_surface_angle_deg` is therefore a "how parallel must the touchdown be to avoid a fatal crash" threshold:
+
+- lower values are stricter
+- higher values are more forgiving
+- around `15` degrees requires the plane to be nearly parallel to the ground to avoid the fatal branch
+
+In multiplayer, the owning peer detects the contact and reports the measured impact speed and impact angle to the server, and the server applies authoritative damage.
+
 ## Input Model
 The player controls pitch, yaw, roll, and throttle. Input channels are smoothed so controls ramp rather than instantly snapping. Rotation inputs decay toward neutral when released. Throttle is persistent: it moves up or down when commanded, then holds its current setting.
 

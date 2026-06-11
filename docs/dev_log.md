@@ -242,3 +242,9 @@ This update records which items from `docs/architecture_review.md` have been com
 - Targeting HUD now normalizes selected targets through a validated getter before pushing them into `PlaneWeaponLock`, avoiding freed-instance RPC/call errors.
 - Bot missile threat checks now skip freed cached missiles before type inspection.
 - Renamed remote-state local variables/parameters that shadowed `Node3D.position`, removing parser warnings during script reload.
+
+7. Ground-impact damage and crash-angle tuning
+- Planes now take proportional damage on ground contact above a configurable speed threshold.
+- High-speed ground impacts now trigger full destruction based on the angle between the plane's movement direction and the contacted ground surface, not the plane's upright tilt.
+- `ground_impact_fatal_surface_angle_deg` is documented as `0` degrees for motion parallel to the ground and `90` degrees for motion directly into the ground.
+- The default fatal-angle tuning was tightened so avoiding a fatal crash requires the plane to be nearly parallel to the ground at impact.

@@ -62,7 +62,7 @@ The plane is **not despawned** on shot-down. It remains in the scene as inert wr
 
 ## Damage delivery
 
-Damage currently comes only from missile explosions. `missile.gd`'s `_spawn_explosion` uses a physics shape query to find nearby bodies, then searches each collider and its direct children for a node that `has_method("take_damage")`. `Health` exposes `take_damage`, so it satisfies this check automatically on any plane that carries the node.
+Damage currently comes from missile explosions and ground impacts. `missile.gd`'s `_spawn_explosion` uses a physics shape query to find nearby bodies, then searches each collider and its direct children for a node that `has_method("take_damage")`. `Health` exposes `take_damage`, so it satisfies this check automatically on any plane that carries the node.
 
 Damage falls off linearly with distance inside `explosion_radius`:
 
@@ -72,6 +72,13 @@ dmg = lerp(explosion_min_damage, explosion_max_damage, t)
 ```
 
 A plane at 100 HP requires two or more direct hits to be shot down with default missile values (`explosion_max_damage = 80`).
+
+Ground impacts are handled by `plane_character_controller.gd`. When a locally simulated plane contacts ground geometry above the configured speed threshold, it computes the angle between its movement direction and the contacted surface:
+
+- `0` degrees means the motion is parallel to the surface
+- `90` degrees means the motion is directly into the surface
+
+Fast shallow contact can cause proportional damage. Fast steep contact can trigger immediate destruction when both the speed threshold and `ground_impact_fatal_surface_angle_deg` threshold are exceeded.
 
 ---
 
@@ -113,3 +120,7 @@ Shot-down peers also stop contributing client-authored movement: the server reje
 | `explosion_max_damage` | `missile.gd` export | Direct-hit damage at explosion centre. |
 | `explosion_min_damage` | `missile.gd` export | Damage at the edge of `explosion_radius`. |
 | `explosion_radius` | `missile.gd` export | Radius of the damage query sphere. |
+| `ground_impact_damage_speed_threshold` | `plane_character_controller.gd` export | Minimum ground-impact speed that starts applying damage. |
+| `ground_impact_fatal_speed_threshold` | `plane_character_controller.gd` export | Minimum ground-impact speed that enables the fatal crash branch. |
+| `ground_impact_fatal_surface_angle_deg` | `plane_character_controller.gd` export | Minimum angle between movement direction and ground surface that makes a high-speed crash fatal. |
+| `ground_impact_max_damage` | `plane_character_controller.gd` export | Maximum proportional damage from a non-fatal ground impact. |

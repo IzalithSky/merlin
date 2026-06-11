@@ -213,7 +213,7 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Show advanced HUD (AoA and below)"
 
-[node name="RelativeRollClockCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox"]
+[node name="RelativeRollClockCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1240372711]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 46)
 layout_mode = 2

@@ -567,6 +567,19 @@ func cl_shot_down(peer_id: int) -> void:
 		character.call("apply_remote_shot_down")
 
 
+@rpc("any_peer", "reliable")
+func sv_report_ground_impact(impact_speed: float, impact_angle_deg: float) -> void:
+	if not multiplayer.is_server():
+		return
+
+	var sender_id := multiplayer.get_remote_sender_id()
+	var character := _characters.get_node_or_null(_character_name(sender_id))
+	if character == null or not character.has_method("apply_ground_impact_damage"):
+		return
+
+	character.call("apply_ground_impact_damage", impact_speed, impact_angle_deg)
+
+
 func _yaw_towards(character_position: Vector3, target_position: Vector3) -> float:
 	var direction := target_position - character_position
 	direction.y = 0.0

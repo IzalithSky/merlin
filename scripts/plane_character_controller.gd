@@ -114,11 +114,16 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var shot_down_roll_spin_min_deg: float = 180.0
 @export var shot_down_roll_spin_max_deg: float = 540.0
 @export var team_id: int = 0
+@export var ground_impact_damage_speed_threshold: float = 35.0
+@export var ground_impact_fatal_speed_threshold: float = 50.0
+@export var ground_impact_fatal_surface_angle_deg: float = 15.0
+@export var ground_impact_max_damage: float = 80.0
 
 const TABLE_SORT_EPSILON := 0.0001
 const MIN_AERODYNAMIC_SPEED_SQUARED := 0.0001
 const MIN_DIRECTION_VECTOR_LENGTH_SQUARED := 0.000001
 const MIN_ANGULAR_SPEED_SQUARED := 0.000001
+const GROUND_IMPACT_COOLDOWN_SECONDS := 0.16
 const DEBUG_COLOR_THRUST := Color(1.0, 0.58, 0.12, 1.0)
 const DEBUG_COLOR_LIFT := Color(0.2, 0.9, 0.2, 1.0)
 const DEBUG_COLOR_DRAG := Color(0.95, 0.23, 0.23, 1.0)
@@ -187,6 +192,7 @@ var _flame_trail: Node3D
 var _snapshot_tick: int = 0
 var _remote_snapshots: Array[Dictionary] = []
 var _shot_down_random := RandomNumberGenerator.new()
+var _last_ground_impact_time: float = -INF
 
 
 func _ready() -> void:
@@ -258,6 +264,7 @@ func _process(_delta: float) -> void:
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	_last_total_linear_damp = maxf(state.total_linear_damp, 0.0)
+	_handle_ground_impact_contacts(state)
 
 
 func _is_simulated_locally() -> bool:
@@ -657,6 +664,95 @@ func _apply_local_player_mode() -> void:
 		throttle_input = -1.0
 
 	_update_force_debug_renderer_state()
+
+
+func _handle_ground_impact_contacts(state: PhysicsDirectBodyState3D) -> void:
+	if is_shot_down or not _is_simulated_locally():
+		return
+
+	var now_seconds := Time.get_ticks_msec() / 1000.0
+	if now_seconds - _last_ground_impact_time < GROUND_IMPACT_COOLDOWN_SECONDS:
+		return
+
+	var impact_speed := linear_velocity.length()
+	if impact_speed <= ground_impact_damage_speed_threshold:
+		return
+
+	var contact_count := state.get_contact_count()
+	if contact_count <= 0:
+		return
+
+	var impact_angle_deg := -1.0
+	for contact_index in range(contact_count):
+		var collider := state.get_contact_collider_object(contact_index)
+		if not is_instance_valid(collider) or not _is_ground_body(collider):
+			continue
+
+		var local_normal := state.get_contact_local_normal(contact_index)
+		var surface_normal_world := global_transform.basis.orthonormalized() * local_normal
+		impact_angle_deg = _get_surface_impact_angle_deg(surface_normal_world, linear_velocity)
+		if impact_angle_deg >= 0.0:
+			break
+
+	if impact_angle_deg < 0.0:
+		return
+
+	_last_ground_impact_time = now_seconds
+
+	if multiplayer.multiplayer_peer == null or multiplayer.is_server():
+		apply_ground_impact_damage(impact_speed, impact_angle_deg)
+		return
+
+	var world := get_tree().current_scene
+	if world != null and world.has_method("sv_report_ground_impact"):
+		world.sv_report_ground_impact.rpc_id(1, impact_speed, impact_angle_deg)
+
+
+func _is_ground_body(body: Node) -> bool:
+	return body is StaticBody3D
+
+
+func apply_ground_impact_damage(impact_speed: float, impact_angle_deg: float) -> void:
+	if is_shot_down:
+		return
+
+	var health := get_node_or_null("Health")
+	if health == null or not health.has_method("take_damage"):
+		return
+
+	var fatal_speed_threshold := maxf(ground_impact_fatal_speed_threshold, ground_impact_damage_speed_threshold)
+	if (
+		impact_speed >= fatal_speed_threshold and
+		impact_angle_deg >= maxf(ground_impact_fatal_surface_angle_deg, 0.0)
+	):
+		var max_hp := float(health.get("max_hp"))
+		health.call("take_damage", max_hp)
+		return
+
+	if impact_speed <= ground_impact_damage_speed_threshold:
+		return
+
+	var speed_span := maxf(fatal_speed_threshold - ground_impact_damage_speed_threshold, 0.001)
+	var damage_ratio := clampf(
+		(impact_speed - ground_impact_damage_speed_threshold) / speed_span,
+		0.0,
+		1.0
+	)
+	var damage_amount := ground_impact_max_damage * damage_ratio
+	if damage_amount > 0.0:
+		health.call("take_damage", damage_amount)
+
+
+func _get_surface_impact_angle_deg(surface_normal_world: Vector3, movement_velocity_world: Vector3) -> float:
+	var normal_length_squared := surface_normal_world.length_squared()
+	var speed_squared := movement_velocity_world.length_squared()
+	if normal_length_squared <= 0.000001 or speed_squared <= 0.000001:
+		return -1.0
+
+	var normalized_surface_normal := surface_normal_world / sqrt(normal_length_squared)
+	var movement_direction := movement_velocity_world / sqrt(speed_squared)
+	var perpendicular_ratio := clampf(absf(normalized_surface_normal.dot(movement_direction)), 0.0, 1.0)
+	return rad_to_deg(asin(perpendicular_ratio))
 
 
 func _on_shot_down() -> void:
