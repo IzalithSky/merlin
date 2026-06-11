@@ -288,6 +288,7 @@ This update records the fixes for the second-pass multiplayer fire-authority and
 - Both assists default to on; `toggle_pitch_assist` defaults to `O` and `toggle_stabilization_assist` defaults to `P`.
 - Added a bindable input-decay toggle that disables decay-to-neutral for pitch, roll, and yaw inputs when turned off, causing released controls to hold their last commanded values.
 - `toggle_input_decay` defaults to `I` and starts enabled.
+- Multiplayer lobby now exposes a host-controlled bot count setting, including `0`, and `world_character_spawner.gd` reads that setting before spawning world bots so flight-model tests can start without AI traffic.
 
 ## Additional June 11 Work
 

@@ -131,6 +131,26 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 17
 text = "Allow Join In Progress"
 
+[node name="BotCountRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="BotCountLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox/BotCountRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "Bot Count"
+
+[node name="BotCountSpinBox" type="SpinBox" parent="CenterContainer/Panel/Margin/VBox/BotCountRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+size_flags_horizontal = 1
+min_value = 0.0
+max_value = 16.0
+step = 1.0
+value = 1.0
+
 [node name="StartButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 50)

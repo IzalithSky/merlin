@@ -1,7 +1,7 @@
 extends Node
 
 signal lobby_state_changed(players: Dictionary)
-signal session_options_changed(is_game_in_progress: bool, allow_join_in_progress: bool)
+signal session_options_changed(is_game_in_progress: bool, allow_join_in_progress: bool, bot_count: int)
 signal status_changed(message: String)
 
 const DEFAULT_ADDRESS := "127.0.0.1"
@@ -15,6 +15,7 @@ var last_error := ""
 var is_multiplayer_session := false
 var is_game_in_progress := false
 var allow_join_in_progress := false
+var bot_count := 1
 var players: Dictionary = {}
 var _received_join_rejection := false
 var _rejected_peers: Dictionary = {}
@@ -47,6 +48,7 @@ func host(port: int = DEFAULT_PORT) -> Error:
 	is_multiplayer_session = true
 	is_game_in_progress = false
 	allow_join_in_progress = false
+	bot_count = 1
 	last_error = ""
 	players.clear()
 	_set_player(1, "Host", false)
@@ -84,6 +86,7 @@ func disconnect_session() -> void:
 	is_multiplayer_session = false
 	is_game_in_progress = false
 	allow_join_in_progress = false
+	bot_count = 1
 	players.clear()
 	_emit_lobby_state()
 	_emit_session_options()
@@ -116,6 +119,14 @@ func set_allow_join_in_progress(value: bool) -> void:
 		return
 
 	allow_join_in_progress = value
+	_broadcast_session_options()
+
+
+func set_bot_count(value: int) -> void:
+	if not is_server_peer():
+		return
+
+	bot_count = maxi(value, 0)
 	_broadcast_session_options()
 
 
@@ -208,7 +219,7 @@ func _broadcast_lobby_state() -> void:
 
 func _broadcast_session_options() -> void:
 	_emit_session_options()
-	sync_session_options.rpc(is_game_in_progress, allow_join_in_progress)
+	sync_session_options.rpc(is_game_in_progress, allow_join_in_progress, bot_count)
 
 
 func _emit_lobby_state() -> void:
@@ -216,7 +227,7 @@ func _emit_lobby_state() -> void:
 
 
 func _emit_session_options() -> void:
-	session_options_changed.emit(is_game_in_progress, allow_join_in_progress)
+	session_options_changed.emit(is_game_in_progress, allow_join_in_progress, bot_count)
 
 
 func _emit_status() -> void:
@@ -263,7 +274,7 @@ func request_lobby_sync() -> void:
 	if not players.has(sender_id):
 		_set_player(sender_id, "Player %d" % sender_id, false)
 
-	sync_session_options.rpc_id(sender_id, is_game_in_progress, allow_join_in_progress)
+	sync_session_options.rpc_id(sender_id, is_game_in_progress, allow_join_in_progress, bot_count)
 	sync_lobby_state.rpc_id(sender_id, players)
 	_broadcast_lobby_state()
 
@@ -287,9 +298,10 @@ func sync_lobby_state(server_players: Dictionary) -> void:
 
 
 @rpc("authority", "reliable")
-func sync_session_options(server_is_game_in_progress: bool, server_allow_join_in_progress: bool) -> void:
+func sync_session_options(server_is_game_in_progress: bool, server_allow_join_in_progress: bool, server_bot_count: int) -> void:
 	is_game_in_progress = server_is_game_in_progress
 	allow_join_in_progress = server_allow_join_in_progress
+	bot_count = maxi(server_bot_count, 0)
 	_emit_session_options()
 
 

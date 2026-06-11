@@ -58,6 +58,7 @@ var _bot_follow_target: Node3D
 func _ready() -> void:
 	_spawn_random.randomize()
 	_resolve_bot_follow_target()
+	_apply_lobby_bot_count_override()
 	DisplaySettings.settings_changed.connect(_on_display_settings_changed)
 	if multiplayer.multiplayer_peer != null:
 		_projectiles.child_entered_tree.connect(_on_projectile_entered)
@@ -80,6 +81,18 @@ func _ready() -> void:
 		_spawn_bots(true)
 	else:
 		call_deferred("_request_world_sync")
+
+
+func _apply_lobby_bot_count_override() -> void:
+	var lobby := get_node_or_null("/root/Lobby")
+	if lobby == null:
+		return
+
+	var configured_bot_count: Variant = lobby.get("bot_count")
+	if configured_bot_count == null:
+		return
+
+	bot_count = maxi(int(configured_bot_count), 0)
 
 
 func _register_initial_peers() -> void:

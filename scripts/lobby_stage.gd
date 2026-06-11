@@ -7,6 +7,7 @@ const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 @onready var _status_label: Label = %StatusLabel
 @onready var _ready_button: Button = %ReadyButton
 @onready var _join_in_progress_check: CheckButton = %JoinInProgressCheck
+@onready var _bot_count_spin_box: SpinBox = %BotCountSpinBox
 @onready var _start_button: Button = %StartButton
 @onready var _main_menu_button: Button = %MainMenuButton
 
@@ -18,10 +19,11 @@ func _ready() -> void:
 	_lobby.status_changed.connect(_update_status)
 	_ready_button.pressed.connect(_on_ready_pressed)
 	_join_in_progress_check.toggled.connect(_on_join_in_progress_toggled)
+	_bot_count_spin_box.value_changed.connect(_on_bot_count_changed)
 	_start_button.pressed.connect(_on_start_pressed)
 	_main_menu_button.pressed.connect(_on_main_menu_pressed)
 	_update_players(_lobby.players)
-	_update_session_options(_lobby.is_game_in_progress, _lobby.allow_join_in_progress)
+	_update_session_options(_lobby.is_game_in_progress, _lobby.allow_join_in_progress, _lobby.bot_count)
 	_update_status(_lobby.last_error)
 	_ready_button.grab_focus()
 
@@ -57,10 +59,12 @@ func _update_players(players: Dictionary) -> void:
 	_start_button.disabled = not _lobby.is_server_peer()
 	_join_in_progress_check.visible = _lobby.is_server_peer()
 	_join_in_progress_check.disabled = not _lobby.is_server_peer()
+	_bot_count_spin_box.editable = _lobby.is_server_peer()
 
 
-func _update_session_options(_is_game_in_progress: bool, allow_join_in_progress: bool) -> void:
+func _update_session_options(_is_game_in_progress: bool, allow_join_in_progress: bool, bot_count: int) -> void:
 	_join_in_progress_check.button_pressed = allow_join_in_progress
+	_bot_count_spin_box.set_value_no_signal(bot_count)
 
 
 func _update_status(message: String) -> void:
@@ -75,6 +79,10 @@ func _on_ready_pressed() -> void:
 
 func _on_join_in_progress_toggled(button_pressed: bool) -> void:
 	_lobby.set_allow_join_in_progress(button_pressed)
+
+
+func _on_bot_count_changed(value: float) -> void:
+	_lobby.set_bot_count(int(round(value)))
 
 
 func _on_start_pressed() -> void:
