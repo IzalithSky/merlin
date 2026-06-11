@@ -105,7 +105,7 @@ func _validate_selection() -> void:
 
 func _push_selection_to_lock() -> void:
 	if _weapon_lock != null and is_instance_valid(_weapon_lock):
-		_weapon_lock.call("set_desired_target", _selected_target)
+		_weapon_lock.call("set_desired_target", get_selected_target())
 
 
 func _select_nearest_to_center() -> void:

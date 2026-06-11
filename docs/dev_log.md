@@ -154,3 +154,91 @@ Date: May 30, 2026
 - Earlier debug arrows showed scripted forces but not all engine contributions.
 - Added damping force debug arrow using `PhysicsDirectBodyState3D.total_linear_damp`.
 - With current setup (`linear_damp_mode = REPLACE`, `linear_damp = 0`) damping is normally zero unless areas contribute.
+
+---
+
+Date: June 11, 2026
+
+## Architecture Review Follow-up
+
+This update records which items from `docs/architecture_review.md` have been completed so far.
+
+## Completed Review Items
+
+1. Item #2: multiplayer health / shot-down replication
+- Added reliable server-to-client HP replication for spawned characters.
+- Added reliable shot-down replication so every peer updates `is_shot_down` and plays the wreckage path locally.
+- Synced health state for late joiners during world sync.
+- Kept dead planes broadcasting fall-state transforms so other peers no longer see wrecks freeze in place.
+
+2. Item #3: snapshot protocol
+- Changed plane state RPC traffic from plain `unreliable` to `unreliable_ordered`.
+- Replaced raw `position + yaw + pitch + roll` packets with snapshot dictionaries carrying:
+  - `tick`
+  - `position`
+  - quaternion `rotation`
+  - `linear_velocity`
+- Added remote-plane snapshot buffering with interpolation delay and short extrapolation on buffer underrun.
+- Remote replicas now reject stale ticks instead of applying late packets out of order.
+
+## Review Status Summary
+
+- Done:
+  - #2 Health does not work in multiplayer
+  - #3 Snapshot protocol
+- Not done yet:
+  - #1 Client-authoritative relay architecture
+  - #4 Missile replication bandwidth
+  - #5 God objects / responsibility split
+  - #6 Stringly-typed contracts
+  - #7 Multiplayer bot spawning/identity cleanup
+  - #8 Broad documentation drift pass
+  - #9 Automated smoke tests / test harness
+  - #10 Input-layer quirks
+
+## Notes
+
+- Item #2 was completed with the smallest change that makes multiplayer damage function correctly without changing the broader authority model.
+- Item #3 improves remote motion quality and packet ordering, but it does not replace the larger server-authoritative movement migration described in item #1.
+
+## Additional Follow-up
+
+3. Item #10: input-layer quirks
+- Replaced the hardcoded physical `Ctrl` limiter bypass with a bindable `limiter_override` input action.
+- Moved the full default gameplay action set into `project.godot` so actions exist from project boot and are visible in the editor Input Map.
+- Changed `KeybindingsSettings` to override events for declared actions instead of manufacturing missing actions at runtime.
+- Replaced the always-true `is_hostile_to()` stub with a lightweight `team_id`-based hostility check on plane characters.
+
+## Review Status Summary (Updated)
+
+- Done:
+  - #2 Health does not work in multiplayer
+  - #3 Snapshot protocol
+  - #10 Input-layer quirks
+- Not done yet:
+  - #1 Client-authoritative relay architecture
+  - #4 Missile replication bandwidth
+  - #5 God objects / responsibility split
+  - #6 Stringly-typed contracts
+  - #7 Multiplayer bot spawning/identity cleanup
+  - #8 Broad documentation drift pass
+  - #9 Automated smoke tests / test harness
+
+## Additional June 11 Work
+
+4. Shot-down presentation and control cleanup
+- Dead planes now keep sending fall-state snapshots after shot-down so remote peers see wrecks continue falling instead of freezing mid-air.
+- Shot-down planes now receive a one-time random roll spin impulse and lose residual angular damping so wrecks tumble more naturally.
+- Relative roll clock visibility is now its own display option instead of being tied to the advanced HUD toggle.
+- Moved the relative roll clock lower on screen to sit around two-thirds of the way down the viewport instead of at center.
+
+5. Review follow-up fixes from minor notes
+- Missile guidance now guards the coincident-target case before dividing by distance, avoiding a one-frame NaN steer path.
+- Explosion damage falloff now measures to the closest available collision-shape point instead of always using collider origin distance.
+- Vy drag solving now interpolates the AoA crossing for the required lift coefficient instead of snapping to the nearest lift-table sample point.
+- Bot collision / target scans now use short-lived cached group lists instead of fresh group queries on every hot path call.
+
+6. Runtime error and warning cleanup
+- Targeting HUD now normalizes selected targets through a validated getter before pushing them into `PlaneWeaponLock`, avoiding freed-instance RPC/call errors.
+- Bot missile threat checks now skip freed cached missiles before type inspection.
+- Renamed remote-state local variables/parameters that shadowed `Node3D.position`, removing parser warnings during script reload.

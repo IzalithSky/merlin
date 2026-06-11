@@ -23,6 +23,7 @@ extends CanvasLayer
 var _target: RigidBody3D
 var _advanced_hud_nodes: Array[CanvasItem] = []
 var _advanced_hud_enabled := true
+var _relative_roll_clock_enabled := true
 var _base_root_size := Vector2.ZERO
 
 
@@ -88,15 +89,15 @@ func _process(_delta: float) -> void:
 
 	if not _advanced_hud_enabled:
 		_reset_advanced_labels()
-		return
+	else:
+		_aoa_value.text = "%.1f deg" % aoa_deg
+		_pitch_input_bar.value = pitch_input * 100.0
+		_yaw_input_bar.value = yaw_input * 100.0
+		_roll_input_bar.value = roll_input * 100.0
+		_throttle_input_bar.value = throttle_input * 100.0
+		_update_force_balance_debug()
+		_update_vy_debug()
 
-	_aoa_value.text = "%.1f deg" % aoa_deg
-	_pitch_input_bar.value = pitch_input * 100.0
-	_yaw_input_bar.value = yaw_input * 100.0
-	_roll_input_bar.value = roll_input * 100.0
-	_throttle_input_bar.value = throttle_input * 100.0
-	_update_force_balance_debug()
-	_update_vy_debug()
 	_update_relative_roll_clock()
 
 
@@ -166,6 +167,10 @@ func _update_relative_roll_clock() -> void:
 	if _relative_roll_clock == null:
 		return
 
+	if not _relative_roll_clock_enabled:
+		_relative_roll_clock.visible = false
+		return
+
 	if _target == null or not _target.has_method("is_relative_roll_active"):
 		_relative_roll_clock.visible = false
 		return
@@ -232,11 +237,15 @@ func _collect_advanced_hud_nodes() -> void:
 
 func _apply_display_settings() -> void:
 	_advanced_hud_enabled = DisplaySettings.advanced_hud_enabled
+	_relative_roll_clock_enabled = DisplaySettings.relative_roll_clock_enabled
 	for hud_node in _advanced_hud_nodes:
 		hud_node.visible = _advanced_hud_enabled
 
 	if not _advanced_hud_enabled:
 		_reset_advanced_labels()
+
+	if not _relative_roll_clock_enabled and _relative_roll_clock != null:
+		_relative_roll_clock.visible = false
 
 	call_deferred("_fit_to_contents")
 

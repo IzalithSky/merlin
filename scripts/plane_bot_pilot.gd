@@ -57,6 +57,7 @@ const CORRECTION_TURN_HYSTERESIS_RAD := 2.0 * PI / 180.0
 const WINGS_LEVEL_DEADBAND_RAD := PI / 180.0
 const MIN_DIRECTION_LENGTH_SQUARED := 0.000001
 const PLAYER_TARGET_REACQUIRE_INTERVAL := 0.5
+const GROUP_CACHE_REFRESH_INTERVAL := 0.25
 const GROUND_PROBE_EXCLUSION_REFRESH_INTERVAL := 1.0
 const GROUND_PROBE_SAFE_INTERVAL := 0.25
 const GROUND_PROBE_NEAR_CLEARANCE_MULTIPLIER := 2.0
@@ -125,6 +126,9 @@ var _has_applied_turn_limiter_mode := false
 var _collision_avoidance_direction := 0.0
 var _collision_avoidance_exit_time := 0.0
 var _bot_debug_renderer: Node
+var _cached_player_characters: Array[Node3D] = []
+var _cached_missiles: Array[Node3D] = []
+var _next_group_cache_refresh_time := 0.0
 var _frame_position := Vector3.ZERO
 var _frame_velocity := Vector3.ZERO
 var _frame_speed := 0.0
@@ -804,52 +808,74 @@ func _find_collision_threat() -> float:
 	if scene_tree == null or _plane == null:
 		return 0.0
 
+	_refresh_group_caches()
 	var best_tca := INF
 	var best_direction := 0.0
 
-	var candidates: Array = scene_tree.get_nodes_in_group("player_character")
-	if avoid_missiles:
-		candidates.append_array(scene_tree.get_nodes_in_group("missile"))
-
-	for candidate in candidates:
-		if candidate == _plane or not candidate is Node3D:
+	for other in _cached_player_characters:
+		if other == _plane:
 			continue
-
-		var other := candidate as Node3D
 		var other_vel := Vector3.ZERO
 		if other is RigidBody3D:
 			other_vel = (other as RigidBody3D).linear_velocity
 
-		var offset := other.global_position - _frame_position
-		var distance := offset.length()
-		var rel_vel := other_vel - _frame_velocity
+		var threat_direction := _get_collision_threat_direction(other, other_vel, best_tca)
+		if threat_direction["detected"]:
+			best_tca = threat_direction["tca"]
+			best_direction = threat_direction["direction"]
 
-		# Closing speed is the rate the separation shrinks. Co-flying or separating
-		# planes (including a target the bot is tailing) fall below the gate and are
-		# ignored even when they are physically close.
-		var closing_speed := rel_vel.length() if distance <= MIN_DIRECTION_LENGTH_SQUARED else -offset.dot(rel_vel) / distance
-		if closing_speed < COLLISION_AVOIDANCE_MIN_CLOSING_SPEED:
-			continue
+	if avoid_missiles:
+		for missile in _cached_missiles:
+			if not is_instance_valid(missile):
+				continue
+			var missile_vel := Vector3.ZERO
+			if missile is RigidBody3D:
+				missile_vel = (missile as RigidBody3D).linear_velocity
 
-		# Closing speed is positive, so time-to-closest-approach is non-negative.
-		var rel_speed_sq := rel_vel.length_squared()
-		var tca := -offset.dot(rel_vel) / rel_speed_sq
-		if tca > COLLISION_AVOIDANCE_LOOKAHEAD:
-			continue
-
-		var cpa_offset := offset + rel_vel * tca
-		if cpa_offset.length() > COLLISION_AVOIDANCE_RADIUS:
-			continue
-
-		# Other plane in forward hemisphere (local z < 0) → frontal threat → turn right.
-		# Other plane in rear hemisphere (local z > 0) → rear threat → turn left.
-		var local_offset := _frame_inverse_basis * offset
-		var direction := 1.0 if local_offset.z < 0.0 else -1.0
-		if tca < best_tca:
-			best_tca = tca
-			best_direction = direction
+			var threat_direction := _get_collision_threat_direction(missile, missile_vel, best_tca)
+			if threat_direction["detected"]:
+				best_tca = threat_direction["tca"]
+				best_direction = threat_direction["direction"]
 
 	return best_direction
+
+
+func _get_collision_threat_direction(other: Node3D, other_vel: Vector3, current_best_tca: float) -> Dictionary:
+	if not is_instance_valid(other):
+		return {"detected": false}
+
+	var offset := other.global_position - _frame_position
+	var distance := offset.length()
+	var rel_vel := other_vel - _frame_velocity
+
+	# Closing speed is the rate the separation shrinks. Co-flying or separating
+	# planes (including a target the bot is tailing) fall below the gate and are
+	# ignored even when they are physically close.
+	var closing_speed := rel_vel.length() if distance <= MIN_DIRECTION_LENGTH_SQUARED else -offset.dot(rel_vel) / distance
+	if closing_speed < COLLISION_AVOIDANCE_MIN_CLOSING_SPEED:
+		return {"detected": false}
+
+	# Closing speed is positive, so time-to-closest-approach is non-negative.
+	var rel_speed_sq := rel_vel.length_squared()
+	if rel_speed_sq <= MIN_DIRECTION_LENGTH_SQUARED:
+		return {"detected": false}
+	var tca := -offset.dot(rel_vel) / rel_speed_sq
+	if tca < 0.0 or tca > COLLISION_AVOIDANCE_LOOKAHEAD or tca >= current_best_tca:
+		return {"detected": false}
+
+	var cpa_offset := offset + rel_vel * tca
+	if cpa_offset.length() > COLLISION_AVOIDANCE_RADIUS:
+		return {"detected": false}
+
+	# Other plane in forward hemisphere (local z < 0) -> frontal threat -> turn right.
+	# Other plane in rear hemisphere (local z > 0) -> rear threat -> turn left.
+	var local_offset := _frame_inverse_basis * offset
+	var direction := 1.0 if local_offset.z < 0.0 else -1.0
+	return {
+		"detected": true,
+		"tca": tca,
+		"direction": direction,
+	}
 
 
 func _update_follow_target_velocity(delta: float) -> void:
@@ -937,13 +963,12 @@ func _find_player_target() -> Node3D:
 	if scene_tree == null or _plane == null:
 		return null
 
+	_refresh_group_caches()
 	var best_target: Node3D
 	var best_distance_squared := INF
-	for candidate in scene_tree.get_nodes_in_group("player_character"):
-		if candidate == _plane or not candidate is Node3D:
+	for candidate_node in _cached_player_characters:
+		if candidate_node == _plane:
 			continue
-
-		var candidate_node := candidate as Node3D
 		if _is_bot_character(candidate_node):
 			continue
 
@@ -1349,12 +1374,35 @@ func _get_ground_probe_exclusions() -> Array[RID]:
 
 	_next_ground_probe_exclusion_refresh_time = now_seconds + GROUND_PROBE_EXCLUSION_REFRESH_INTERVAL
 	_ground_probe_exclusions = [_plane.get_rid()]
-	var scene_tree := get_tree()
-	if scene_tree == null:
-		return _ground_probe_exclusions
-
-	for candidate in scene_tree.get_nodes_in_group("player_character"):
+	_refresh_group_caches()
+	for candidate in _cached_player_characters:
 		if candidate is CollisionObject3D:
 			_ground_probe_exclusions.append((candidate as CollisionObject3D).get_rid())
 
 	return _ground_probe_exclusions
+
+
+func _refresh_group_caches() -> void:
+	var scene_tree := get_tree()
+	if scene_tree == null:
+		_cached_player_characters.clear()
+		_cached_missiles.clear()
+		return
+
+	var now_seconds := Time.get_ticks_msec() / 1000.0
+	if now_seconds < _next_group_cache_refresh_time:
+		return
+
+	_next_group_cache_refresh_time = now_seconds + GROUP_CACHE_REFRESH_INTERVAL
+	_cached_player_characters.clear()
+	for candidate in scene_tree.get_nodes_in_group("player_character"):
+		if candidate is Node3D and is_instance_valid(candidate):
+			_cached_player_characters.append(candidate as Node3D)
+
+	_cached_missiles.clear()
+	if not avoid_missiles:
+		return
+
+	for candidate in scene_tree.get_nodes_in_group("missile"):
+		if candidate is Node3D and is_instance_valid(candidate):
+			_cached_missiles.append(candidate as Node3D)

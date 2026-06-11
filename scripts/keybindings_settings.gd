@@ -11,6 +11,7 @@ const ACTIONS: Array[String] = [
 	"yaw_left", "yaw_right",
 	"roll_left", "roll_right",
 	"throttle_up", "throttle_down",
+	"limiter_override",
 	"relative_roll_left", "relative_roll_right",
 	"target_select", "target_deselect",
 	"target_cycle_next", "target_cycle_prev",
@@ -26,6 +27,7 @@ const ACTION_LABELS: Dictionary = {
 	"roll_right": "Roll Right",
 	"throttle_up": "Throttle Up",
 	"throttle_down": "Throttle Down",
+	"limiter_override": "Limiter Override",
 	"relative_roll_left": "Relative Roll Left",
 	"relative_roll_right": "Relative Roll Right",
 	"target_select": "Target Select",
@@ -117,6 +119,7 @@ func _make_defaults() -> Dictionary:
 		"roll_right": [KEY_X, -1],
 		"throttle_up": [KEY_SPACE, -1],
 		"throttle_down": [KEY_SHIFT, -1],
+		"limiter_override": [KEY_CTRL, -1],
 		"relative_roll_left": [KEY_A, -1],
 		"relative_roll_right": [KEY_D, -1],
 		"target_select": [KEY_T, -1],
@@ -129,10 +132,11 @@ func _make_defaults() -> Dictionary:
 
 func _apply_to_input_map() -> void:
 	for action in ACTIONS:
-		if not InputMap.has_action(action):
-			InputMap.add_action(action)
-		else:
+		if InputMap.has_action(action):
 			InputMap.action_erase_events(action)
+		else:
+			push_warning("Input action missing from project settings: %s" % action)
+			continue
 
 		var slots: Array = _bindings.get(action, [-1, -1])
 		for keycode in slots:

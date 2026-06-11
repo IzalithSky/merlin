@@ -90,6 +90,10 @@ func _apply_guidance(delta: float) -> void:
 	_time_since_target_lost = 0.0
 	var deviation := target.global_position - global_position
 	var dist := deviation.length()
+	if dist <= 0.001:
+		_spawn_explosion()
+		_die()
+		return
 
 	var fwd := -global_transform.basis.z
 	if fwd.dot(deviation / dist) < cos(deg_to_rad(seeker_cone_half_angle_deg)):
@@ -166,7 +170,7 @@ func _spawn_explosion() -> void:
 			continue
 		var receiver := _find_damage_receiver(collider)
 		if receiver != null and receiver.has_method("take_damage"):
-			var dist := global_position.distance_to(collider.global_position)
+			var dist := _get_damage_distance_to_collider(collider)
 			var t := clampf(1.0 - dist / explosion_radius, 0.0, 1.0)
 			var dmg := lerpf(explosion_min_damage, explosion_max_damage, t)
 			receiver.call("take_damage", dmg)
@@ -179,6 +183,78 @@ func _find_damage_receiver(node: Node) -> Node:
 		if child.has_method("take_damage"):
 			return child
 	return null
+
+
+func _get_damage_distance_to_collider(collider: Node) -> float:
+	var collider_3d := collider as Node3D
+	if collider_3d == null:
+		return INF
+
+	var closest_point := _get_closest_damage_point(collider_3d, global_position)
+	return global_position.distance_to(closest_point)
+
+
+func _get_closest_damage_point(collider: Node3D, point_world: Vector3) -> Vector3:
+	var best_point := collider.global_position
+	var best_distance_squared := point_world.distance_squared_to(best_point)
+
+	for shape_node in _collect_collision_shapes(collider):
+		var candidate_point := _get_closest_point_on_shape(shape_node, point_world)
+		var candidate_distance_squared := point_world.distance_squared_to(candidate_point)
+		if candidate_distance_squared < best_distance_squared:
+			best_distance_squared = candidate_distance_squared
+			best_point = candidate_point
+
+	return best_point
+
+
+func _collect_collision_shapes(root_node: Node) -> Array[CollisionShape3D]:
+	var shapes: Array[CollisionShape3D] = []
+	if root_node is CollisionShape3D:
+		shapes.append(root_node as CollisionShape3D)
+
+	for child in root_node.get_children():
+		shapes.append_array(_collect_collision_shapes(child))
+
+	return shapes
+
+
+func _get_closest_point_on_shape(shape_node: CollisionShape3D, point_world: Vector3) -> Vector3:
+	if shape_node.shape == null:
+		return shape_node.global_position
+
+	var local_point := shape_node.global_transform.affine_inverse() * point_world
+	var shape := shape_node.shape
+
+	if shape is BoxShape3D:
+		var half_extents := (shape as BoxShape3D).size * 0.5
+		var clamped_point := Vector3(
+			clampf(local_point.x, -half_extents.x, half_extents.x),
+			clampf(local_point.y, -half_extents.y, half_extents.y),
+			clampf(local_point.z, -half_extents.z, half_extents.z)
+		)
+		return shape_node.global_transform * clamped_point
+
+	if shape is SphereShape3D:
+		var radius := (shape as SphereShape3D).radius
+		if local_point.length_squared() <= radius * radius:
+			return point_world
+		return shape_node.global_transform * local_point.normalized() * radius
+
+	if shape is CapsuleShape3D:
+		var capsule := shape as CapsuleShape3D
+		var half_height := maxf(capsule.height * 0.5 - capsule.radius, 0.0)
+		var segment_point := Vector3(
+			0.0,
+			clampf(local_point.y, -half_height, half_height),
+			0.0
+		)
+		var offset := local_point - segment_point
+		if offset.length_squared() <= capsule.radius * capsule.radius:
+			return point_world
+		return shape_node.global_transform * (segment_point + offset.normalized() * capsule.radius)
+
+	return shape_node.global_position
 
 
 func _spawn_trail() -> void:

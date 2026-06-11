@@ -223,6 +223,12 @@ custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "Show advanced HUD (AoA and below)"
 
+[node name="RelativeRollClockCheck" type="CheckButton" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Show relative roll clock"
+
 [node name="KeyBindingsButton" type="Button" parent="ui/MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 44)

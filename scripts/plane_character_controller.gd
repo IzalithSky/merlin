@@ -111,6 +111,9 @@ const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer
 @export var extra_angular_drag_quadratic_coefficients: Vector3 = Vector3(2500.0, 1200.0, 2500.0)
 @export var network_sync_interval: float = 0.033
 @export var debug_force_vectors_enabled: bool = true
+@export var shot_down_roll_spin_min_deg: float = 180.0
+@export var shot_down_roll_spin_max_deg: float = 540.0
+@export var team_id: int = 0
 
 const TABLE_SORT_EPSILON := 0.0001
 const MIN_AERODYNAMIC_SPEED_SQUARED := 0.0001
@@ -183,10 +186,12 @@ var _altitude_rising := false
 var _flame_trail: Node3D
 var _snapshot_tick: int = 0
 var _remote_snapshots: Array[Dictionary] = []
+var _shot_down_random := RandomNumberGenerator.new()
 
 
 func _ready() -> void:
 	add_to_group("player_character")
+	_shot_down_random.randomize()
 	_apply_spawn_control_defaults()
 	_sanitize_aero_tables()
 	_apply_persisted_aero_tables()
@@ -659,6 +664,7 @@ func _on_shot_down() -> void:
 		return
 	is_shot_down = true
 	throttle_input = -1.0
+	angular_damp = 0.0
 	if _force_debug_renderer != null and _force_debug_renderer.has_method("clear_frame"):
 		_force_debug_renderer.call("clear_frame")
 	if _force_debug_renderer != null:
@@ -666,6 +672,15 @@ func _on_shot_down() -> void:
 	if flame_trail_scene != null and _flame_trail == null:
 		_flame_trail = flame_trail_scene.instantiate() as Node3D
 		add_child(_flame_trail)
+	if _is_simulated_locally():
+		var roll_axis := -global_transform.basis.orthonormalized().z
+		var roll_spin_deg := _shot_down_random.randf_range(
+			shot_down_roll_spin_min_deg,
+			shot_down_roll_spin_max_deg
+		)
+		if _shot_down_random.randf() < 0.5:
+			roll_spin_deg *= -1.0
+		angular_velocity += roll_axis * deg_to_rad(roll_spin_deg)
 
 
 func apply_remote_shot_down() -> void:
@@ -746,8 +761,8 @@ func _update_remote_interpolation() -> void:
 	)
 
 
-func _apply_remote_pose(position: Vector3, rotation_quaternion: Quaternion) -> void:
-	global_position = position
+func _apply_remote_pose(remote_position: Vector3, rotation_quaternion: Quaternion) -> void:
+	global_position = remote_position
 	global_basis = Basis(rotation_quaternion.normalized())
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
@@ -916,7 +931,11 @@ func get_force_balance_snapshot() -> Dictionary:
 
 
 func is_hostile_to(other: Node) -> bool:
-	return other != null and is_instance_valid(other)
+	if other == null or not is_instance_valid(other):
+		return true
+	if not ("team_id" in other):
+		return true
+	return int(other.get("team_id")) != team_id
 
 
 func get_throttle_percent() -> float:
@@ -1231,7 +1250,7 @@ func _should_apply_sustain_turn_limiter() -> bool:
 	if not _sustain_turn_limiter_runtime_enabled:
 		return false
 
-	if is_local_player and Input.is_key_pressed(KEY_CTRL):
+	if is_local_player and Input.is_action_pressed("limiter_override"):
 		return false
 
 	if _frame_air_speed < maxf(max_lift_turn_limiter_min_airspeed, 0.0):
@@ -1407,7 +1426,7 @@ func _get_drag_required_for_lift_at_speed(required_lift: float, speed: float) ->
 	if not _can_reach_lift_coefficient(required_lift_coefficient):
 		return -1.0
 
-	var required_aoa := _find_nearest_aoa_for_lift_coefficient(required_lift_coefficient)
+	var required_aoa := _find_aoa_for_lift_coefficient(required_lift_coefficient)
 	if not is_finite(required_aoa):
 		return -1.0
 
@@ -1440,18 +1459,31 @@ func _can_reach_lift_coefficient(target_lift_coefficient: float) -> bool:
 	)
 
 
-func _find_nearest_aoa_for_lift_coefficient(target_lift_coefficient: float) -> float:
+func _find_aoa_for_lift_coefficient(target_lift_coefficient: float) -> float:
 	if lift_coefficient_table.is_empty():
 		return INF
 
 	var best_aoa := INF
-	var best_error := INF
+	var best_abs_aoa := INF
 
-	for point in lift_coefficient_table:
-		var error := absf(point.y - target_lift_coefficient)
-		if error < best_error:
-			best_error = error
-			best_aoa = point.x
+	for index in range(lift_coefficient_table.size() - 1):
+		var left := lift_coefficient_table[index]
+		var right := lift_coefficient_table[index + 1]
+		var min_lift := minf(left.y, right.y)
+		var max_lift := maxf(left.y, right.y)
+		if target_lift_coefficient < min_lift or target_lift_coefficient > max_lift:
+			continue
+
+		var lift_span := right.y - left.y
+		var candidate_aoa := left.x
+		if absf(lift_span) > TABLE_SORT_EPSILON:
+			var t := clampf((target_lift_coefficient - left.y) / lift_span, 0.0, 1.0)
+			candidate_aoa = lerpf(left.x, right.x, t)
+
+		var candidate_abs_aoa := absf(candidate_aoa)
+		if candidate_abs_aoa < best_abs_aoa:
+			best_abs_aoa = candidate_abs_aoa
+			best_aoa = candidate_aoa
 
 	return best_aoa
 

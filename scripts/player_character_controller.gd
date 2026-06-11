@@ -104,12 +104,12 @@ func _process(delta: float) -> void:
 
 
 func apply_remote_state(snapshot: Dictionary) -> void:
-	var position: Vector3 = snapshot.get("position", global_position)
+	var target_position_world: Vector3 = snapshot.get("position", global_position)
 	var rotation_quaternion: Quaternion = snapshot.get(
 		"rotation",
 		Basis.from_euler(Vector3(_pitch, _yaw, 0.0)).get_rotation_quaternion()
 	)
-	global_position = position
+	global_position = target_position_world
 	var euler := Basis(rotation_quaternion.normalized()).get_euler()
 	_yaw = euler.y
 	_pitch = clamp(euler.x, -MAX_PITCH, MAX_PITCH)
