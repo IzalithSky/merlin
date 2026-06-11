@@ -328,9 +328,14 @@ func _apply_spawn_control_defaults() -> void:
 	_player_pitch_control_active = false
 	_player_yaw_control_active = false
 	_player_direct_roll_control_active = false
-	_pitch_assist_enabled = true
-	_stabilization_assist_enabled = true
-	_input_decay_enabled = true
+	if is_local_player:
+		_pitch_assist_enabled = _get_persisted_assist_setting("pitch_assist_enabled", true)
+		_stabilization_assist_enabled = _get_persisted_assist_setting("stabilization_assist_enabled", true)
+		_input_decay_enabled = _get_persisted_assist_setting("input_decay_enabled", true)
+	else:
+		_pitch_assist_enabled = true
+		_stabilization_assist_enabled = true
+		_input_decay_enabled = true
 
 
 func _apply_bot_inputs(delta: float) -> void:
@@ -1558,10 +1563,13 @@ func _handle_assist_toggle_inputs() -> void:
 		return
 	if Input.is_action_just_pressed("toggle_pitch_assist"):
 		_pitch_assist_enabled = not _pitch_assist_enabled
+		_persist_assist_setting("set_pitch_assist_enabled", _pitch_assist_enabled)
 	if Input.is_action_just_pressed("toggle_stabilization_assist"):
 		_stabilization_assist_enabled = not _stabilization_assist_enabled
+		_persist_assist_setting("set_stabilization_assist_enabled", _stabilization_assist_enabled)
 	if Input.is_action_just_pressed("toggle_input_decay"):
 		_input_decay_enabled = not _input_decay_enabled
+		_persist_assist_setting("set_input_decay_enabled", _input_decay_enabled)
 
 
 func is_pitch_assist_enabled() -> bool:
@@ -1574,6 +1582,21 @@ func is_stabilization_assist_enabled() -> bool:
 
 func is_input_decay_enabled() -> bool:
 	return _input_decay_enabled
+
+
+func _get_persisted_assist_setting(property_name: String, fallback: bool) -> bool:
+	var display_settings := get_node_or_null("/root/DisplaySettings")
+	if display_settings == null:
+		return fallback
+	var value: Variant = display_settings.get(property_name)
+	return fallback if value == null else bool(value)
+
+
+func _persist_assist_setting(method_name: String, enabled: bool) -> void:
+	var display_settings := get_node_or_null("/root/DisplaySettings")
+	if display_settings == null or not display_settings.has_method(method_name):
+		return
+	display_settings.call(method_name, enabled)
 
 
 func _get_sustainable_aoa_limit(positive_limit: bool) -> float:

@@ -115,7 +115,7 @@ The bot writes desired control inputs through the same input interface. The plan
 
 This is important: bots do not use a separate flight model.
 
-The player also has runtime control toggles. `toggle_pitch_assist` bypasses both pitch limiter stages when turned off. `toggle_stabilization_assist` disables the player stabilization torques for pitch, roll, and yaw when turned off. `toggle_input_decay` disables the automatic decay-to-neutral behavior for pitch, yaw, and roll inputs, so releasing those controls holds the last commanded input value. All three toggles default to on.
+The player also has runtime control toggles. `toggle_pitch_assist` bypasses both pitch limiter stages when turned off. `toggle_stabilization_assist` disables the player stabilization torques for pitch, roll, and yaw when turned off. `toggle_input_decay` disables the automatic decay-to-neutral behavior for pitch, yaw, and roll inputs, so releasing those controls holds the last commanded input value. All three toggles default to on and persist through restarts.
 
 ## Relative Roll Control
 In addition to direct roll input, the player can fly a relative-roll cursor. Instead of commanding a roll rate, the relative-roll left/right inputs steer a target "up" vector. A closed-loop controller then rolls the aircraft to align its actual up vector with that target, holding the commanded bank hands-off.

@@ -10,6 +10,9 @@ const KEY_ADVANCED_HUD := "advanced_hud"
 const KEY_RELATIVE_ROLL_CLOCK := "relative_roll_clock"
 const KEY_GLOBAL_DIRECTION_MARKERS := "global_direction_markers"
 const KEY_MOUSE_SENSITIVITY := "mouse_sensitivity"
+const KEY_PITCH_ASSIST := "pitch_assist"
+const KEY_STABILIZATION_ASSIST := "stabilization_assist"
+const KEY_INPUT_DECAY := "input_decay"
 
 var debug_force_arrows_enabled := true
 var bot_debug_enabled := true
@@ -17,6 +20,9 @@ var advanced_hud_enabled := true
 var relative_roll_clock_enabled := true
 var global_direction_markers_enabled := true
 var mouse_sensitivity := 0.006
+var pitch_assist_enabled := true
+var stabilization_assist_enabled := true
+var input_decay_enabled := true
 
 
 func _ready() -> void:
@@ -33,6 +39,9 @@ func load_settings() -> void:
 		relative_roll_clock_enabled = true
 		global_direction_markers_enabled = true
 		mouse_sensitivity = 0.006
+		pitch_assist_enabled = true
+		stabilization_assist_enabled = true
+		input_decay_enabled = true
 		return
 
 	debug_force_arrows_enabled = bool(config.get_value(SECTION, KEY_DEBUG_FORCE_ARROWS, true))
@@ -41,6 +50,9 @@ func load_settings() -> void:
 	relative_roll_clock_enabled = bool(config.get_value(SECTION, KEY_RELATIVE_ROLL_CLOCK, true))
 	global_direction_markers_enabled = bool(config.get_value(SECTION, KEY_GLOBAL_DIRECTION_MARKERS, true))
 	mouse_sensitivity = clampf(float(config.get_value(SECTION, KEY_MOUSE_SENSITIVITY, 0.006)), 0.001, 0.020)
+	pitch_assist_enabled = bool(config.get_value(SECTION, KEY_PITCH_ASSIST, true))
+	stabilization_assist_enabled = bool(config.get_value(SECTION, KEY_STABILIZATION_ASSIST, true))
+	input_decay_enabled = bool(config.get_value(SECTION, KEY_INPUT_DECAY, true))
 
 
 func save_settings() -> void:
@@ -51,6 +63,9 @@ func save_settings() -> void:
 	config.set_value(SECTION, KEY_RELATIVE_ROLL_CLOCK, relative_roll_clock_enabled)
 	config.set_value(SECTION, KEY_GLOBAL_DIRECTION_MARKERS, global_direction_markers_enabled)
 	config.set_value(SECTION, KEY_MOUSE_SENSITIVITY, mouse_sensitivity)
+	config.set_value(SECTION, KEY_PITCH_ASSIST, pitch_assist_enabled)
+	config.set_value(SECTION, KEY_STABILIZATION_ASSIST, stabilization_assist_enabled)
+	config.set_value(SECTION, KEY_INPUT_DECAY, input_decay_enabled)
 
 	var error := config.save(SAVE_PATH)
 	if error != OK:
@@ -108,5 +123,32 @@ func set_mouse_sensitivity(value: float) -> void:
 		return
 
 	mouse_sensitivity = clamped
+	save_settings()
+	settings_changed.emit()
+
+
+func set_pitch_assist_enabled(enabled: bool) -> void:
+	if pitch_assist_enabled == enabled:
+		return
+
+	pitch_assist_enabled = enabled
+	save_settings()
+	settings_changed.emit()
+
+
+func set_stabilization_assist_enabled(enabled: bool) -> void:
+	if stabilization_assist_enabled == enabled:
+		return
+
+	stabilization_assist_enabled = enabled
+	save_settings()
+	settings_changed.emit()
+
+
+func set_input_decay_enabled(enabled: bool) -> void:
+	if input_decay_enabled == enabled:
+		return
+
+	input_decay_enabled = enabled
 	save_settings()
 	settings_changed.emit()
