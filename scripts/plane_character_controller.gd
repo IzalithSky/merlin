@@ -223,6 +223,7 @@ var _net_input_seq := 0
 var _net_pending_input: Dictionary = {}
 var _net_last_applied_input_seq := -1
 var _net_ack_seq := -1
+var _net_limiter_override_active := false
 var _prediction_history: Array[Dictionary] = []
 var _correction_position := Vector3.ZERO
 var _shot_down_random := RandomNumberGenerator.new()
@@ -421,6 +422,7 @@ func _apply_spawn_control_defaults() -> void:
 	_player_pitch_control_active = false
 	_player_yaw_control_active = false
 	_player_direct_roll_control_active = false
+	_net_limiter_override_active = false
 	if is_local_player:
 		var ds := DisplaySettings
 		_pitch_assist_enabled = ds.pitch_assist_enabled if ds != null else true
@@ -472,12 +474,15 @@ func _apply_net_inputs() -> void:
 			pitch_input = clampf(float(_net_pending_input.get("pitch", 0.0)), -1.0, 1.0)
 			yaw_input = clampf(float(_net_pending_input.get("yaw", 0.0)), -1.0, 1.0)
 			throttle_input = clampf(float(_net_pending_input.get("throttle", -1.0)), -1.0, 1.0)
+			_player_pitch_control_active = bool(_net_pending_input.get("pitch_control_active", false))
+			_player_yaw_control_active = bool(_net_pending_input.get("yaw_control_active", false))
+			_player_direct_roll_control_active = bool(_net_pending_input.get("direct_roll_control_active", false))
+			relative_roll_target_active = bool(_net_pending_input.get("relative_roll_target_active", false))
+			_pitch_assist_enabled = bool(_net_pending_input.get("pitch_assist_enabled", true))
+			_stabilization_assist_enabled = bool(_net_pending_input.get("stabilization_assist_enabled", true))
+			_net_limiter_override_active = bool(_net_pending_input.get("limiter_override_active", false))
 			_net_last_applied_input_seq = input_seq
 		_net_pending_input = {}
-
-	_player_pitch_control_active = false
-	_player_yaw_control_active = false
-	_player_direct_roll_control_active = false
 	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
 
 
@@ -491,6 +496,13 @@ func _emit_local_input() -> void:
 		"pitch": pitch_input,
 		"yaw": yaw_input,
 		"throttle": throttle_input,
+		"pitch_control_active": _player_pitch_control_active,
+		"yaw_control_active": _player_yaw_control_active,
+		"direct_roll_control_active": _player_direct_roll_control_active,
+		"relative_roll_target_active": relative_roll_target_active,
+		"pitch_assist_enabled": _pitch_assist_enabled,
+		"stabilization_assist_enabled": _stabilization_assist_enabled,
+		"limiter_override_active": Input.is_action_pressed("limiter_override"),
 	})
 
 
@@ -1805,7 +1817,7 @@ func _should_apply_sustain_turn_limiter() -> bool:
 	if not _sustain_turn_limiter_runtime_enabled:
 		return false
 
-	if is_local_player and Input.is_action_pressed("limiter_override"):
+	if _is_limiter_override_active():
 		return false
 
 	if _frame_air_speed < maxf(max_lift_turn_limiter_min_airspeed, 0.0):
@@ -1848,6 +1860,12 @@ func is_stabilization_assist_enabled() -> bool:
 
 func is_input_decay_enabled() -> bool:
 	return _input_decay_enabled
+
+
+func _is_limiter_override_active() -> bool:
+	if _is_net_input_driven():
+		return _net_limiter_override_active
+	return is_local_player and Input.is_action_pressed("limiter_override")
 
 
 func _get_sustainable_aoa_limit(positive_limit: bool) -> float:

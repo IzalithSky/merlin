@@ -391,6 +391,17 @@ func _is_valid_input_packet(input: Dictionary) -> bool:
 			return false
 		if not is_finite(float(value)):
 			return false
+	for bool_key in [
+		"pitch_control_active",
+		"yaw_control_active",
+		"direct_roll_control_active",
+		"relative_roll_target_active",
+		"pitch_assist_enabled",
+		"stabilization_assist_enabled",
+		"limiter_override_active",
+	]:
+		if input.has(bool_key) and not (input.get(bool_key) is bool):
+			return false
 	return true
 
 
