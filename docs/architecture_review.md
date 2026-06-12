@@ -35,6 +35,8 @@ Method: the original review was re-checked against the current tree, and fixed i
 3. The server broadcasts snapshots for every plane; clients interpolate remotes (unchanged path) and predict + reconcile their own plane via per-seq prediction history and error-offset smoothing (no rewind/replay — Godot physics is not deterministic).
 4. The server owns the aero tables: `user://plane_aero_tables.json` is only read by the simulation authority and distributed to clients during world sync, so client prediction runs the same flight model the server does.
 5. Ground-impact damage is observed server-side on the server's own simulation; the client self-report RPC is deleted.
+6. Later follow-up fixes tightened prediction parity: own-plane reconciliation now includes angular velocity; the client sends simulation-relevant control-state flags and post-limiter effective pitch so the server no longer simulates remote-player planes with mismatched assist/limiter behavior.
+7. Projectile visuals also moved closer to server truth: clients now spawn replica missiles and bullets using the real server simulation paths rather than separate kinematic approximations.
 
 **Residual limitations (accepted, documented in the plan).** Physics non-determinism makes small prediction drift inevitable; the reconciliation tolerance band absorbs it. Held-input skew during packet gaps appears as reconciliation error and is handled the same way.
 
@@ -70,11 +72,12 @@ Method: the original review was re-checked against the current tree, and fixed i
 
 **What improved already.**
 - `class_name` now exists on the core gameplay seam scripts, including `PlaneCharacter`, `PlaneBotPilot`, `Health`, `PlaneWeaponLock`, `Autocannon`, and `MissileLauncher`.
+- `class_name` also exists on the replicated projectile seam scripts (`Missile`, `Bullet`, `MissileVisual`, `BulletVisual`) so projectile networking paths can cast to concrete types instead of probing ad hoc properties.
 - `ForceDebugRenderer3D` and `BotDebugRenderer3D` now have `class_name`; all `.call()` / `.has_method()` calls against them are replaced with direct method calls. (Godot 4 limitation: the type annotation is omitted on the hosting variable because using a `class_name` as a type annotation in a script that also `preload`s the defining file fails to resolve at parse time.)
 - `DisplaySettings` is an autoload singleton; `class_name` cannot be added because Godot 4 raises a parse error when a `class_name` matches an autoload name. Assist-setting persistence now accesses the autoload global directly instead of via `get_node_or_null` + string cast.
 - `PlaneBotPilot._plane` is now typed as `PlaneCharacter`; `is_in_group("plane_character")` checks replaced with `is PlaneCharacter` / `as PlaneCharacter` casts across the bot pilot and world spawner.
 - Assist-setting persistence in `PlaneCharacter` now uses direct typed `DisplaySettings` access; the stringly-typed generic helpers are removed.
-- Missile replication in `WorldCharacterSpawner` now casts to `Missile` instead of using `has_signal` / `"target" in node` string guards.
+- Missile replication in `WorldCharacterSpawner` now casts to `Missile` instead of using `has_signal` / `"target" in node` string guards; client projectile replicas also instantiate concrete `Missile` / `Bullet` nodes instead of bespoke visual approximations.
 - Stable plane-child relationships now use direct component accessors instead of ad hoc string lookup in the hot weapon/HUD/camera paths.
 - String-based damage dispatch remains intentionally duck-typed where that flexibility is part of the design.
 
