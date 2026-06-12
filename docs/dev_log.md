@@ -380,3 +380,38 @@ Server-authoritative movement migration (architecture review item #1, option B):
 - `tests/mp_host_smoke.gd` now also asserts the remote player's plane actually moves on the host (server simulation driving it, ≥50 m displacement).
 - `tests/mp_client_smoke.gd` now lingers after its health-sync success instead of quitting immediately, so the host smoke can observe the client plane; it completes when the linger elapses or the session ends.
 - Full headless suite passes: autocannon, bot autocannon, missile hardpoint, camera detach (17 asserts), mp host + client smokes; `bot_duel.tscn` boots clean in single player.
+
+---
+
+Date: June 12, 2026 (later follow-up)
+
+## Summary
+
+Follow-up pass on the new server-authoritative movement model: prediction was functionally correct but still too twitchy under sustained turns, and projectile/trail visuals were diverging from server truth. This pass tightened client/server control-state parity, reconciled angular motion, and replaced projectile approximations with client replicas of the real server flight paths.
+
+## Completed Work
+
+1. Plane prediction parity and jitter reduction
+- Own-plane reconciliation now includes `angular_velocity` in prediction history, snapshots, hard-snap state, and blend correction. This removed a major source of persistent “high-ping” feel during pitch-hold turns.
+- The client now sends the control-state booleans that actually affect simulation, not just smoothed axes: pitch/yaw/roll-active state, relative-roll-target activity, pitch assist, stabilization assist, and limiter override.
+- The server's net-input path now applies those flags before simulating remote-player planes, so stabilization damping and limiter behavior match client prediction instead of silently diverging.
+- The client also sends the post-limiter effective pitch command it predicted with; the server uses that effective pitch for remote-player torque instead of recomputing a slightly different limiter result from its own instantaneous state.
+
+2. Contrail shake cleanup
+- Wing contrails were client-side, but they were still sampling the corrected plane body transform directly, so small reconciliation nudges produced visible zigzags.
+- `VisualTrail3D` now supports smoothed point sampling with a lag cap; wing contrails use that smoothing, which removes most of the sawtooth noise without letting the trail origin drift arbitrarily far behind the plane.
+- Contrail activation was also cleaned up earlier in the same pass so it keys off actual flight state (`linear_velocity`, AoA, local pitch rate) instead of frame-to-frame corrected position deltas.
+
+3. Missile replication parity
+- The old `MissileVisual` path was a separate kinematic approximation of the real missile and diverged visibly from the authoritative `RigidBody3D` missile even when spawn velocity was correct.
+- Clients now spawn real `Missile` replicas that run the same thrust/drag/guidance/stabilization code as the server missile, with client-side collision/damage authority disabled. Server despawn/explosion RPCs still decide outcomes.
+- Replica spawn ordering was fixed so missiles and bullets are added to the tree before replica init touches global transform or `look_at()`.
+
+4. Bullet replication parity and large-world aim cleanup
+- Client bullets no longer use the old `BulletVisual` approximation; they now spawn real `Bullet` replicas with client-side collision authority disabled.
+- Autocannon intercept math was changed to stay in relative space instead of reconstructing aim from two large absolute positions after the relative vector was already known. This reduces far-from-origin precision loss in multiplayer gunnery.
+- Autocannon bullets now spawn from an explicit forward muzzle offset instead of the plane center. The lateral alternating hardpoint experiment was removed; the final path uses a single forward muzzle point only.
+
+5. Outcome
+- Compared with the original authority-migration state, the local plane now tracks server truth much more closely under sustained turning, missiles look substantially closer to what the server is simulating, and contrails no longer advertise every tiny reconciliation correction.
+- Remaining known imperfections are smaller tuning/representation issues rather than the original structural mismatch between client prediction and server simulation.

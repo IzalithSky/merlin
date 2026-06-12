@@ -11,19 +11,35 @@ const TRAIL_SCENE := preload("res://scenes/wing_trail.tscn")
 signal died(hit: bool, hit_position: Vector3)
 
 var shooter: Node3D = null
+var _is_replica := false
 
 var _origin: Vector3 = Vector3.ZERO
 var _dead: bool = false
 var _trail: Node = null
 
 
+func init_replica(spawn_position: Vector3, launch_velocity: Vector3) -> void:
+	_is_replica = true
+	shooter = null
+	global_position = spawn_position
+	_origin = spawn_position
+	linear_velocity = launch_velocity
+	collision_layer = 0
+	collision_mask = 0
+	contact_monitor = false
+	max_contacts_reported = 0
+	if launch_velocity.length_squared() > 0.000001:
+			look_at(global_position + launch_velocity.normalized(), Vector3.UP)
+
+
 func _ready() -> void:
 	add_to_group("bullet")
 	_origin = global_position
-	body_entered.connect(_on_body_entered)
+	if not _is_replica:
+		body_entered.connect(_on_body_entered)
 	continuous_cd = true
 	lock_rotation = true
-	if shooter != null and is_instance_valid(shooter):
+	if not _is_replica and shooter != null and is_instance_valid(shooter):
 		add_collision_exception_with(shooter)
 	_spawn_trail()
 
@@ -43,6 +59,8 @@ func _physics_process(_delta: float) -> void:
 		look_at(global_position + linear_velocity.normalized(), Vector3.UP)
 
 	if global_position.distance_to(_origin) > max_range:
+		if _is_replica:
+			return
 		_despawn(false)
 		return
 
@@ -51,6 +69,8 @@ func _physics_process(_delta: float) -> void:
 
 
 func _on_body_entered(body: Node) -> void:
+	if _is_replica:
+		return
 	if body == shooter:
 		return
 	_deal_damage(body)
@@ -78,14 +98,7 @@ func _despawn(hit: bool) -> void:
 	_dead = true
 
 	var death_pos := global_position
-	if _trail != null and is_instance_valid(_trail):
-		if "trail_enabled" in _trail:
-			_trail.set("trail_enabled", false)
-		if "permanent" in _trail:
-			_trail.set("permanent", false)
-		if "node_ttl" in _trail:
-			_trail.set("node_ttl", trail_ttl_after_death)
-		_trail = null
+	_finish_trail()
 
 	died.emit(hit, death_pos)
 	queue_free()
@@ -112,3 +125,23 @@ func _spawn_trail() -> void:
 	get_tree().current_scene.add_child(trail)
 	trail.global_position = global_position
 	_trail = trail
+
+
+func despawn(hit_pos: Vector3) -> void:
+	global_position = hit_pos
+	if _trail != null and is_instance_valid(_trail):
+		_trail.global_position = hit_pos
+	_finish_trail()
+	queue_free()
+
+
+func _finish_trail() -> void:
+	if _trail == null or not is_instance_valid(_trail):
+		return
+	if "trail_enabled" in _trail:
+		_trail.set("trail_enabled", false)
+	if "permanent" in _trail:
+		_trail.set("permanent", false)
+	if "node_ttl" in _trail:
+		_trail.set("node_ttl", trail_ttl_after_death)
+	_trail = null

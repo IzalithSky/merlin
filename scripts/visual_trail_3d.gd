@@ -13,6 +13,8 @@ extends MeshInstance3D
 @export var scale_texture := false
 @export var start_color := Color(1.0, 1.0, 1.0, 0.75)
 @export var end_color := Color(1.0, 1.0, 1.0, 0.0)
+@export var sample_smoothing_rate := 0.0
+@export var max_sample_lag := 0.0
 
 var node_ttl := -1.0
 
@@ -20,12 +22,14 @@ var _points: Array[Vector3] = []
 var _widths: Array[Array] = []
 var _life_points: Array[float] = []
 var _last_position := Vector3.ZERO
+var _sample_position := Vector3.ZERO
 var _immediate_mesh: ImmediateMesh
 var _renderer: MeshInstance3D
 
 
 func _ready() -> void:
 	_last_position = global_position
+	_sample_position = global_position
 	_create_world_renderer()
 
 
@@ -44,12 +48,13 @@ func _process(delta: float) -> void:
 			queue_free()
 			return
 
-	var moved := _last_position.distance_to(global_position) >= maxf(motion_delta, 0.001)
+	var emitter_position := _get_emitter_position(delta)
+	var moved := _last_position.distance_to(emitter_position) >= maxf(motion_delta, 0.001)
 	if trail_enabled and moved:
-		_append_point()
-		_last_position = global_position
+		_append_point(emitter_position)
+		_last_position = emitter_position
 	elif not trail_enabled:
-		_last_position = global_position
+		_last_position = emitter_position
 
 	var point_index := 0
 	while point_index < _points.size():
@@ -67,12 +72,12 @@ func clear_trail() -> void:
 	_widths.clear()
 	_life_points.clear()
 	_last_position = global_position
+	_sample_position = global_position
 	if _immediate_mesh != null:
 		_immediate_mesh.clear_surfaces()
 
 
-func _append_point() -> void:
-	var emitter_position := global_position
+func _append_point(emitter_position: Vector3) -> void:
 	var width_axis := _get_stable_width_axis(emitter_position)
 	var width_from := width_axis * from_width
 	var width_to := width_axis * to_width
@@ -133,6 +138,21 @@ func _create_world_renderer() -> void:
 	_renderer.mesh = _immediate_mesh
 	get_tree().root.add_child.call_deferred(_renderer)
 	mesh = null
+
+
+func _get_emitter_position(delta: float) -> Vector3:
+	var current_position := global_position
+	if sample_smoothing_rate <= 0.0:
+		_sample_position = current_position
+		return current_position
+
+	var blend := clampf(sample_smoothing_rate * delta, 0.0, 1.0)
+	_sample_position = _sample_position.lerp(current_position, blend)
+	if max_sample_lag > 0.0:
+		var offset := current_position - _sample_position
+		if offset.length() > max_sample_lag:
+			_sample_position = current_position - offset.normalized() * max_sample_lag
+	return _sample_position
 
 
 func _get_stable_width_axis(emitter_position: Vector3) -> Vector3:

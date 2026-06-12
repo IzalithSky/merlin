@@ -6,7 +6,6 @@ const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 const MISSILE_SCENE := preload("res://scenes/missile.tscn")
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
-const BULLET_VISUAL_SCENE := preload("res://scenes/bullet_visual.tscn")
 const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 const AUTOCANNON_SCRIPT := preload("res://scripts/autocannon.gd")
 const LOCAL_PLANE_PRESENTATION_BINDING := preload("res://scripts/local_plane_presentation_binding.gd")
@@ -830,7 +829,7 @@ func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_peer_id:
 	bullet.damage = autocannon.damage
 	_projectiles.add_child(bullet)
 	var launch_velocity: Vector3 = aim_direction * autocannon.bullet_speed + plane.linear_velocity
-	bullet.initialize_launch(plane.global_position, launch_velocity)
+	bullet.initialize_launch(autocannon.get_and_advance_launch_position(plane), launch_velocity)
 
 	var bullet_id := _next_bullet_id
 	_next_bullet_id += 1
@@ -932,8 +931,8 @@ func cl_spawn_missile(missile_id: int, t: Transform3D, velocity: Vector3, target
 	if multiplayer.is_server():
 		return
 	var missile := MISSILE_SCENE.instantiate() as Missile
-	missile.init_replica(t, velocity, _resolve_remote_missile_target(target_peer_id))
 	_projectiles.add_child(missile)
+	missile.init_replica(t, velocity, _resolve_remote_missile_target(target_peer_id))
 	_remote_missiles[missile_id] = missile
 
 
@@ -941,10 +940,10 @@ func cl_spawn_missile(missile_id: int, t: Transform3D, velocity: Vector3, target
 func cl_spawn_bullet(bullet_id: int, pos: Vector3, vel: Vector3) -> void:
 	if multiplayer.is_server():
 		return
-	var visual = BULLET_VISUAL_SCENE.instantiate()
-	_projectiles.add_child(visual)
-	visual.init(pos, vel)
-	_active_bullet_visuals[bullet_id] = visual
+	var bullet := BULLET_SCENE.instantiate() as Bullet
+	_projectiles.add_child(bullet)
+	bullet.init_replica(pos, vel)
+	_active_bullet_visuals[bullet_id] = bullet
 
 
 @rpc("authority", "reliable")
