@@ -19,8 +19,8 @@ Method: the original review was re-checked against the current tree, and fixed i
 | # | Finding | Type | Severity | Current status |
 |---|---|---|---|---|
 | 1 | Gameplay still runs on a client-authoritative movement relay | Architecture | Critical | Open — interim hardening landed, authority migration untouched |
-| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Open |
-| 6 | Stringly-typed cross-script contracts; `class_name` barely used | Implementation | Medium-High | Open |
+| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Partial — first seam split landed, main authority/net split still open |
+| 6 | Stringly-typed cross-script contracts; `class_name` barely used | Implementation | Medium-High | Partial — core gameplay seams now typed, broad cleanup still open |
 | 8 | Documentation discipline improved, but not yet consistent across all design docs | Process | Medium | Partial |
 
 ---
@@ -50,12 +50,17 @@ This is still the single most important remaining item.
 
 ---
 
-## 5. God objects / mixed responsibilities — High — OPEN
+## 5. God objects / mixed responsibilities — High — PARTIAL
 
 **What.** The same three large files still carry too many roles:
 - `plane_character_controller.gd`: flight model, input, bot-facing control surface, snapshot emit/apply, interpolation, crash damage, debug rendering, persistence hooks.
-- `world_character_spawner.gd`: spawn registry, ownership, movement relay, projectile netcode, cooldowns, health replication, HUD/camera lifecycle, display settings hooks.
+- `world_character_spawner.gd`: spawn registry, ownership, movement relay, projectile netcode, cooldowns, health replication, and remaining world-authority coordination.
 - `plane_bot_pilot.gd`: bot state machine, target acquisition, avoidance, recovery, and several controller-adjacent math helpers.
+
+**What improved already.**
+- Local camera/HUD lifecycle was split into `local_plane_presentation_binding.gd`.
+- Bot-pilot creation and setup was split into `plane_bot_setup.gd`.
+- Spawn-time configuration is now more explicit, including `PlaneCharacter.configure(...)` before tree entry so controller startup state is deterministic.
 
 **Why it matters.** The authority migration in finding `#1` is harder because input, simulation, replication, and presentation seams are still collapsed into the same hot files.
 
@@ -70,9 +75,14 @@ Do this in the same phase as the authority migration so the seams are introduced
 
 ---
 
-## 6. Stringly-typed contracts — Medium-High — OPEN
+## 6. Stringly-typed contracts — Medium-High — PARTIAL
 
 **What.** Cross-script communication still relies heavily on `get`, `set`, `call`, and `has_method`. The codebase has improved behaviorally, but most important seams are still untyped.
+
+**What improved already.**
+- `class_name` now exists on the core gameplay seam scripts, including `PlaneCharacter`, `PlaneBotPilot`, `Health`, `PlaneWeaponLock`, `Autocannon`, and `MissileLauncher`.
+- Stable plane-child relationships now use direct component accessors instead of ad hoc string lookup in the hot weapon/HUD/camera paths.
+- String-based damage dispatch remains intentionally duck-typed where that flexibility is part of the design.
 
 **Why it matters.**
 - Renames can fail silently.

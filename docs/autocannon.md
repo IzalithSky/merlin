@@ -1,5 +1,7 @@
 # Autocannon
 
+Status: implemented — current runtime behavior for local play and multiplayer authority flow. Live tuning values should be read from the `@export` fields in `scripts/autocannon.gd` and `scripts/bullet.gd`.
+
 ## Overview
 
 The autocannon is a short-range, hits-by-contact weapon built from four layers:
@@ -26,7 +28,7 @@ matches that model.
 
 ## 1. Firing
 
-`Autocannon` lives as a child node on the firing plane.
+`Autocannon` lives as a child node on the firing plane and is reached through stable plane-component accessors rather than string-based lookup.
 
 - **Player fire**: holding `fire_autocannon` calls `_try_fire()` whenever the
   local cooldown reaches zero.
@@ -163,6 +165,10 @@ Main fire-control function:
    - client RPC request
    - server-authoritative fire
 4. resets cooldown
+
+The world/net handoff is resolved by finding the active `world_character_spawner.gd`
+authority node, but the cannon/lock relationship itself is now explicit and typed
+through the owning `PlaneCharacter`.
 
 ### `_fire_local(plane, aim_direction)`
 

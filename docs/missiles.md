@@ -182,6 +182,12 @@ reports a locked target, the missile is guided; otherwise it flies straight.
 the first frame `PlaneWeaponLock.is_locked()` is true. The bot does not have a
 separate fire key — locking is sufficient.
 
+The launcher now uses the stable plane-component seam instead of string lookups:
+
+- `PlaneCharacter` exposes direct accessors for its `PlaneWeaponLock` and `MissileLauncher`
+- the launcher can ask the owning plane for its current lock state directly
+- authority-side spawning is still delegated to `world_character_spawner.gd`
+
 **Multiplayer**: in a networked session, clients send `sv_request_fire_missile`
 to the server instead of spawning locally. The server owns all missile
 simulation; clients receive spawn/despawn events only, then run a local visual

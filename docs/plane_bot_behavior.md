@@ -9,6 +9,8 @@ Relevant implementation files:
 
 - `res://scripts/plane_bot_pilot.gd`
 - `res://scripts/world_character_spawner.gd`
+- `res://scripts/plane_bot_setup.gd`
+- `res://scripts/local_plane_presentation_binding.gd`
 - `res://scripts/plane_character_controller.gd`
 - `res://scripts/display_settings_applier.gd`
 
@@ -27,14 +29,19 @@ Authority rules:
 This keeps bot decisions authority-side and prevents clients from simulating different outcomes.
 
 ## Spawn And Target Setup
-`world_character_spawner.gd` creates bot planes and attaches `PlaneBotPilot` on the authority side.
+`world_character_spawner.gd` still owns the authoritative bot spawn pipeline, but bot-specific setup is now split into `plane_bot_setup.gd`.
 
-The spawner:
+The current spawn path:
 
 - records bot entries in the spawn registry and tracks bot identity separately from transport-peer classification
 - creates bot spawn states
 - spawns bot plane characters
-- enables bot control on authority-owned bot planes
+- calls `PlaneCharacter.configure(...)` before the node enters the tree so the controller boots with the correct local/authority state and initial airspeed
+- delegates pilot creation and configuration to `PlaneBotSetup`
+
+`PlaneBotSetup` then:
+
+- creates and attaches `PlaneBotPilot` on the authority side only
 - injects a fallback follow target when a static world marker is configured
 - passes player-killzone distance and tolerance into the pilot
 
@@ -215,7 +222,7 @@ All three thresholds are absolute values in m/s, but their effective meaning dep
 As a practical baseline, set `min_acceptable_forward_speed` near the plane's minimum safe handling speed, `reserve_forward_speed` near comfortable cruise, and `max_lift_turn_min_forward_speed` slightly above that. Raising all three uniformly makes the bot more conservative and harder to exploit; lowering them makes the bot more reckless and easier to separate from energy.
 
 ## Export Reference
-All `@export` fields on `PlaneBotPilot` are set by the spawner or the bot scene and can be overridden per-bot without touching the script.
+All `@export` fields on `PlaneBotPilot` are set by `PlaneBotSetup` or the bot scene and can be overridden per-bot without touching the script.
 
 ### Altitude and idle
 | Export | Default | Unit | Role |
