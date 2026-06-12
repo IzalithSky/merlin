@@ -224,6 +224,7 @@ var _net_pending_input: Dictionary = {}
 var _net_last_applied_input_seq := -1
 var _net_ack_seq := -1
 var _net_limiter_override_active := false
+var _net_effective_pitch_input := 0.0
 var _prediction_history: Array[Dictionary] = []
 var _correction_position := Vector3.ZERO
 var _shot_down_random := RandomNumberGenerator.new()
@@ -423,6 +424,7 @@ func _apply_spawn_control_defaults() -> void:
 	_player_yaw_control_active = false
 	_player_direct_roll_control_active = false
 	_net_limiter_override_active = false
+	_net_effective_pitch_input = 0.0
 	if is_local_player:
 		var ds := DisplaySettings
 		_pitch_assist_enabled = ds.pitch_assist_enabled if ds != null else true
@@ -481,6 +483,7 @@ func _apply_net_inputs() -> void:
 			_pitch_assist_enabled = bool(_net_pending_input.get("pitch_assist_enabled", true))
 			_stabilization_assist_enabled = bool(_net_pending_input.get("stabilization_assist_enabled", true))
 			_net_limiter_override_active = bool(_net_pending_input.get("limiter_override_active", false))
+			_net_effective_pitch_input = clampf(float(_net_pending_input.get("effective_pitch", pitch_input)), -1.0, 1.0)
 			_net_last_applied_input_seq = input_seq
 		_net_pending_input = {}
 	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
@@ -496,6 +499,7 @@ func _emit_local_input() -> void:
 		"pitch": pitch_input,
 		"yaw": yaw_input,
 		"throttle": throttle_input,
+		"effective_pitch": _get_turn_limited_pitch_input(pitch_input),
 		"pitch_control_active": _player_pitch_control_active,
 		"yaw_control_active": _player_yaw_control_active,
 		"direct_roll_control_active": _player_direct_roll_control_active,
@@ -798,7 +802,7 @@ func apply_thrust() -> void:
 
 func apply_plane_torque() -> void:
 	var control_coefficient := maxf(_sample_aero_table(control_authority_coefficient_table, _frame_air_speed), 0.0)
-	var limited_pitch_input := _get_turn_limited_pitch_input(pitch_input)
+	var limited_pitch_input := _get_effective_pitch_input()
 	var p_in := -limited_pitch_input
 	var y_in := yaw_input
 	var r_in := roll_input
@@ -1750,6 +1754,12 @@ func _sample_aero_table_segment(points: Array[Vector2], x_value: float, segment_
 func _get_turn_limited_pitch_input(raw_pitch_input: float) -> float:
 	var limited_pitch_input := _get_max_lift_limited_pitch_input(raw_pitch_input)
 	return _get_sustain_turn_limited_pitch_input(limited_pitch_input)
+
+
+func _get_effective_pitch_input() -> float:
+	if _is_net_input_driven():
+		return _net_effective_pitch_input
+	return _get_turn_limited_pitch_input(pitch_input)
 
 
 func _get_max_lift_limited_pitch_input(raw_pitch_input: float) -> float:

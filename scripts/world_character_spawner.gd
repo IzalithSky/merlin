@@ -385,7 +385,7 @@ func sv_submit_input(input: Dictionary) -> void:
 func _is_valid_input_packet(input: Dictionary) -> bool:
 	if int(input.get("seq", -1)) < 0:
 		return false
-	for axis_key in ["roll", "pitch", "yaw", "throttle"]:
+	for axis_key in ["roll", "pitch", "yaw", "throttle", "effective_pitch"]:
 		var value: Variant = input.get(axis_key)
 		if not (value is float or value is int):
 			return false
