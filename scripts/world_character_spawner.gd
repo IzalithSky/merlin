@@ -5,7 +5,6 @@ const PLAYER_CHARACTER_SCENE := preload("res://scenes/player_character.tscn")
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 const MISSILE_SCENE := preload("res://scenes/missile.tscn")
-const MISSILE_VISUAL_SCENE := preload("res://scenes/missile_visual.tscn")
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 const BULLET_VISUAL_SCENE := preload("res://scenes/bullet_visual.tscn")
 const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
@@ -932,10 +931,10 @@ func sv_request_fire_autocannon(firing_peer_id: int, target_peer_id: int) -> voi
 func cl_spawn_missile(missile_id: int, t: Transform3D, velocity: Vector3, target_peer_id: int) -> void:
 	if multiplayer.is_server():
 		return
-	var visual = MISSILE_VISUAL_SCENE.instantiate()
-	_projectiles.add_child(visual)
-	visual.init(t, velocity, _resolve_remote_missile_target(target_peer_id))
-	_remote_missiles[missile_id] = visual
+	var missile := MISSILE_SCENE.instantiate() as Missile
+	missile.init_replica(t, velocity, _resolve_remote_missile_target(target_peer_id))
+	_projectiles.add_child(missile)
+	_remote_missiles[missile_id] = missile
 
 
 @rpc("authority", "call_remote", "reliable", 0)
