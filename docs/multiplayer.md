@@ -1,6 +1,6 @@
 # Godot Multiplayer Notes
 
-Status: target design — this document describes the intended server-authoritative architecture. The current implementation only partially matches it.
+Status: implemented (movement model) — the server-authoritative input-intent/simulation/snapshot flow described here is now in place (see `docs/mp_plan.md`); the project uses custom RPCs on `WorldCharacterSpawner` rather than `MultiplayerSpawner`/`MultiplayerSynchronizer`, which this document discusses as options.
 
 This document summarizes how Godot 4 multiplayer works and what networking
 architecture makes sense for Merlin.

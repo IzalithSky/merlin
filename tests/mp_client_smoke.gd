@@ -2,11 +2,16 @@ extends SceneTree
 
 const PORT := 8942
 const TOTAL_TIMEOUT_SEC := 12.0
+# Stay connected after the success condition so the host smoke can keep
+# observing this peer's server-simulated plane (movement assertion).
+const POST_SUCCESS_LINGER_SEC := 4.0
 
 var _elapsed := 0.0
 var _booted := false
 var _failed := false
 var _last_debug_second := -1
+var _hp_synced := false
+var _hp_synced_time := 0.0
 
 
 func _process(delta: float) -> bool:
@@ -24,6 +29,13 @@ func _process(delta: float) -> bool:
 	_debug_status()
 	if _elapsed > TOTAL_TIMEOUT_SEC:
 		_fail("timeout waiting for multiplayer smoke client completion")
+		return false
+
+	if _hp_synced:
+		var world_gone := current_scene == null or current_scene.name != "world"
+		if world_gone or _elapsed - _hp_synced_time >= POST_SUCCESS_LINGER_SEC:
+			print("mp_client_smoke_ok hp=90.0")
+			quit(0)
 		return false
 
 	var world := current_scene
@@ -52,8 +64,8 @@ func _process(delta: float) -> bool:
 	var client_health := client_plane.get_node_or_null("Health")
 	_assert(client_health != null, "client health missing on client")
 	if absf(float(client_health.get("current_hp")) - 90.0) < 0.01:
-		print("mp_client_smoke_ok hp=%.1f" % float(client_health.get("current_hp")))
-		quit(0)
+		_hp_synced = true
+		_hp_synced_time = _elapsed
 	return false
 
 

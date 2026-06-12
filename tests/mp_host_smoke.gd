@@ -14,6 +14,10 @@ var _failed := false
 var _last_debug_second := -1
 var _saw_remote_plane := false
 var _validated_local_authority := false
+var _client_plane_first_position := Vector3.ZERO
+var _client_plane_moved := false
+
+const CLIENT_PLANE_MIN_DISPLACEMENT := 50.0
 
 
 func _process(delta: float) -> bool:
@@ -48,7 +52,13 @@ func _process(delta: float) -> bool:
 	if characters == null:
 		return false
 
-	if _damage_applied and _saw_remote_plane and _validated_local_authority and _elapsed - _damage_time >= POST_DAMAGE_SETTLE_SEC:
+	if (
+		_damage_applied
+		and _saw_remote_plane
+		and _validated_local_authority
+		and _client_plane_moved
+		and _elapsed - _damage_time >= POST_DAMAGE_SETTLE_SEC
+	):
 		print("mp_host_smoke_ok players=%d" % lobby.players.size())
 		quit(0)
 		return false
@@ -66,8 +76,18 @@ func _process(delta: float) -> bool:
 	_assert(_count_local_non_bot_planes(characters) == 1, "host should have exactly one local non-bot plane")
 	_assert(bool(host_plane.get("is_local_player")), "host plane should be local on host")
 	_assert(not bool(client_plane.get("is_local_player")), "client plane should be remote on host")
+	if not _saw_remote_plane:
+		_client_plane_first_position = (client_plane as Node3D).global_position
 	_saw_remote_plane = true
 	_validated_local_authority = true
+
+	# Server-authoritative simulation must actually fly the remote player's
+	# plane on the host; under the old relay this displacement came from the
+	# client's submitted poses instead.
+	if not _client_plane_moved:
+		var displacement := (client_plane as Node3D).global_position.distance_to(_client_plane_first_position)
+		if displacement >= CLIENT_PLANE_MIN_DISPLACEMENT:
+			_client_plane_moved = true
 
 	if not _damage_applied and _elapsed >= DAMAGE_DELAY_SEC:
 		var client_health := client_plane.get_node_or_null("Health")

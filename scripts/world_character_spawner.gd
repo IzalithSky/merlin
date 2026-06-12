@@ -14,8 +14,6 @@ const LOCAL_PLANE_PRESENTATION_BINDING := preload("res://scripts/local_plane_pre
 const PLANE_BOT_SETUP := preload("res://scripts/plane_bot_setup.gd")
 const CHARACTER_NAME_PREFIX := "PlayerCharacter_"
 const BOT_PEER_ID_BASE := 1000000
-const MAX_SUBMITTED_POSITION_DELTA := 250.0
-const MAX_SUBMITTED_LINEAR_VELOCITY := 1000.0
 
 enum CharacterType {
 	CAMERA_CUBE,
@@ -50,6 +48,8 @@ var _world_ready_peers: Dictionary = {}
 var _spawn_random := RandomNumberGenerator.new()
 var _bot_follow_target: Node3D
 var _local_plane_presentation
+var _server_aero_payload: Dictionary = {}
+var _client_aero_payload: Dictionary = {}
 
 
 func _ready() -> void:
@@ -221,6 +221,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 			_configure_bot_behavior(existing_plane, peer_id)
 			_bind_character_health_replication(existing_plane, peer_id)
 			_apply_display_settings_to_character(existing_plane)
+			_apply_client_aero_tables_to_character(existing_plane)
 			if local_player:
 				_bind_local_plane_presentation(existing_plane)
 		else:
@@ -244,6 +245,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 		_configure_bot_behavior(plane, peer_id)
 		_bind_character_health_replication(plane, peer_id)
 		_apply_display_settings_to_character(plane)
+		_apply_client_aero_tables_to_character(plane)
 		if local_player:
 			_bind_local_plane_presentation(plane)
 	else:
@@ -282,13 +284,17 @@ func _on_peer_disconnected(peer_id: int) -> void:
 
 
 func _on_local_character_state_changed(peer_id: int, snapshot: Dictionary) -> void:
-	if multiplayer.multiplayer_peer == null:
+	if multiplayer.multiplayer_peer == null or not multiplayer.is_server():
 		return
 
-	if multiplayer.is_server():
-		_broadcast_character_state(peer_id, snapshot)
-	else:
-		submit_character_state.rpc_id(1, snapshot)
+	_broadcast_character_state(peer_id, snapshot)
+
+
+func _on_local_character_input_produced(_peer_id: int, input: Dictionary) -> void:
+	if multiplayer.multiplayer_peer == null or multiplayer.is_server():
+		return
+
+	sv_submit_input.rpc_id(1, input)
 
 
 func _request_world_sync() -> void:
@@ -306,11 +312,47 @@ func request_world_sync() -> void:
 	var sender_id := multiplayer.get_remote_sender_id()
 	var is_new_peer := _register_peer(sender_id)
 	_world_ready_peers[sender_id] = true
+	# Tables go out before the spawn sync on the same reliable channel, so the
+	# peer's planes are configured with the server's flight model on spawn.
+	_send_aero_tables_to_peer(sender_id)
 	_spawn_peer_character_locally(sender_id)
 	_sync_spawn_states_to_peer(sender_id)
 
 	if is_new_peer:
 		_broadcast_spawn_state(sender_id, sender_id)
+
+
+func _send_aero_tables_to_peer(target_peer_id: int) -> void:
+	_capture_server_aero_payload()
+	if _server_aero_payload.is_empty():
+		return
+
+	cl_apply_aero_tables.rpc_id(target_peer_id, _server_aero_payload)
+
+
+func _capture_server_aero_payload() -> void:
+	if not _server_aero_payload.is_empty():
+		return
+
+	# Any server-side plane carries the effective tables (scene defaults plus the
+	# server's user:// override, post-sanitize); they are identical across planes.
+	for character in _characters.get_children():
+		var plane_character := character as PlaneCharacter
+		if plane_character != null:
+			_server_aero_payload = plane_character.get_aero_tables_payload()
+			return
+
+
+@rpc("authority", "reliable")
+func cl_apply_aero_tables(payload: Dictionary) -> void:
+	if multiplayer.is_server():
+		return
+
+	_client_aero_payload = payload.duplicate(true)
+	for character in _characters.get_children():
+		var plane_character := character as PlaneCharacter
+		if plane_character != null:
+			plane_character.apply_aero_tables_payload(_client_aero_payload)
 
 
 @rpc("authority", "reliable")
@@ -325,50 +367,47 @@ func despawn_character(peer_id: int) -> void:
 
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 1)
-func submit_character_state(snapshot: Dictionary) -> void:
+func sv_submit_input(input: Dictionary) -> void:
 	if not multiplayer.is_server():
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	var character := _characters.get_node_or_null(_character_name(sender_id))
-	if character == null or not is_instance_valid(character):
+	var plane_character := _characters.get_node_or_null(_character_name(sender_id)) as PlaneCharacter
+	if plane_character == null or not is_instance_valid(plane_character):
 		return
-	var plane_character := character as PlaneCharacter
-	if plane_character != null and plane_character.is_shot_down:
+	if plane_character.is_shot_down:
 		return
-	var sanitized_snapshot := _sanitize_submitted_snapshot(character, snapshot)
-	_apply_character_state_locally(sender_id, sanitized_snapshot)
-	_broadcast_character_state(sender_id, sanitized_snapshot)
+	if not _is_valid_input_packet(input):
+		return
+	plane_character.apply_net_control_input(input)
+
+
+func _is_valid_input_packet(input: Dictionary) -> bool:
+	if int(input.get("seq", -1)) < 0:
+		return false
+	for axis_key in ["roll", "pitch", "yaw", "throttle"]:
+		var value: Variant = input.get(axis_key)
+		if not (value is float or value is int):
+			return false
+		if not is_finite(float(value)):
+			return false
+	return true
 
 
 @rpc("authority", "call_remote", "unreliable_ordered", 2)
 func apply_character_state(peer_id: int, snapshot: Dictionary) -> void:
-	if peer_id == multiplayer.get_unique_id():
-		return
-
-	_apply_character_state_locally(peer_id, snapshot)
-
-
-func _apply_character_state_locally(peer_id: int, snapshot: Dictionary) -> void:
 	var character := _characters.get_node_or_null(_character_name(peer_id))
 	if character == null:
 		return
 
+	if peer_id == multiplayer.get_unique_id():
+		# Server echo of our own plane: reconciliation (or wreck interpolation).
+		var plane_character := character as PlaneCharacter
+		if plane_character != null:
+			plane_character.apply_authoritative_state(snapshot)
+		return
+
 	character.apply_remote_state(snapshot)
-
-
-func _sanitize_submitted_snapshot(character: Node3D, snapshot: Dictionary) -> Dictionary:
-	var sanitized_snapshot := snapshot.duplicate()
-	var submitted_position := Vector3(sanitized_snapshot.get("position", character.global_position))
-	var submitted_velocity := Vector3(sanitized_snapshot.get("linear_velocity", Vector3.ZERO))
-	var position_delta := submitted_position - character.global_position
-	if position_delta.length() > MAX_SUBMITTED_POSITION_DELTA:
-		submitted_position = character.global_position + position_delta.limit_length(MAX_SUBMITTED_POSITION_DELTA)
-	if submitted_velocity.length() > MAX_SUBMITTED_LINEAR_VELOCITY:
-		submitted_velocity = submitted_velocity.limit_length(MAX_SUBMITTED_LINEAR_VELOCITY)
-	sanitized_snapshot["position"] = submitted_position
-	sanitized_snapshot["linear_velocity"] = submitted_velocity
-	return sanitized_snapshot
 
 
 func _spawn_registered_characters_locally() -> void:
@@ -493,18 +532,37 @@ func _is_local_peer(peer_id: int) -> bool:
 
 
 func _set_character_local_binding(character: Node3D, local_player: bool) -> void:
-	var local_state_callback := Callable(self, "_on_local_character_state_changed")
-	var signal_connected: bool = character.local_state_changed.is_connected(local_state_callback)
+	var is_mp := multiplayer.multiplayer_peer != null
+	var is_server := is_mp and multiplayer.is_server()
 	var character_peer_id: int = character.peer_id
-	var local_bot_authority := _is_bot_peer(character_peer_id) and (
-		multiplayer.multiplayer_peer == null or multiplayer.is_server()
-	)
-	var should_bind := local_player or local_bot_authority
+	var local_bot_authority := _is_bot_peer(character_peer_id) and not is_mp
 
-	if should_bind and not signal_connected:
+	# State binding: whoever simulates a plane authoritatively rebroadcasts its
+	# state. The server simulates every plane; in single player the handler
+	# no-ops, so the old local/bot binding is kept for symmetry.
+	var local_state_callback := Callable(self, "_on_local_character_state_changed")
+	var state_connected: bool = character.local_state_changed.is_connected(local_state_callback)
+	var should_bind_state := is_server or (not is_mp and (local_player or local_bot_authority))
+
+	if should_bind_state and not state_connected:
 		character.local_state_changed.connect(local_state_callback)
-	elif not should_bind and signal_connected:
+	elif not should_bind_state and state_connected:
 		character.local_state_changed.disconnect(local_state_callback)
+
+	# Input binding: a pure client forwards its own plane's input intent to the
+	# server instead of submitting poses.
+	var plane_character := character as PlaneCharacter
+	if plane_character == null:
+		return
+
+	var input_callback := Callable(self, "_on_local_character_input_produced")
+	var input_connected: bool = plane_character.local_input_produced.is_connected(input_callback)
+	var should_bind_input := is_mp and not is_server and local_player
+
+	if should_bind_input and not input_connected:
+		plane_character.local_input_produced.connect(input_callback)
+	elif not should_bind_input and input_connected:
+		plane_character.local_input_produced.disconnect(input_callback)
 
 
 func _enforce_local_ownership() -> void:
@@ -534,8 +592,10 @@ func _is_peer_world_ready(peer_id: int) -> bool:
 
 
 func _broadcast_character_state(peer_id: int, snapshot: Dictionary) -> void:
+	# The owner gets its own state echoed back: the ack_seq in the snapshot is
+	# what drives client-side reconciliation.
 	for target_peer_id in multiplayer.get_peers():
-		if target_peer_id == peer_id or not _is_peer_world_ready(target_peer_id):
+		if not _is_peer_world_ready(target_peer_id):
 			continue
 
 		apply_character_state.rpc_id(target_peer_id, peer_id, snapshot)
@@ -627,19 +687,6 @@ func cl_shot_down(peer_id: int) -> void:
 	var character := _characters.get_node_or_null(_character_name(peer_id))
 	if character != null:
 		character.apply_remote_shot_down()
-
-
-@rpc("any_peer", "reliable")
-func sv_report_ground_impact(impact_speed: float, impact_angle_deg: float) -> void:
-	if not multiplayer.is_server():
-		return
-
-	var sender_id := multiplayer.get_remote_sender_id()
-	var character := _characters.get_node_or_null(_character_name(sender_id))
-	if character == null:
-		return
-
-	character.apply_ground_impact_damage(impact_speed, impact_angle_deg)
 
 
 func _yaw_towards(character_position: Vector3, target_position: Vector3) -> float:
@@ -927,6 +974,15 @@ func _on_display_settings_changed() -> void:
 
 func _apply_display_settings_to_character(character: Node) -> void:
 	DISPLAY_SETTINGS_APPLIER.apply_to_character(character)
+
+
+func _apply_client_aero_tables_to_character(character: Node) -> void:
+	if _client_aero_payload.is_empty():
+		return
+
+	var plane_character := character as PlaneCharacter
+	if plane_character != null:
+		plane_character.apply_aero_tables_payload(_client_aero_payload)
 
 
 func _has_property(object: Object, property_name: String) -> bool:

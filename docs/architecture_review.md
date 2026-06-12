@@ -18,35 +18,25 @@ Method: the original review was re-checked against the current tree, and fixed i
 
 | # | Finding | Type | Severity | Current status |
 |---|---|---|---|---|
-| 1 | Gameplay still runs on a client-authoritative movement relay | Architecture | Critical | Open — interim hardening landed, authority migration untouched |
-| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Partial — presentation and bot-setup extracted; core flight/net seams deferred to authority migration |
+| 1 | Gameplay still runs on a client-authoritative movement relay | Architecture | Critical | Resolved — server-authoritative simulation with client prediction/reconciliation landed (see `docs/mp_plan.md`) |
+| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Partial — presentation and bot-setup extracted; net seams (input intent, reconciliation, table sync) now explicit, full controller split still open |
 | 6 | Stringly-typed cross-script contracts; `class_name` barely used | Implementation | Medium-High | Partial — all core gameplay scripts typed; debug renderers and DisplaySettings typed; remaining duck-typing is intentional |
-| 8 | Documentation discipline improved, but not yet consistent across all design docs | Process | Medium | Partial — status headers now on all design docs |
+| 8 | Documentation discipline improved, but not yet consistent across all design docs | Process | Medium | Partial — status headers on architecture/process docs; mechanism docs carry none by convention |
 
 ---
 
-## 1. Gameplay built on a client-authoritative relay — Critical — OPEN
+## 1. Gameplay built on a client-authoritative relay — Critical — RESOLVED
 
-**What.** The server is still a movement relay. Clients simulate their own planes and submit final transforms; the server sanitizes the worst abuse cases, but it does not run the true aircraft simulation from input intent.
+**What was wrong.** The server was a movement relay: clients simulated their own planes and submitted final transforms; the server only sanitized the worst abuse cases. Clients also controlled their own flight-model tables, and ground-impact damage relied on client self-reporting.
 
-**What improved already.**
-- Server-side fire paths now validate sender identity and shot-down state.
-- Server-side autocannon and missile cooldown/lock checks now exist.
-- `submit_character_state` now clamps submitted position and velocity deltas before apply/rebroadcast.
-- Snapshot interpolation, health replication, and multiplayer smoke coverage now exist.
+**What landed (June 12, 2026; design in `docs/mp_plan.md`).**
+1. Clients send sequenced input intent (`sv_submit_input`: smoothed roll/pitch/yaw/throttle control state) every physics tick; fire paths were already server-validated RPCs.
+2. The server runs the one true simulation for all planes — players and bots — injecting net inputs into remote players' planes the same way bot inputs are injected.
+3. The server broadcasts snapshots for every plane; clients interpolate remotes (unchanged path) and predict + reconcile their own plane via per-seq prediction history and error-offset smoothing (no rewind/replay — Godot physics is not deterministic).
+4. The server owns the aero tables: `user://plane_aero_tables.json` is only read by the simulation authority and distributed to clients during world sync, so client prediction runs the same flight model the server does.
+5. Ground-impact damage is observed server-side on the server's own simulation; the client self-report RPC is deleted.
 
-**What is still wrong.**
-- Clients still authoritatively choose their final pose.
-- `user://plane_aero_tables.json` remains a client-controlled flight-model input under a client-authoritative movement model.
-- Ground-impact damage still depends on client self-reporting for the sender's own crash path.
-
-**Fix (best practice).**
-1. Clients send input intent (pitch/yaw/roll/throttle + fire) with sequence numbers.
-2. Server runs the one true simulation for all planes.
-3. Server broadcasts snapshots; clients interpolate remotes and later predict/reconcile local state.
-4. Server owns flight-model tables and envelope validation.
-
-This is still the single most important remaining item.
+**Residual limitations (accepted, documented in the plan).** Physics non-determinism makes small prediction drift inevitable; the reconciliation tolerance band absorbs it. Held-input skew during packet gaps appears as reconciliation error and is handled the same way.
 
 ---
 
@@ -61,17 +51,16 @@ This is still the single most important remaining item.
 - Local camera/HUD lifecycle was split into `local_plane_presentation_binding.gd`.
 - Bot-pilot creation and setup was split into `plane_bot_setup.gd`.
 - Spawn-time configuration is now more explicit, including `PlaneCharacter.configure(...)` before tree entry so controller startup state is deterministic.
+- The authority migration (#1) made the net seams explicit inside the existing files: input modes (local / bot / net), prediction + reconciliation, snapshot build/apply, and aero-table sync are now distinct function groups with typed entry points (`apply_net_control_input`, `apply_authoritative_state`, `apply_aero_tables_payload`).
 
-**Why it matters.** The authority migration in finding `#1` is harder because input, simulation, replication, and presentation seams are still collapsed into the same hot files.
+**Why it matters.** The controller and spawner are still large; further feature work keeps adding to the same hot files.
 
-**Fix.** Split along existing seams:
+**Fix.** Extract along the now-explicit seams when they next change:
 - input collection / smoothing
 - authoritative flight model
-- snapshot packing / net adapter
+- snapshot packing / net adapter (prediction history + reconciliation is the natural first extraction)
 - projectile networking
 - bot decision layer
-
-Do this in the same phase as the authority migration so the seams are introduced once.
 
 ---
 
@@ -125,6 +114,6 @@ This is now cleanup work, not an urgent correctness issue.
 
 ## Recommended fix order
 
-1. **#1 authority migration** — replace client-authored final poses with input-intent/server-simulated movement.
-2. **#5 / #6 structural split + typed seams** — do this alongside the migration so new authority seams are explicit and typed.
-3. **#8 broad doc status/header pass** — finish the same documentation discipline across the remaining design notes opportunistically.
+1. ~~**#1 authority migration**~~ — done; movement is server-simulated from input intent with client prediction (see `docs/mp_plan.md`).
+2. **#5 / #6 structural split + typed seams** — extract the now-explicit net/input/flight seams out of the controller and spawner opportunistically as they next change.
+3. **#8 doc discipline** — keep status headers on architecture/process docs; mechanism docs stay status-free by convention.

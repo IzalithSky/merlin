@@ -343,3 +343,40 @@ Architecture review follow-up: further progress on items #5, #6, and #8 from `do
 3. Documentation drift (#8)
 - Added status headers to `health.md`, `plane_physics_spec.md`, `testing_scenes.md`, `dev_plan.md`, `fixed_wing_bot_autopilot_summary.md`, and `view_distance.md`.
 - Updated `architecture_review.md` summary table and body sections to reflect current state of items #5, #6, and #8.
+- Later revised: status headers now live only on architecture/process docs; mechanism docs (plane, missiles, health, autocannon, bot behavior) explain how the system works and what its parameters do, nothing else.
+
+---
+
+Date: June 12, 2026 (later)
+
+## Summary
+
+Server-authoritative movement migration (architecture review item #1, option B): clients now send input intent, the server simulates every plane, and clients predict + reconcile their own plane. The server defines the aero tables. Design contract in `docs/mp_plan.md`.
+
+## Completed Work
+
+1. Input intent channel
+- `PlaneCharacter` emits `local_input_produced` with `{seq, roll, pitch, yaw, throttle}` every physics tick when running as a predicting client; the spawner forwards it via the new `sv_submit_input` RPC (unreliable_ordered, channel 1).
+- The wire carries the post-smoothing control state, so the server does not replicate mouse/assist/decay logic; values are validated (finite, seq-monotonic) and clamped to `[-1, 1]`.
+- `submit_character_state`, `_sanitize_submitted_snapshot`, and the `MAX_SUBMITTED_*` pose clamps are deleted — there is no client pose to sanitize anymore.
+
+2. Server simulation of all planes
+- `_is_simulated_locally()` reworked: the server simulates every plane; a pure client simulates only its own living plane; single player is unchanged.
+- Remote players' planes on the server run a third input mode, `_apply_net_inputs()` (latest-wins, direct application), alongside bot injection and local input collection; the applied seq is latched per tick as the snapshot `ack_seq`.
+- The server broadcasts `apply_character_state` for every plane to every world-ready peer, including the owner (the echo carries `ack_seq` for reconciliation).
+- Ground-impact damage is now observed entirely server-side; the `sv_report_ground_impact` self-report RPC is deleted.
+
+3. Client prediction + reconciliation
+- The owner client keeps a per-seq prediction history ring; on each own-plane snapshot it compares the server state against its recorded state at `ack_seq`.
+- Within tolerance nothing happens; beyond tolerance the position error becomes a pending correction folded in smoothly over subsequent ticks (history is shifted by the folded amount so later acks measure only remaining error); rotation/velocity get fractional blends; beyond `reconcile_hard_snap_distance` the plane snaps to the server state.
+- No rewind/replay: Godot physics is not deterministic and `RigidBody3D` cannot re-step; error-offset smoothing is the standard alternative.
+- Shot-down handover: a dead plane on the owner client stops predicting and is interpolated like a remote; the wreck spin impulse is rolled only by the simulation authority, so wrecks tumble identically on all screens.
+
+4. Server-defined aero tables
+- `user://plane_aero_tables.json` is only loaded by the simulation authority (single player or server); a client's local file is ignored in multiplayer.
+- The server captures the effective tables once and sends them via `cl_apply_aero_tables` during world sync, before spawn sync on the same reliable channel; clients apply them to current and future planes so prediction matches the server's flight model.
+
+5. Tests
+- `tests/mp_host_smoke.gd` now also asserts the remote player's plane actually moves on the host (server simulation driving it, ≥50 m displacement).
+- `tests/mp_client_smoke.gd` now lingers after its health-sync success instead of quitting immediately, so the host smoke can observe the client plane; it completes when the linger elapses or the session ends.
+- Full headless suite passes: autocannon, bot autocannon, missile hardpoint, camera detach (17 asserts), mp host + client smokes; `bot_duel.tscn` boots clean in single player.
