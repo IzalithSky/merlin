@@ -1,3 +1,4 @@
+class_name PlayerCharacter
 extends Node3D
 
 signal local_state_changed(peer_id: int, snapshot: Dictionary)

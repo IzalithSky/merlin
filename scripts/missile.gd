@@ -1,3 +1,4 @@
+class_name Missile
 extends RigidBody3D
 
 @export var thrust: float = 12_000.0

@@ -1,3 +1,4 @@
+class_name BulletVisual
 extends Node3D
 
 const TRAIL_SCENE := preload("res://scenes/wing_trail.tscn")

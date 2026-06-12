@@ -7,7 +7,7 @@ func _ready() -> void:
 	var plane := $World.get_node_or_null("characters/PlayerCharacter_1") as Node3D
 	_assert(plane != null, "missing plane")
 
-	var launcher := plane.get_node_or_null("PlaneMissileLauncher") as Node
+	var launcher := plane.get_node_or_null("MissileLauncher") as Node
 	_assert(launcher != null, "missing launcher")
 	launcher.set("fire_cooldown", 0.0)
 

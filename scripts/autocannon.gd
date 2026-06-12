@@ -1,3 +1,4 @@
+class_name Autocannon
 extends Node
 
 const BULLET_SCENE := preload("res://scenes/bullet.tscn")
@@ -25,9 +26,9 @@ func _process(delta: float) -> void:
 	var plane := get_parent() as Node3D
 	if plane == null or not is_instance_valid(plane):
 		return
-	if not _is_local_player(plane):
+	if plane == null or not plane.is_in_group("plane_character") or not _is_local_player(plane):
 		return
-	if plane.get("is_shot_down") == true:
+	if plane.is_shot_down:
 		return
 	if Input.is_action_pressed("fire_autocannon") and _cooldown_remaining <= 0.0:
 		_try_fire(plane)
@@ -36,10 +37,10 @@ func _process(delta: float) -> void:
 func try_fire() -> void:
 	if _cooldown_remaining > 0.0:
 		return
-	var plane := get_parent() as Node3D
+	var plane := get_parent()
 	if plane == null or not is_instance_valid(plane):
 		return
-	if plane.get("is_shot_down") == true:
+	if plane.is_shot_down:
 		return
 	_try_fire(plane)
 
@@ -47,13 +48,12 @@ func try_fire() -> void:
 func _try_fire(plane: Node3D) -> void:
 	var desired_target: Node3D = null
 	var target_peer_id := -1
-	var weapon_lock := plane.get_node_or_null("PlaneWeaponLock")
-	if weapon_lock != null and is_instance_valid(weapon_lock) and weapon_lock.has_method("get_desired_target"):
-		desired_target = weapon_lock.call("get_desired_target") as Node3D
+	var weapon_lock = plane.get_weapon_lock_component()
+	if weapon_lock != null and is_instance_valid(weapon_lock):
+		desired_target = weapon_lock.get_desired_target()
 	if desired_target != null and is_instance_valid(desired_target):
-		var peer_value: Variant = desired_target.get("peer_id")
-		if peer_value != null:
-			target_peer_id = int(peer_value)
+		if desired_target.is_in_group("plane_character"):
+			target_peer_id = desired_target.peer_id
 
 	var aim_direction := compute_aim_direction(
 		plane,
@@ -63,19 +63,16 @@ func _try_fire(plane: Node3D) -> void:
 	)
 
 	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
-		var spawner := get_tree().current_scene
-		if spawner.has_method("sv_request_fire_autocannon"):
+		var spawner = _find_world_spawner()
+		if spawner != null:
 			spawner.sv_request_fire_autocannon.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
 		else:
 			_fire_local(plane, aim_direction)
 	elif multiplayer.multiplayer_peer != null and multiplayer.is_server():
-		var spawner := get_tree().current_scene
-		var firing_peer_id := multiplayer.get_unique_id()
-		var peer_value: Variant = plane.get("peer_id")
-		if peer_value != null:
-			firing_peer_id = int(peer_value)
-		if spawner.has_method("_server_fire_autocannon"):
-			spawner.call("_server_fire_autocannon", plane, firing_peer_id, target_peer_id)
+		var spawner = _find_world_spawner()
+		var firing_peer_id = plane.peer_id
+		if spawner != null:
+			spawner._server_fire_autocannon(plane, firing_peer_id, target_peer_id)
 		else:
 			_fire_local(plane, aim_direction)
 	else:
@@ -85,22 +82,15 @@ func _try_fire(plane: Node3D) -> void:
 
 
 func _fire_local(plane: Node3D, aim_direction: Vector3) -> void:
-	var bullet := BULLET_SCENE.instantiate() as RigidBody3D
-	if "shooter" in bullet:
-		bullet.set("shooter", plane)
-	if "damage" in bullet:
-		bullet.set("damage", damage)
+	var bullet = BULLET_SCENE.instantiate()
+	bullet.shooter = plane
+	bullet.damage = damage
 	_projectiles_container.add_child(bullet)
 	var inherited_velocity := Vector3.ZERO
 	if plane is RigidBody3D:
 		inherited_velocity = (plane as RigidBody3D).linear_velocity
 	var launch_velocity := aim_direction * bullet_speed + inherited_velocity
-	if bullet.has_method("initialize_launch"):
-		bullet.call("initialize_launch", plane.global_position, launch_velocity)
-	else:
-		bullet.global_position = plane.global_position
-		bullet.look_at(plane.global_position + aim_direction, Vector3.UP)
-		bullet.linear_velocity = launch_velocity
+	bullet.initialize_launch(plane.global_position, launch_velocity)
 
 
 static func compute_aim_direction(
@@ -181,15 +171,19 @@ static func _clamp_direction_to_cone(
 static func _get_replication_aware_velocity(body: Node3D) -> Vector3:
 	if body == null or not is_instance_valid(body):
 		return Vector3.ZERO
-	if body.has_method("get_replicated_velocity"):
-		return body.call("get_replicated_velocity")
+	if body.is_in_group("plane_character"):
+		return body.get_replicated_velocity()
 	if body is RigidBody3D:
 		return (body as RigidBody3D).linear_velocity
 	return Vector3.ZERO
 
 
 func _is_local_player(plane: Node3D) -> bool:
-	var lp: Variant = plane.get("is_local_player")
-	if lp != null:
-		return bool(lp)
-	return true
+	return plane.is_local_player
+
+
+func _find_world_spawner() -> Node:
+	var world_nodes := get_tree().get_nodes_in_group("world_character_spawner")
+	if world_nodes.is_empty():
+		return null
+	return world_nodes[0]

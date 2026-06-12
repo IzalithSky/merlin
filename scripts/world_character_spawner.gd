@@ -1,11 +1,8 @@
+class_name WorldCharacterSpawner
 extends Node3D
 
 const PLAYER_CHARACTER_SCENE := preload("res://scenes/player_character.tscn")
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
-const LOCAL_PLANE_CAMERA_RIG_SCENE := preload("res://scenes/local_plane_camera_rig.tscn")
-const PLANE_TELEMETRY_HUD_SCENE := preload("res://scenes/plane_telemetry_hud.tscn")
-const PLANE_TARGETING_HUD_SCENE := preload("res://scenes/plane_targeting_hud.tscn")
-const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
 const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 const MISSILE_SCENE := preload("res://scenes/missile.tscn")
 const MISSILE_VISUAL_SCENE := preload("res://scenes/missile_visual.tscn")
@@ -13,6 +10,8 @@ const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 const BULLET_VISUAL_SCENE := preload("res://scenes/bullet_visual.tscn")
 const EXPLOSION_SCENE := preload("res://scenes/explosion.tscn")
 const AUTOCANNON_SCRIPT := preload("res://scripts/autocannon.gd")
+const LOCAL_PLANE_PRESENTATION_BINDING := preload("res://scripts/local_plane_presentation_binding.gd")
+const PLANE_BOT_SETUP := preload("res://scripts/plane_bot_setup.gd")
 const CHARACTER_NAME_PREFIX := "PlayerCharacter_"
 const BOT_PEER_ID_BASE := 1000000
 const MAX_SUBMITTED_POSITION_DELTA := 250.0
@@ -49,14 +48,14 @@ var _missile_cooldowns: Dictionary = {}
 var _bot_peer_ids: Dictionary = {}
 var _world_ready_peers: Dictionary = {}
 var _spawn_random := RandomNumberGenerator.new()
-var _local_plane_camera_rig: Node3D
-var _local_plane_hud: CanvasLayer
-var _local_targeting_hud: CanvasLayer
 var _bot_follow_target: Node3D
+var _local_plane_presentation
 
 
 func _ready() -> void:
+	add_to_group("world_character_spawner")
 	_spawn_random.randomize()
+	_local_plane_presentation = LOCAL_PLANE_PRESENTATION_BINDING.new(self)
 	_resolve_bot_follow_target()
 	_apply_lobby_bot_count_override()
 	DisplaySettings.settings_changed.connect(_on_display_settings_changed)
@@ -81,6 +80,23 @@ func _ready() -> void:
 		_spawn_bots(true)
 	else:
 		call_deferred("_request_world_sync")
+
+
+static func find_in_tree(from_node: Node):
+	var current: Node = from_node
+	while current != null:
+		if current.is_in_group("world_character_spawner"):
+			return current
+		current = current.get_parent()
+
+	var tree := from_node.get_tree()
+	if tree == null:
+		return null
+
+	var candidates := tree.get_nodes_in_group("world_character_spawner")
+	if candidates.is_empty():
+		return null
+	return candidates[0]
 
 
 func _apply_lobby_bot_count_override() -> void:
@@ -172,36 +188,23 @@ func _resolve_bot_follow_target() -> void:
 
 
 func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
-	if character_type != CharacterType.PLANE:
+	if character == null or character_type != CharacterType.PLANE:
 		return
 
 	var bot_peer := _is_bot_peer(peer_id)
 	var bot_active := bot_peer and (multiplayer.multiplayer_peer == null or multiplayer.is_server())
-	if "team_id" in character:
-		character.set("team_id", 1 if bot_peer else 0)
-	if character.has_method("set_bot_controlled"):
-		character.call("set_bot_controlled", bot_active)
-
-	if not bot_active:
-		var active_pilot := character.get_node_or_null("PlaneBotPilot")
-		if active_pilot != null:
-			active_pilot.queue_free()
-		return
-
-	var pilot_node := character.get_node_or_null("PlaneBotPilot")
-	if pilot_node == null:
-		pilot_node = PLANE_BOT_PILOT_SCRIPT.new()
-		pilot_node.name = "PlaneBotPilot"
-		character.add_child(pilot_node)
-
-	pilot_node.set("killzone_distance", bot_player_killzone_distance)
-	pilot_node.set("killzone_tolerance", bot_player_killzone_tolerance)
 
 	if _bot_follow_target == null:
 		_resolve_bot_follow_target()
 
-	if pilot_node.has_method("set_follow_target"):
-		pilot_node.call("set_follow_target", _bot_follow_target)
+	PLANE_BOT_SETUP.configure_plane(
+		character,
+		bot_peer,
+		bot_active,
+		_bot_follow_target,
+		bot_player_killzone_distance,
+		bot_player_killzone_tolerance
+	)
 
 
 func _is_bot_peer(peer_id: int) -> bool:
@@ -209,15 +212,21 @@ func _is_bot_peer(peer_id: int) -> bool:
 
 
 func _spawn_character(peer_id: int, local_player: bool, character_position: Vector3, yaw: float) -> Node3D:
-	var existing := _characters.get_node_or_null(_character_name(peer_id))
+	var existing := _characters.get_node_or_null(_character_name(peer_id)) as Node3D
 	if existing != null:
-		existing.configure(peer_id, local_player)
-		_set_character_local_binding(existing, local_player)
-		_configure_bot_behavior(existing, peer_id)
-		_bind_character_health_replication(existing, peer_id)
-		_apply_display_settings_to_character(existing)
-		if local_player:
-			_bind_local_plane_presentation(existing)
+		if character_type == CharacterType.PLANE:
+			var existing_plane := existing
+			existing_plane.configure(peer_id, local_player)
+			_set_character_local_binding(existing_plane, local_player)
+			_configure_bot_behavior(existing_plane, peer_id)
+			_bind_character_health_replication(existing_plane, peer_id)
+			_apply_display_settings_to_character(existing_plane)
+			if local_player:
+				_bind_local_plane_presentation(existing_plane)
+		else:
+			var existing_player := existing
+			existing_player.configure(peer_id, local_player)
+			_set_character_local_binding(existing_player, local_player)
 		return existing
 
 	var character := _get_character_scene().instantiate() as Node3D
@@ -225,15 +234,21 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	character.position = character_position
 	character.rotation.y = yaw
 	character.configure(peer_id, local_player)
-	_set_character_local_binding(character, local_player)
-	_configure_bot_behavior(character, peer_id)
 	_characters.add_child(character, true)
-	_bind_character_health_replication(character, peer_id)
 	if character is RigidBody3D:
 		(character as RigidBody3D).linear_velocity = -character.basis.z * 100.0
-	_apply_display_settings_to_character(character)
-	if local_player:
-		_bind_local_plane_presentation(character)
+
+	if character_type == CharacterType.PLANE:
+		var plane := character
+		_set_character_local_binding(plane, local_player)
+		_configure_bot_behavior(plane, peer_id)
+		_bind_character_health_replication(plane, peer_id)
+		_apply_display_settings_to_character(plane)
+		if local_player:
+			_bind_local_plane_presentation(plane)
+	else:
+		var player_character := character
+		_set_character_local_binding(player_character, local_player)
 	return character
 
 
@@ -318,7 +333,7 @@ func submit_character_state(snapshot: Dictionary) -> void:
 	var character := _characters.get_node_or_null(_character_name(sender_id)) as Node3D
 	if character == null or not is_instance_valid(character):
 		return
-	if character.get("is_shot_down") == true:
+	if character.is_in_group("plane_character") and character.is_shot_down:
 		return
 	var sanitized_snapshot := _sanitize_submitted_snapshot(character, snapshot)
 	_apply_character_state_locally(sender_id, sanitized_snapshot)
@@ -479,7 +494,7 @@ func _is_local_peer(peer_id: int) -> bool:
 func _set_character_local_binding(character: Node3D, local_player: bool) -> void:
 	var local_state_callback := Callable(self, "_on_local_character_state_changed")
 	var signal_connected: bool = character.local_state_changed.is_connected(local_state_callback)
-	var character_peer_id := int(character.get("peer_id"))
+	var character_peer_id: int = character.peer_id
 	var local_bot_authority := _is_bot_peer(character_peer_id) and (
 		multiplayer.multiplayer_peer == null or multiplayer.is_server()
 	)
@@ -497,13 +512,14 @@ func _enforce_local_ownership() -> void:
 
 	var local_peer_id := multiplayer.get_unique_id()
 	for character in _characters.get_children():
-		var character_peer_id := int(character.get("peer_id"))
-		var local_player := character_peer_id == local_peer_id
+		var character_peer_id: int = character.peer_id
+		var local_player: bool = character_peer_id == local_peer_id
 		character.configure(character_peer_id, local_player)
 		_set_character_local_binding(character, local_player)
-		_configure_bot_behavior(character, character_peer_id)
+		if character_type == CharacterType.PLANE:
+			_configure_bot_behavior(character, character_peer_id)
 
-		if local_player:
+		if local_player and character_type == CharacterType.PLANE:
 			_bind_local_plane_presentation(character)
 
 	_update_local_plane_presentation_binding()
@@ -533,7 +549,7 @@ func _broadcast_despawn(peer_id: int) -> void:
 
 
 func _bind_character_health_replication(character: Node3D, peer_id: int) -> void:
-	var health := character.get_node_or_null("Health")
+	var health = character.get_health_component()
 	if health == null:
 		return
 
@@ -548,21 +564,21 @@ func _bind_character_health_replication(character: Node3D, peer_id: int) -> void
 
 func _sync_health_states_to_peer(target_peer_id: int) -> void:
 	for peer_id in _sorted_peer_ids():
-		var health := _get_character_health(peer_id)
+		var health = _get_character_health(peer_id)
 		if health == null:
 			continue
 
-		cl_health_changed.rpc_id(target_peer_id, peer_id, float(health.get("current_hp")))
+		cl_health_changed.rpc_id(target_peer_id, peer_id, health.current_hp)
 		if _is_character_shot_down(peer_id):
 			cl_shot_down.rpc_id(target_peer_id, peer_id)
 
 
-func _get_character_health(peer_id: int) -> Node:
+func _get_character_health(peer_id: int):
 	var character := _characters.get_node_or_null(_character_name(peer_id))
 	if character == null:
 		return null
 
-	return character.get_node_or_null("Health")
+	return character.get_health_component()
 
 
 func _is_character_shot_down(peer_id: int) -> bool:
@@ -570,7 +586,7 @@ func _is_character_shot_down(peer_id: int) -> bool:
 	if character == null:
 		return false
 
-	return bool(character.get("is_shot_down"))
+	return character.is_shot_down
 
 
 func _on_character_damaged(_amount: float, current_hp: float, peer_id: int) -> void:
@@ -594,23 +610,22 @@ func _on_character_shot_down(peer_id: int) -> void:
 
 @rpc("authority", "reliable")
 func cl_health_changed(peer_id: int, current_hp: float) -> void:
-	var health := _get_character_health(peer_id)
+	var health = _get_character_health(peer_id)
 	if health == null:
 		return
 
-	if health.has_method("apply_current_hp_from_network"):
-		health.call("apply_current_hp_from_network", current_hp)
+	health.apply_current_hp_from_network(current_hp)
 
 
 @rpc("authority", "reliable")
 func cl_shot_down(peer_id: int) -> void:
-	var health := _get_character_health(peer_id)
-	if health != null and health.has_method("apply_shot_down_from_network"):
-		health.call("apply_shot_down_from_network")
+	var health = _get_character_health(peer_id)
+	if health != null:
+		health.apply_shot_down_from_network()
 
 	var character := _characters.get_node_or_null(_character_name(peer_id))
-	if character != null and character.has_method("apply_remote_shot_down"):
-		character.call("apply_remote_shot_down")
+	if character != null:
+		character.apply_remote_shot_down()
 
 
 @rpc("any_peer", "reliable")
@@ -620,10 +635,10 @@ func sv_report_ground_impact(impact_speed: float, impact_angle_deg: float) -> vo
 
 	var sender_id := multiplayer.get_remote_sender_id()
 	var character := _characters.get_node_or_null(_character_name(sender_id))
-	if character == null or not character.has_method("apply_ground_impact_damage"):
+	if character == null:
 		return
 
-	character.call("apply_ground_impact_damage", impact_speed, impact_angle_deg)
+	character.apply_ground_impact_damage(impact_speed, impact_angle_deg)
 
 
 func _yaw_towards(character_position: Vector3, target_position: Vector3) -> float:
@@ -646,7 +661,7 @@ func _get_character_scene() -> PackedScene:
 
 func _update_local_plane_presentation_binding() -> void:
 	var local_character := _find_local_character()
-	if local_character == null:
+	if character_type != CharacterType.PLANE or local_character == null:
 		_clear_local_plane_presentation_target()
 		return
 
@@ -659,7 +674,7 @@ func _find_local_character() -> Node3D:
 		local_peer_id = multiplayer.get_unique_id()
 
 	for character in _characters.get_children():
-		if int(character.get("peer_id")) == local_peer_id:
+		if character.peer_id == local_peer_id:
 			return character
 
 	return null
@@ -669,66 +684,13 @@ func _bind_local_plane_presentation(character: Node3D) -> void:
 	if character_type != CharacterType.PLANE:
 		return
 
-	_ensure_local_plane_presentation()
-
-	if _local_plane_camera_rig != null and _local_plane_camera_rig.has_method("set_target"):
-		_local_plane_camera_rig.call("set_target", character)
-
-	if _local_plane_hud != null and _local_plane_hud.has_method("set_target"):
-		_local_plane_hud.call("set_target", character)
-
-	if _local_plane_camera_rig != null and _local_plane_camera_rig.has_method("get_camera"):
-		var cam := _local_plane_camera_rig.call("get_camera") as Camera3D
-		if _local_plane_hud != null and _local_plane_hud.has_method("set_camera"):
-			_local_plane_hud.call("set_camera", cam)
-
-	if _local_targeting_hud != null:
-		if _local_targeting_hud.has_method("set_target"):
-			_local_targeting_hud.call("set_target", character)
-		if _local_plane_camera_rig != null and _local_plane_camera_rig.has_method("get_camera"):
-			var cam := _local_plane_camera_rig.call("get_camera") as Camera3D
-			if _local_targeting_hud.has_method("set_camera"):
-				_local_targeting_hud.call("set_camera", cam)
-
-	if (
-		_local_plane_camera_rig != null
-		and _local_plane_hud != null
-		and _local_plane_hud.has_method("on_camera_rig_detached")
-		and _local_plane_camera_rig.has_signal("detached")
-		and not _local_plane_camera_rig.is_connected(
-			"detached", Callable(_local_plane_hud, "on_camera_rig_detached")
-		)
-	):
-		_local_plane_camera_rig.connect(
-			"detached", Callable(_local_plane_hud, "on_camera_rig_detached")
-		)
-
-
-func _ensure_local_plane_presentation() -> void:
-	if _local_plane_camera_rig == null:
-		_local_plane_camera_rig = LOCAL_PLANE_CAMERA_RIG_SCENE.instantiate() as Node3D
-		add_child(_local_plane_camera_rig)
-
-	if _local_plane_hud == null:
-		_local_plane_hud = PLANE_TELEMETRY_HUD_SCENE.instantiate() as CanvasLayer
-		add_child(_local_plane_hud)
-
-	if _local_targeting_hud == null:
-		_local_targeting_hud = PLANE_TARGETING_HUD_SCENE.instantiate() as CanvasLayer
-		add_child(_local_targeting_hud)
+	if _local_plane_presentation != null:
+		_local_plane_presentation.bind(character)
 
 
 func _clear_local_plane_presentation_target() -> void:
-	if _local_plane_camera_rig != null and _local_plane_camera_rig.has_method("set_target"):
-		_local_plane_camera_rig.call("set_target", null)
-
-	if _local_plane_hud != null and _local_plane_hud.has_method("set_target"):
-		_local_plane_hud.call("set_target", null)
-	if _local_plane_hud != null and _local_plane_hud.has_method("set_camera"):
-		_local_plane_hud.call("set_camera", null)
-
-	if _local_targeting_hud != null and _local_targeting_hud.has_method("set_target"):
-		_local_targeting_hud.call("set_target", null)
+	if _local_plane_presentation != null:
+		_local_plane_presentation.clear()
 
 
 func _physics_process(_delta: float) -> void:
@@ -760,11 +722,9 @@ func _on_projectile_entered(node: Node) -> void:
 	_active_missiles[missile_id] = node
 	var vel := (node as RigidBody3D).linear_velocity if node is RigidBody3D else Vector3.ZERO
 	var target_peer_id := -1
-	var target_node := node.get("target") as Node3D
-	if target_node != null and is_instance_valid(target_node):
-		var peer_value: Variant = target_node.get("peer_id")
-		if peer_value != null:
-			target_peer_id = int(peer_value)
+	var target_node = node.target if "target" in node else null
+	if target_node != null and is_instance_valid(target_node) and target_node.is_in_group("plane_character"):
+		target_peer_id = target_node.peer_id
 	node.died.connect(
 		func(exploded: bool, pos: Vector3) -> void: _on_missile_died(missile_id, exploded, pos)
 	)
@@ -781,24 +741,21 @@ func _on_missile_died(missile_id: int, exploded: bool, pos: Vector3) -> void:
 
 
 func _server_fire_missile(firing_plane: Node3D, locked_target: Node3D) -> void:
-	var missile := MISSILE_SCENE.instantiate() as RigidBody3D
-	var launcher := firing_plane.get_node_or_null("PlaneMissileLauncher")
-	if launcher != null and launcher.has_method("get_and_advance_launch_transform"):
-		missile.global_transform = launcher.call("get_and_advance_launch_transform", firing_plane)
+	var missile = MISSILE_SCENE.instantiate()
+	var launcher = firing_plane.get_missile_launcher_component()
+	if launcher != null:
+		missile.global_transform = launcher.get_and_advance_launch_transform(firing_plane)
 	else:
 		missile.global_transform = firing_plane.global_transform
-	if "target" in missile:
-		missile.set("target", locked_target)
-	if "host" in missile:
-		missile.set("host", firing_plane)
+	missile.target = locked_target
+	missile.host = firing_plane
 	_projectiles.add_child(missile)
-	if firing_plane is RigidBody3D:
-		missile.linear_velocity = (firing_plane as RigidBody3D).linear_velocity
+	missile.linear_velocity = firing_plane.linear_velocity
 	missile.add_collision_exception_with(firing_plane)
 
 
 func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_peer_id: int = -1) -> void:
-	var autocannon := plane.get_node_or_null("Autocannon")
+	var autocannon = plane.get_autocannon_component()
 	if autocannon == null or not is_instance_valid(autocannon):
 		return
 
@@ -807,31 +764,21 @@ func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_peer_id:
 	var aim_direction := AUTOCANNON_SCRIPT.compute_aim_direction(
 		plane,
 		desired_target,
-		float(autocannon.get("bullet_speed")),
-		float(autocannon.get("lead_cone_half_angle_deg"))
+		autocannon.bullet_speed,
+		autocannon.lead_cone_half_angle_deg
 	)
 
-	var bullet := BULLET_SCENE.instantiate() as RigidBody3D
-	if "shooter" in bullet:
-		bullet.set("shooter", plane)
-	if "damage" in bullet:
-		bullet.set("damage", float(autocannon.get("damage")))
+	var bullet = BULLET_SCENE.instantiate()
+	bullet.shooter = plane
+	bullet.damage = autocannon.damage
 	_projectiles.add_child(bullet)
-	var inherited_velocity := Vector3.ZERO
-	if plane is RigidBody3D:
-		inherited_velocity = (plane as RigidBody3D).linear_velocity
-	var launch_velocity := aim_direction * float(autocannon.get("bullet_speed")) + inherited_velocity
-	if bullet.has_method("initialize_launch"):
-		bullet.call("initialize_launch", plane.global_position, launch_velocity)
-	else:
-		bullet.global_position = plane.global_position
-		bullet.look_at(plane.global_position + aim_direction, Vector3.UP)
-		bullet.linear_velocity = launch_velocity
+	var launch_velocity: Vector3 = aim_direction * autocannon.bullet_speed + plane.linear_velocity
+	bullet.initialize_launch(plane.global_position, launch_velocity)
 
 	var bullet_id := _next_bullet_id
 	_next_bullet_id += 1
 	_active_bullets[bullet_id] = bullet
-	_gun_cooldowns[firing_peer_id] = float(autocannon.get("fire_cooldown"))
+	_gun_cooldowns[firing_peer_id] = autocannon.fire_cooldown
 
 	bullet.died.connect(func(hit: bool, pos: Vector3) -> void: _on_bullet_died(hit, pos, bullet_id))
 
@@ -844,16 +791,16 @@ func _resolve_autocannon_target(plane: Node3D, target_peer_id: int) -> Node3D:
 	if target_peer_id < 0:
 		return null
 
-	var target := _characters.get_node_or_null(_character_name(target_peer_id)) as Node3D
+	var target := _characters.get_node_or_null(_character_name(target_peer_id))
 	if target == null or not is_instance_valid(target):
 		return null
-	if target.get("is_shot_down") == true:
+	if target.is_shot_down:
 		return null
 
-	var weapon_lock := plane.get_node_or_null("PlaneWeaponLock")
+	var weapon_lock = plane.get_weapon_lock_component()
 	if weapon_lock == null or not is_instance_valid(weapon_lock):
 		return null
-	if weapon_lock.has_method("is_target_in_envelope") and not bool(weapon_lock.call("is_target_in_envelope", target)):
+	if not weapon_lock.is_target_in_envelope(target):
 		return null
 
 	return target
@@ -863,16 +810,16 @@ func _resolve_missile_target(plane: Node3D, target_peer_id: int) -> Node3D:
 	if target_peer_id < 0:
 		return null
 
-	var target := _characters.get_node_or_null(_character_name(target_peer_id)) as Node3D
+	var target := _characters.get_node_or_null(_character_name(target_peer_id))
 	if target == null or not is_instance_valid(target):
 		return null
-	if target.get("is_shot_down") == true:
+	if target.is_shot_down:
 		return null
 
-	var weapon_lock := plane.get_node_or_null("PlaneWeaponLock")
+	var weapon_lock = plane.get_weapon_lock_component()
 	if weapon_lock == null or not is_instance_valid(weapon_lock):
 		return null
-	if weapon_lock.has_method("is_target_in_envelope") and not bool(weapon_lock.call("is_target_in_envelope", target)):
+	if not weapon_lock.is_target_in_envelope(target):
 		return null
 
 	return target
@@ -891,18 +838,18 @@ func sv_request_fire_missile(firing_peer_id: int, target_peer_id: int) -> void:
 		return
 	if multiplayer.get_remote_sender_id() != firing_peer_id:
 		return
-	var firing_plane := _characters.get_node_or_null(_character_name(firing_peer_id)) as Node3D
+	var firing_plane := _characters.get_node_or_null(_character_name(firing_peer_id))
 	if firing_plane == null or not is_instance_valid(firing_plane):
 		return
-	if firing_plane.get("is_shot_down") == true:
+	if firing_plane.is_shot_down:
 		return
 	var cooldown := float(_missile_cooldowns.get(firing_peer_id, 0.0))
 	if cooldown > 0.0:
 		return
 	var locked_target := _resolve_missile_target(firing_plane, target_peer_id)
-	var launcher := firing_plane.get_node_or_null("PlaneMissileLauncher")
+	var launcher = firing_plane.get_missile_launcher_component()
 	if launcher != null and is_instance_valid(launcher):
-		_missile_cooldowns[firing_peer_id] = float(launcher.get("fire_cooldown"))
+		_missile_cooldowns[firing_peer_id] = launcher.fire_cooldown
 	_server_fire_missile(firing_plane, locked_target)
 
 
@@ -912,10 +859,10 @@ func sv_request_fire_autocannon(firing_peer_id: int, target_peer_id: int) -> voi
 		return
 	if multiplayer.get_remote_sender_id() != firing_peer_id:
 		return
-	var plane := _characters.get_node_or_null(_character_name(firing_peer_id)) as Node3D
+	var plane := _characters.get_node_or_null(_character_name(firing_peer_id))
 	if plane == null or not is_instance_valid(plane):
 		return
-	if plane.get("is_shot_down") == true:
+	if plane.is_shot_down:
 		return
 	var cooldown := float(_gun_cooldowns.get(firing_peer_id, 0.0))
 	if cooldown > 0.0:
@@ -927,12 +874,9 @@ func sv_request_fire_autocannon(firing_peer_id: int, target_peer_id: int) -> voi
 func cl_spawn_missile(missile_id: int, t: Transform3D, velocity: Vector3, target_peer_id: int) -> void:
 	if multiplayer.is_server():
 		return
-	var visual := MISSILE_VISUAL_SCENE.instantiate() as Node3D
+	var visual = MISSILE_VISUAL_SCENE.instantiate()
 	_projectiles.add_child(visual)
-	if visual.has_method("init"):
-		visual.call("init", t, velocity, _resolve_remote_missile_target(target_peer_id))
-	else:
-		visual.global_transform = t
+	visual.init(t, velocity, _resolve_remote_missile_target(target_peer_id))
 	_remote_missiles[missile_id] = visual
 
 
@@ -940,9 +884,9 @@ func cl_spawn_missile(missile_id: int, t: Transform3D, velocity: Vector3, target
 func cl_spawn_bullet(bullet_id: int, pos: Vector3, vel: Vector3) -> void:
 	if multiplayer.is_server():
 		return
-	var visual := BULLET_VISUAL_SCENE.instantiate() as Node3D
+	var visual = BULLET_VISUAL_SCENE.instantiate()
 	_projectiles.add_child(visual)
-	visual.call("init", pos, vel)
+	visual.init(pos, vel)
 	_active_bullet_visuals[bullet_id] = visual
 
 
@@ -950,16 +894,13 @@ func cl_spawn_bullet(bullet_id: int, pos: Vector3, vel: Vector3) -> void:
 func cl_despawn_missile(missile_id: int, exploded: bool, pos: Vector3) -> void:
 	if multiplayer.is_server():
 		return
-	var visual := _remote_missiles.get(missile_id) as Node
+	var visual = _remote_missiles.get(missile_id)
 	if visual != null and is_instance_valid(visual):
 		if exploded:
 			var explosion := EXPLOSION_SCENE.instantiate() as Node3D
 			_projectiles.add_child(explosion)
 			explosion.global_position = pos
-		if visual.has_method("despawn"):
-			visual.call("despawn", pos)
-		else:
-			visual.call("die")
+		visual.despawn(pos)
 	_remote_missiles.erase(missile_id)
 
 
@@ -973,9 +914,9 @@ func _resolve_remote_missile_target(target_peer_id: int) -> Node3D:
 func cl_despawn_bullet(bullet_id: int, pos: Vector3) -> void:
 	if multiplayer.is_server():
 		return
-	var visual := _active_bullet_visuals.get(bullet_id) as Node
+	var visual = _active_bullet_visuals.get(bullet_id)
 	if visual != null and is_instance_valid(visual):
-		visual.call("despawn", pos)
+		visual.despawn(pos)
 	_active_bullet_visuals.erase(bullet_id)
 
 

@@ -1,3 +1,4 @@
+class_name Bullet
 extends RigidBody3D
 
 const TRAIL_SCENE := preload("res://scenes/wing_trail.tscn")

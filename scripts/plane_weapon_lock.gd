@@ -1,3 +1,4 @@
+class_name PlaneWeaponLock
 extends Node
 
 @export var lock_cone_half_angle_deg: float = 15.0

@@ -1,3 +1,4 @@
+class_name PlaneBotPilot
 extends Node
 
 const BOT_DEBUG_RENDERER_SCRIPT := preload("res://scripts/bot_debug_renderer_3d.gd")
@@ -100,7 +101,7 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 	Vector3(0.0, 1500.0, 0.0),
 ]
 
-var _plane: RigidBody3D
+var _plane
 var _altitude_target_active := false
 var _target_altitude := 0.0
 var _flight_state: int = FlightState.IDLE
@@ -141,7 +142,7 @@ var _frame_local_angular_velocity := Vector3.ZERO
 
 
 func _ready() -> void:
-	_plane = get_parent() as RigidBody3D
+	_plane = get_parent()
 	if _plane == null:
 		set_physics_process(false)
 		return
@@ -153,7 +154,7 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if _plane.get("is_shot_down") == true:
+	if _plane.is_shot_down:
 		if _bot_debug_renderer != null:
 			if _bot_debug_renderer.has_method("clear"):
 				_bot_debug_renderer.call("clear")
@@ -168,7 +169,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _update_frame_cache() -> void:
-	var plane_transform := _plane.global_transform
+	var plane_transform: Transform3D = _plane.global_transform
 	_frame_position = plane_transform.origin
 	_frame_velocity = _plane.linear_velocity
 	_frame_speed = _frame_velocity.length()
@@ -233,7 +234,7 @@ func _update_bot_debug_renderer_state() -> void:
 	if _bot_debug_renderer == null:
 		return
 
-	var should_show := debug_bot_visuals_enabled and _plane != null and _plane.is_inside_tree()
+	var should_show: bool = debug_bot_visuals_enabled and _plane != null and _plane.is_inside_tree()
 	_bot_debug_renderer.visible = should_show
 	if not should_show and _bot_debug_renderer.has_method("clear"):
 		_bot_debug_renderer.call("clear")
@@ -773,9 +774,6 @@ func _get_recovery_exit_speed() -> float:
 
 
 func _update_turn_limiter_mode(forward_speed: float) -> void:
-	if not _plane.has_method("set_sustain_turn_limiter_runtime_enabled"):
-		return
-
 	var threshold := maxf(max_lift_turn_min_forward_speed, 0.0)
 	var sustain_limiter_enabled := forward_speed < threshold
 	if _flight_state == FlightState.GROUND_AVOIDANCE or _flight_state == FlightState.COLLISION_AVOIDANCE:
@@ -785,7 +783,7 @@ func _update_turn_limiter_mode(forward_speed: float) -> void:
 
 	_has_applied_turn_limiter_mode = true
 	_last_sustain_turn_limiter_enabled = sustain_limiter_enabled
-	_plane.call("set_sustain_turn_limiter_runtime_enabled", sustain_limiter_enabled)
+	_plane.set_sustain_turn_limiter_runtime_enabled(sustain_limiter_enabled)
 
 
 func _update_collision_threat() -> void:
@@ -905,8 +903,8 @@ func _has_follow_target() -> bool:
 func _get_node_velocity(body: Variant) -> Vector3:
 	if body == null or not is_instance_valid(body):
 		return Vector3.ZERO
-	if body.has_method("get_replicated_velocity"):
-		return body.call("get_replicated_velocity")
+	if body.is_in_group("plane_character"):
+		return body.get_replicated_velocity()
 	if body is RigidBody3D:
 		return (body as RigidBody3D).linear_velocity
 	return Vector3.ZERO
@@ -1139,16 +1137,13 @@ func _get_wings_level_roll_target() -> float:
 
 
 func _get_roll_input_for_error(roll_error: float, angle_to_rate_gain: float, rate_scale: float = 1.0) -> float:
-	if _plane != null and _plane.has_method("get_roll_input_for_error"):
-		return _plane.call(
-			"get_roll_input_for_error",
-			roll_error,
-			angle_to_rate_gain,
-			ROLL_MAX_DESIRED_RATE,
-			ROLL_RATE_RESPONSE_GAIN,
-			rate_scale
-		)
-	return 0.0
+	return _plane.get_roll_input_for_error(
+		roll_error,
+		angle_to_rate_gain,
+		ROLL_MAX_DESIRED_RATE,
+		ROLL_RATE_RESPONSE_GAIN,
+		rate_scale
+	)
 
 
 func _get_local_roll_rate() -> float:
@@ -1305,58 +1300,56 @@ func _get_horizontal_forward_axis() -> Vector3:
 
 
 func _update_weapon_targeting() -> void:
-	var weapon_lock := _plane.get_node_or_null("PlaneWeaponLock")
+	var weapon_lock = _plane.get_weapon_lock_component()
 	if weapon_lock == null:
 		return
 	var raw_target: Node3D = _follow_target if _has_follow_target() else null
-	if raw_target != null and raw_target.get("is_shot_down") == true:
+	if raw_target != null and raw_target.is_in_group("plane_character") and raw_target.is_shot_down:
 		raw_target = null
 	var desired_target: Node3D = raw_target
-	weapon_lock.call("set_desired_target", desired_target)
-	if bool(weapon_lock.call("is_locked")):
-		var launcher := _plane.get_node_or_null("PlaneMissileLauncher")
+	weapon_lock.set_desired_target(desired_target)
+	if weapon_lock.is_locked():
+		var launcher = _plane.get_missile_launcher_component()
 		if launcher != null:
-			launcher.call("try_fire")
+			launcher.try_fire()
 
 	if _should_fire_autocannon(desired_target):
-		var autocannon := _plane.get_node_or_null("Autocannon")
+		var autocannon = _plane.get_autocannon_component()
 		if autocannon != null:
-			autocannon.call("try_fire")
+			autocannon.try_fire()
 
 
 func _should_fire_autocannon(target: Node3D) -> bool:
 	if target == null or not is_instance_valid(target):
 		return false
 
-	var max_range := maxf(autocannon_fire_max_range, 0.0)
+	var max_range: float = maxf(autocannon_fire_max_range, 0.0)
 	if max_range <= 0.0:
 		return false
 
-	var to_target := target.global_position - _frame_position
-	var distance := to_target.length()
+	var to_target: Vector3 = target.global_position - _frame_position
+	var distance: float = to_target.length()
 	if distance <= 0.001 or distance > max_range:
 		return false
 
-	var autocannon := _plane.get_node_or_null("Autocannon")
+	var autocannon = _plane.get_autocannon_component()
 	if autocannon == null:
 		return false
 
-	var cone_half_angle_deg := float(autocannon.get("lead_cone_half_angle_deg"))
-	var forward_axis := _frame_forward_axis.normalized()
-	var direction_to_target := to_target / distance
-	var angle := acos(clampf(forward_axis.dot(direction_to_target), -1.0, 1.0))
+	var cone_half_angle_deg: float = autocannon.lead_cone_half_angle_deg
+	var forward_axis: Vector3 = _frame_forward_axis.normalized()
+	var direction_to_target: Vector3 = to_target / distance
+	var angle: float = acos(clampf(forward_axis.dot(direction_to_target), -1.0, 1.0))
 	return angle <= deg_to_rad(cone_half_angle_deg)
 
 
 func _apply_controls(roll_value: float, pitch_value: float, yaw_value: float, throttle_value: float) -> void:
-	if _plane.has_method("set_bot_control_inputs"):
-		_plane.call(
-			"set_bot_control_inputs",
-			clampf(roll_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
-			clampf(pitch_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
-			clampf(yaw_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
-			clampf(throttle_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
-		)
+	_plane.set_bot_control_inputs(
+		clampf(roll_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
+		clampf(pitch_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
+		clampf(yaw_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
+		clampf(throttle_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
+	)
 
 
 func _get_forward_speed() -> float:
@@ -1367,21 +1360,21 @@ func _measure_ground_clearance() -> float:
 	if _plane == null or not _plane.is_inside_tree():
 		return INF
 
-	var world_ref := _plane.get_world_3d()
+	var world_ref: World3D = _plane.get_world_3d()
 	if world_ref == null:
 		return INF
 
-	var ray_distance := maxf(ground_probe_distance, min_ground_clearance)
+	var ray_distance: float = maxf(ground_probe_distance, min_ground_clearance)
 	if ray_distance <= 0.0:
 		return INF
 
-	var from_point := _frame_position
-	var to_point := from_point + Vector3.DOWN * ray_distance
-	var query := PhysicsRayQueryParameters3D.create(from_point, to_point)
+	var from_point: Vector3 = _frame_position
+	var to_point: Vector3 = from_point + Vector3.DOWN * ray_distance
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from_point, to_point)
 	query.exclude = _get_ground_probe_exclusions()
 	query.collide_with_areas = false
 
-	var hit := world_ref.direct_space_state.intersect_ray(query)
+	var hit: Dictionary = world_ref.direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		return INF
 

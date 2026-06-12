@@ -7,27 +7,27 @@ static func apply_to_tree(characters: Node) -> void:
 
 
 static func apply_to_character(character: Node) -> void:
-	if _has_property(character, "debug_force_vectors_enabled"):
-		character.set("debug_force_vectors_enabled", DisplaySettings.debug_force_arrows_enabled)
+	if character == null or not character.is_in_group("plane_character"):
+		return
 
-	if DisplaySettings.debug_force_arrows_enabled and character.has_method("_ensure_force_debug_renderer"):
-		character.call("_ensure_force_debug_renderer")
+	var plane := character
+	plane.debug_force_vectors_enabled = DisplaySettings.debug_force_arrows_enabled
 
-	if character.has_method("_update_force_debug_renderer_state"):
-		character.call("_update_force_debug_renderer_state")
+	if DisplaySettings.debug_force_arrows_enabled:
+		plane._ensure_force_debug_renderer()
 
-	var bot_pilot := character.get_node_or_null("PlaneBotPilot")
+	plane._update_force_debug_renderer_state()
+
+	var bot_pilot = plane.get_bot_pilot()
 	if bot_pilot == null:
 		return
 
-	if _has_property(bot_pilot, "debug_bot_visuals_enabled"):
-		bot_pilot.set("debug_bot_visuals_enabled", DisplaySettings.bot_debug_enabled)
+	bot_pilot.debug_bot_visuals_enabled = DisplaySettings.bot_debug_enabled
 
-	if DisplaySettings.bot_debug_enabled and bot_pilot.has_method("_ensure_bot_debug_renderer"):
-		bot_pilot.call("_ensure_bot_debug_renderer")
+	if DisplaySettings.bot_debug_enabled:
+		bot_pilot._ensure_bot_debug_renderer()
 
-	if bot_pilot.has_method("_update_bot_debug_renderer_state"):
-		bot_pilot.call("_update_bot_debug_renderer_state")
+	bot_pilot._update_bot_debug_renderer_state()
 
 
 static func _has_property(object: Object, property_name: String) -> bool:

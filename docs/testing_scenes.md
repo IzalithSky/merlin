@@ -58,6 +58,25 @@ Good examples:
 - invoke a damage path and verify HP/state transitions
 - feed one remote snapshot and confirm interpolation state updates
 
+## Refactor Seam Checks
+
+When the change is mostly structural rather than behavioral, prefer a short
+set of scene-level checks that crosses the moved seam at least once.
+
+For the current controller / bot / world split work, the useful minimum is:
+
+1. Boot `res://scenes/world_0.tscn` headless.
+2. Run the local projectile smokes.
+3. Run the camera-detach harness.
+4. Run the multiplayer smoke only when the environment can open local UDP sockets.
+
+This catches the common failure modes for seam work:
+
+- renamed methods or fields across scripts
+- missing child-node wiring after typed accessor changes
+- local presentation binding regressions
+- bot setup / weapon hookup regressions
+
 ## Avoiding False Confidence
 
 Headless scene boot is useful, but it is not a replacement for real multiplayer or gameplay verification.
@@ -104,9 +123,20 @@ The multiplayer smoke asserts:
 - both peers spawn both player planes
 - host-side damage on the remote player replicates to the client health view
 
+For the current structural split work, the most relevant fast subset is:
+
+- `res://tests/autocannon_smoke.tscn`
+- `res://tests/bot_autocannon_smoke.tscn`
+- `res://tests/missile_hardpoint_smoke.tscn`
+- `res://tests/test_camera_detach.gd`
+
+Use those before the multiplayer smoke when you only changed script seams,
+component ownership, or HUD / camera binding.
+
 ## Command Guidelines
 
 - Use project-relative scene paths such as `res://scenes/world_0.tscn`.
 - Keep `--quit-after` short for startup checks.
 - Run the smallest scene that still exercises the edited code in project context.
 - If a script depends on autoloads, avoid standalone script execution that bypasses normal scene boot unless you recreate that context explicitly.
+- Treat multiplayer smoke failures caused by socket creation / bind errors as environment failures first, not immediate gameplay regressions.

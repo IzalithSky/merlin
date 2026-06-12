@@ -1,9 +1,11 @@
+class_name PlaneCharacter
 extends RigidBody3D
 
 signal local_state_changed(peer_id: int, snapshot: Dictionary)
 
 const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer_3d.gd")
+const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
 
 @export var rot_rate: float = 2.4
 @export var rot_decay: float = 3.0
@@ -142,6 +144,11 @@ const REMOTE_MAX_SNAPSHOTS := 4
 
 @export var flame_trail_scene: PackedScene
 
+@onready var _health = $Health
+@onready var _weapon_lock = $PlaneWeaponLock
+@onready var _missile_launcher = $MissileLauncher
+@onready var _autocannon = $Autocannon
+
 var peer_id := 1
 var is_local_player := false
 var is_bot_controlled := false
@@ -208,15 +215,15 @@ var _last_ground_impact_time: float = -INF
 
 func _ready() -> void:
 	add_to_group("player_character")
+	add_to_group("plane_character")
 	_shot_down_random.randomize()
 	_apply_spawn_control_defaults()
 	_sanitize_aero_tables()
 	_apply_persisted_aero_tables()
 	_ensure_force_debug_renderer()
 	_apply_local_player_mode()
-	var health := get_node_or_null("Health")
-	if health != null:
-		health.shot_down.connect(_on_shot_down)
+	if _health != null:
+		_health.shot_down.connect(_on_shot_down)
 
 
 func configure(new_peer_id: int, local_player: bool) -> void:
@@ -228,6 +235,43 @@ func configure(new_peer_id: int, local_player: bool) -> void:
 		if is_local_player and not was_local_player:
 			_apply_spawn_control_defaults()
 		_apply_local_player_mode()
+
+
+func get_health_component():
+	return _health
+
+
+func get_weapon_lock_component():
+	return _weapon_lock
+
+
+func get_missile_launcher_component():
+	return _missile_launcher
+
+
+func get_autocannon_component():
+	return _autocannon
+
+
+func get_bot_pilot():
+	return get_node_or_null("PlaneBotPilot")
+
+
+func ensure_bot_pilot():
+	var pilot = get_bot_pilot()
+	if pilot != null:
+		return pilot
+
+	pilot = PLANE_BOT_PILOT_SCRIPT.new()
+	pilot.name = "PlaneBotPilot"
+	add_child(pilot)
+	return pilot
+
+
+func clear_bot_pilot() -> void:
+	var pilot = get_bot_pilot()
+	if pilot != null:
+		pilot.queue_free()
 
 
 func _physics_process(delta: float) -> void:
@@ -863,8 +907,8 @@ func _handle_ground_impact_contacts(state: PhysicsDirectBodyState3D) -> void:
 		apply_ground_impact_damage(impact_speed, impact_angle_deg)
 		return
 
-	var world := get_tree().current_scene
-	if world != null and world.has_method("sv_report_ground_impact"):
+	var world := _find_world_spawner()
+	if world != null:
 		world.sv_report_ground_impact.rpc_id(1, impact_speed, impact_angle_deg)
 
 
@@ -872,12 +916,19 @@ func _is_ground_body(body: Node) -> bool:
 	return body is StaticBody3D
 
 
+func _find_world_spawner() -> Node:
+	var world_nodes := get_tree().get_nodes_in_group("world_character_spawner")
+	if world_nodes.is_empty():
+		return null
+	return world_nodes[0]
+
+
 func apply_ground_impact_damage(impact_speed: float, impact_angle_deg: float) -> void:
 	if is_shot_down:
 		return
 
-	var health := get_node_or_null("Health")
-	if health == null or not health.has_method("take_damage"):
+	var health = get_health_component()
+	if health == null:
 		return
 
 	var fatal_speed_threshold := maxf(ground_impact_fatal_speed_threshold, ground_impact_damage_speed_threshold)
@@ -885,8 +936,7 @@ func apply_ground_impact_damage(impact_speed: float, impact_angle_deg: float) ->
 		impact_speed >= fatal_speed_threshold and
 		impact_angle_deg >= maxf(ground_impact_fatal_surface_angle_deg, 0.0)
 	):
-		var max_hp := float(health.get("max_hp"))
-		health.call("take_damage", max_hp)
+		health.take_damage(health.max_hp)
 		return
 
 	if impact_speed <= ground_impact_damage_speed_threshold:
@@ -900,7 +950,7 @@ func apply_ground_impact_damage(impact_speed: float, impact_angle_deg: float) ->
 	)
 	var damage_amount := ground_impact_max_damage * damage_ratio
 	if damage_amount > 0.0:
-		health.call("take_damage", damage_amount)
+		health.take_damage(damage_amount)
 
 
 func _get_surface_impact_angle_deg(surface_normal_world: Vector3, movement_velocity_world: Vector3) -> float:

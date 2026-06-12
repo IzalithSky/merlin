@@ -1,6 +1,6 @@
 # Missiles and Target Locking
 
-Status: partial — implemented and current for runtime behavior; live default values should be read from the `@export` fields in `scripts/missile.gd`, `scripts/plane_missile_launcher.gd`, and `scripts/plane_weapon_lock.gd`.
+Status: partial — implemented and current for runtime behavior; live default values should be read from the `@export` fields in `scripts/missile.gd`, `scripts/missile_launcher.gd`, and `scripts/plane_weapon_lock.gd`.
 
 ## Overview
 
@@ -166,9 +166,9 @@ current project, planes with `Health` receive real explosion damage.
 
 ---
 
-## Launcher — `plane_missile_launcher.gd`
+## Launcher — `missile_launcher.gd`
 
-One `PlaneMissileLauncher` node lives on every plane. It polls player input or
+One `MissileLauncher` node lives on every plane. It polls player input or
 responds to the bot pilot and calls `_try_fire`.
 
 | Export | Meaning |

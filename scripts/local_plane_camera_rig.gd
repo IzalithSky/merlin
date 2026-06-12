@@ -1,3 +1,4 @@
+class_name LocalPlaneCameraRig
 extends Node3D
 
 signal detached
@@ -16,7 +17,7 @@ signal detached
 @onready var _camera_yaw_pivot: Node3D = %CameraYawPivot
 @onready var _camera_pitch_pivot: Node3D = %CameraPitchPivot
 
-var _target: Node3D
+var _target
 var _camera_yaw := 0.0
 var _camera_pitch := 0.0
 var _shot_down_detach_deadline := -1.0
@@ -113,7 +114,7 @@ func _physics_process(delta: float) -> void:
 		_apply_max_lift_aoa_shake(0.0)
 		return
 
-	var target_shot_down: bool = _target.get("is_shot_down") == true
+	var target_shot_down: bool = _target.is_shot_down
 	if target_shot_down:
 		if _shot_down_detach_deadline < 0.0:
 			if shot_down_detach_delay_sec <= 0.0:
@@ -126,7 +127,7 @@ func _physics_process(delta: float) -> void:
 	else:
 		_shot_down_detach_deadline = -1.0
 
-	var target_position := _target.global_position
+	var target_position: Vector3 = _target.global_position
 	if follow_lerp_speed <= 0.0:
 		global_position = target_position
 	else:
@@ -198,7 +199,7 @@ func _apply_max_lift_aoa_shake(delta: float) -> void:
 	var base_transform := Transform3D.IDENTITY if _first_person else _third_person_camera_transform
 	var shake_ratio := 0.0
 	if _target != null and is_instance_valid(_target) and _target.has_method("get_max_lift_aoa_exceedance_ratio"):
-		shake_ratio = clampf(float(_target.call("get_max_lift_aoa_exceedance_ratio")), 0.0, 1.0)
+		shake_ratio = clampf(_target.get_max_lift_aoa_exceedance_ratio(), 0.0, 1.0)
 
 	if shake_ratio <= 0.0:
 		_camera.transform = base_transform

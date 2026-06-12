@@ -1,3 +1,4 @@
+class_name MissileLauncher
 extends Node
 
 const MISSILE_SCENE := preload("res://scenes/missile.tscn")
@@ -15,7 +16,7 @@ var _next_hardpoint_index: int = 0
 func _ready() -> void:
 	_projectiles_container = get_tree().current_scene.get_node_or_null("projectiles")
 	if _projectiles_container == null:
-		push_warning("PlaneMissileLauncher: no 'projectiles' node found in scene root; missiles will be added to scene root")
+		push_warning("MissileLauncher: no 'projectiles' node found in scene root; missiles will be added to scene root")
 		_projectiles_container = get_tree().current_scene
 
 
@@ -23,14 +24,14 @@ func _process(delta: float) -> void:
 	if _cooldown_remaining > 0.0:
 		_cooldown_remaining -= delta
 
-	var plane := get_parent() as Node3D
+	var plane := get_parent()
 	if plane == null or not is_instance_valid(plane):
 		return
 
 	if not _is_local_player(plane):
 		return
 
-	if plane.get("is_shot_down") == true:
+	if plane.is_shot_down:
 		return
 
 	if Input.is_action_just_pressed("fire_missile") and _cooldown_remaining <= 0.0:
@@ -40,32 +41,29 @@ func _process(delta: float) -> void:
 func try_fire() -> void:
 	if _cooldown_remaining > 0.0:
 		return
-	var plane := get_parent() as Node3D
+	var plane := get_parent()
 	if plane == null or not is_instance_valid(plane):
 		return
-	if plane.get("is_shot_down") == true:
+	if plane.is_shot_down:
 		return
 	_try_fire(plane)
 
 
 func _try_fire(plane: Node3D) -> void:
-	if plane.get("is_shot_down") == true:
+	if plane.is_shot_down:
 		return
 
 	var locked_target: Node3D = null
-	var weapon_lock := plane.get_node_or_null("PlaneWeaponLock")
+	var weapon_lock = plane.get_weapon_lock_component()
 	if weapon_lock != null and is_instance_valid(weapon_lock):
-		locked_target = weapon_lock.call("get_locked_target") as Node3D
+		locked_target = weapon_lock.get_locked_target()
 
 	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
-		# Client: ask the server to spawn the missile
 		var target_peer_id := -1
-		if locked_target != null and is_instance_valid(locked_target):
-			var tp: Variant = locked_target.get("peer_id")
-			if tp != null:
-				target_peer_id = int(tp)
-		var spawner := get_tree().current_scene
-		if spawner.has_method("sv_request_fire_missile"):
+		if locked_target.is_in_group("plane_character"):
+			target_peer_id = locked_target.peer_id
+		var spawner := _find_world_spawner()
+		if spawner != null:
 			spawner.sv_request_fire_missile.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
 	else:
 		_fire(plane, locked_target)
@@ -74,20 +72,17 @@ func _try_fire(plane: Node3D) -> void:
 
 
 func _fire(plane: Node3D, locked_target: Node3D) -> void:
-	var missile := MISSILE_SCENE.instantiate() as RigidBody3D
+	var missile = MISSILE_SCENE.instantiate()
 	missile.global_transform = get_and_advance_launch_transform(plane)
-	if "target" in missile:
-		missile.set("target", locked_target)
-	if "host" in missile:
-		missile.set("host", plane)
+	missile.target = locked_target
+	missile.host = plane
 
 	_projectiles_container.add_child(missile)
 
 	if plane is RigidBody3D:
 		missile.linear_velocity = (plane as RigidBody3D).linear_velocity
 
-	if missile.has_method("add_collision_exception_with"):
-		missile.add_collision_exception_with(plane)
+	missile.add_collision_exception_with(plane)
 
 
 func get_and_advance_launch_transform(plane: Node3D) -> Transform3D:
@@ -104,7 +99,11 @@ func get_and_advance_launch_transform(plane: Node3D) -> Transform3D:
 
 
 func _is_local_player(plane: Node3D) -> bool:
-	var lp: Variant = plane.get("is_local_player")
-	if lp != null:
-		return bool(lp)
-	return true
+	return plane.is_local_player
+
+
+func _find_world_spawner() -> Node:
+	var world_nodes := get_tree().get_nodes_in_group("world_character_spawner")
+	if world_nodes.is_empty():
+		return null
+	return world_nodes[0]

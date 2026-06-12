@@ -1,3 +1,4 @@
+class_name PlaneTelemetryHud
 extends CanvasLayer
 
 const NOSE_DIRECTION_TEXTURE_PATH := "res://textures/hud/nose_sprite.png"
@@ -28,7 +29,7 @@ const VELOCITY_DIRECTION_TEXTURE_PATH := "res://textures/hud/heading_sprite.png"
 @onready var _nose_direction_indicator: TextureRect = %NoseDirectionIndicator
 @onready var _velocity_direction_indicator: TextureRect = %VelocityDirectionIndicator
 
-var _target: RigidBody3D
+var _target
 var _camera: Camera3D
 var _advanced_hud_nodes: Array[CanvasItem] = []
 var _advanced_hud_enabled := true
@@ -54,7 +55,7 @@ func _ready() -> void:
 
 
 func set_target(target: Node3D = null) -> void:
-	_target = target as RigidBody3D
+	_target = target
 	if _target == null:
 		_reset_labels()
 		_reset_global_direction_indicators()
@@ -77,10 +78,10 @@ func _process(_delta: float) -> void:
 		_reset_global_direction_indicators()
 		return
 
-	var forward_axis := -_target.global_transform.basis.z
-	var airspeed_forward := _target.linear_velocity.dot(forward_axis)
-	var vertical_speed := _target.linear_velocity.y
-	var altitude := _target.global_position.y
+	var forward_axis: Vector3 = -_target.global_transform.basis.z
+	var airspeed_forward: float = _target.linear_velocity.dot(forward_axis)
+	var vertical_speed: float = _target.linear_velocity.y
+	var altitude: float = _target.global_position.y
 	var throttle_percent := 0.0
 	var aoa_deg := 0.0
 	var pitch_input := 0.0
@@ -91,24 +92,15 @@ func _process(_delta: float) -> void:
 	var stabilization_assist_enabled := true
 	var input_decay_enabled := true
 
-	if _target.has_method("get_throttle_percent"):
-		throttle_percent = float(_target.call("get_throttle_percent"))
-	if _target.has_method("get_aoa_deg"):
-		aoa_deg = float(_target.call("get_aoa_deg"))
-	if _target.has_method("get_pitch_input"):
-		pitch_input = float(_target.call("get_pitch_input"))
-	if _target.has_method("get_yaw_input"):
-		yaw_input = float(_target.call("get_yaw_input"))
-	if _target.has_method("get_roll_input"):
-		roll_input = float(_target.call("get_roll_input"))
-	if _target.has_method("get_throttle_input"):
-		throttle_input = float(_target.call("get_throttle_input"))
-	if _target.has_method("is_pitch_assist_enabled"):
-		pitch_assist_enabled = bool(_target.call("is_pitch_assist_enabled"))
-	if _target.has_method("is_stabilization_assist_enabled"):
-		stabilization_assist_enabled = bool(_target.call("is_stabilization_assist_enabled"))
-	if _target.has_method("is_input_decay_enabled"):
-		input_decay_enabled = bool(_target.call("is_input_decay_enabled"))
+	throttle_percent = _target.get_throttle_percent()
+	aoa_deg = _target.get_aoa_deg()
+	pitch_input = _target.get_pitch_input()
+	yaw_input = _target.get_yaw_input()
+	roll_input = _target.get_roll_input()
+	throttle_input = _target.get_throttle_input()
+	pitch_assist_enabled = _target.is_pitch_assist_enabled()
+	stabilization_assist_enabled = _target.is_stabilization_assist_enabled()
+	input_decay_enabled = _target.is_input_decay_enabled()
 
 	_airspeed_value.text = "%.1f m/s" % airspeed_forward
 	_vertical_speed_value.text = "%.1f m/s" % vertical_speed
@@ -118,11 +110,9 @@ func _process(_delta: float) -> void:
 	_stabilization_assist_value.text = "ON" if stabilization_assist_enabled else "OFF"
 	_input_decay_value.text = "ON" if input_decay_enabled else "OFF"
 
-	var health := _target.get_node_or_null("Health")
+	var health = _target.get_health_component()
 	if health != null:
-		var max_hp: float = float(health.get("max_hp"))
-		var current_hp: float = float(health.get("current_hp"))
-		_hp_value.text = "%d / %d" % [int(current_hp), int(max_hp)]
+		_hp_value.text = "%d / %d" % [int(health.current_hp), int(health.max_hp)]
 	else:
 		_hp_value.text = "--"
 
@@ -175,16 +165,11 @@ func _reset_advanced_labels() -> void:
 
 
 func _update_force_balance_debug() -> void:
-	if _target == null or not _target.has_method("get_force_balance_snapshot"):
+	if _target == null:
 		_reset_force_balance_debug()
 		return
 
-	var snapshot_variant: Variant = _target.call("get_force_balance_snapshot")
-	if not (snapshot_variant is Dictionary):
-		_reset_force_balance_debug()
-		return
-
-	var snapshot: Dictionary = snapshot_variant
+	var snapshot: Dictionary = _target.get_force_balance_snapshot()
 	_force_axis_speed_value.text = "%.1f m/s" % _read_snapshot_float(snapshot, "speed")
 	_thrust_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "thrust_along_velocity")
 	_drag_along_value.text = "%.1f N" % _read_snapshot_float(snapshot, "drag_along_velocity")
@@ -194,14 +179,14 @@ func _update_force_balance_debug() -> void:
 
 
 func _update_vy_debug() -> void:
-	if _target == null or not _target.has_method("get_best_climb_speed_vy"):
+	if _target == null:
 		_vy_speed_value.text = "--"
 		_vy_active_value.text = "--"
 		return
 
-	var vy := float(_target.call("get_best_climb_speed_vy"))
-	var valid := bool(_target.call("is_best_climb_speed_vy_valid"))
-	var using_vy := bool(_target.call("is_sustain_turn_using_vy"))
+	var vy: float = _target.get_best_climb_speed_vy()
+	var valid: bool = _target.is_best_climb_speed_vy_valid()
+	var using_vy: bool = _target.is_sustain_turn_using_vy()
 	_vy_speed_value.text = ("%.1f m/s" % vy) if valid else "---"
 	_vy_active_value.text = "YES" if using_vy else "no"
 
@@ -214,14 +199,13 @@ func _update_relative_roll_clock() -> void:
 		_relative_roll_clock.visible = false
 		return
 
-	if _target == null or not _target.has_method("is_relative_roll_active"):
+	if _target == null:
 		_relative_roll_clock.visible = false
 		return
 
-	var is_active := bool(_target.call("is_relative_roll_active"))
+	var is_active: bool = _target.is_relative_roll_active()
 	_relative_roll_clock.visible = is_active
-	if _target.has_method("get_relative_roll_error"):
-		_relative_roll_clock.set("roll_error", float(_target.call("get_relative_roll_error")))
+	_relative_roll_clock.set("roll_error", _target.get_relative_roll_error())
 
 
 func _reset_force_balance_debug() -> void:
@@ -270,10 +254,10 @@ func _update_global_direction_indicators() -> void:
 		_reset_global_direction_indicators()
 		return
 
-	var nose_direction := -_target.global_transform.basis.z
+	var nose_direction: Vector3 = -_target.global_transform.basis.z
 	_update_global_direction_indicator(_nose_direction_indicator, nose_direction)
 
-	var velocity := _target.linear_velocity
+	var velocity: Vector3 = _target.linear_velocity
 	if velocity.length_squared() <= MIN_DIRECTION_SPEED_SQUARED:
 		_velocity_direction_indicator.visible = false
 	else:

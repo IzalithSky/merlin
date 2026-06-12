@@ -1,3 +1,4 @@
+class_name PlaneTargetingHud
 extends CanvasLayer
 
 @export var foe_color: Color = Color(1.0, 0.25, 0.1)
@@ -13,10 +14,10 @@ const MARKER_SIZE := 32.0
 const LABEL_WIDTH := 72.0
 const LABEL_HEIGHT := 14.0
 
-var _owner_plane: Node3D = null
+var _owner_plane = null
 var _camera: Camera3D = null
 var _selected_target: Node3D = null
-var _weapon_lock: Node = null
+var _weapon_lock = null
 var _markers: Dictionary = {}
 
 var _tex_foe: Texture2D = null
@@ -38,7 +39,7 @@ func set_target(owner_plane: Node3D) -> void:
 	_selected_target = null
 	_weapon_lock = null
 	if owner_plane != null and is_instance_valid(owner_plane):
-		_weapon_lock = owner_plane.get_node_or_null("PlaneWeaponLock")
+		_weapon_lock = owner_plane.get_weapon_lock_component()
 		if _weapon_lock != null:
 			if not _weapon_lock.lock_acquired.is_connected(_on_lock_acquired):
 				_weapon_lock.lock_acquired.connect(_on_lock_acquired)
@@ -56,19 +57,19 @@ func get_selected_target() -> Node3D:
 
 func get_locked_target() -> Node3D:
 	if _weapon_lock != null and is_instance_valid(_weapon_lock):
-		return _weapon_lock.call("get_locked_target") as Node3D
+		return _weapon_lock.get_locked_target()
 	return null
 
 
 func get_lock_progress() -> float:
 	if _weapon_lock != null and is_instance_valid(_weapon_lock):
-		return float(_weapon_lock.call("get_lock_progress"))
+		return _weapon_lock.get_lock_progress()
 	return 0.0
 
 
 func is_in_lock_envelope() -> bool:
 	if _weapon_lock != null and is_instance_valid(_weapon_lock):
-		return bool(_weapon_lock.call("is_in_envelope"))
+		return _weapon_lock.is_in_envelope()
 	return false
 
 
@@ -88,7 +89,7 @@ func _process(_delta: float) -> void:
 
 
 func _handle_input() -> void:
-	if _owner_plane != null and is_instance_valid(_owner_plane) and _owner_plane.get("is_shot_down") == true:
+	if _owner_plane != null and is_instance_valid(_owner_plane) and _owner_plane.is_shot_down:
 		_clear_selection()
 		return
 
@@ -109,7 +110,7 @@ func _validate_selection() -> void:
 
 func _push_selection_to_lock() -> void:
 	if _weapon_lock != null and is_instance_valid(_weapon_lock):
-		_weapon_lock.call("set_desired_target", get_selected_target())
+		_weapon_lock.set_desired_target(get_selected_target())
 
 
 func _select_nearest_to_center() -> void:
@@ -264,8 +265,8 @@ func _apply_marker(marker: Control, target: Node3D, screen_pos: Vector2) -> void
 
 	var is_sel := target == _selected_target
 	var is_foe := true
-	if target.has_method("is_hostile_to"):
-		is_foe = bool(target.call("is_hostile_to", _owner_plane))
+	if target != null and target.is_in_group("plane_character"):
+		is_foe = target.is_hostile_to(_owner_plane)
 
 	var icon := marker.get_node("Icon") as TextureRect
 	var lock_icon := marker.get_node("Lock") as TextureRect
@@ -273,7 +274,7 @@ func _apply_marker(marker: Control, target: Node3D, screen_pos: Vector2) -> void
 	var state_lbl := marker.get_node("State") as Label
 
 	var lock_progress := get_lock_progress()
-	var locked := _weapon_lock != null and is_instance_valid(_weapon_lock) and bool(_weapon_lock.call("is_locked"))
+	var locked: bool = _weapon_lock != null and is_instance_valid(_weapon_lock) and _weapon_lock.is_locked()
 
 	icon.texture = _tex_foe if is_foe else _tex_friend
 
@@ -286,7 +287,7 @@ func _apply_marker(marker: Control, target: Node3D, screen_pos: Vector2) -> void
 	else:
 		icon.modulate = friend_color
 
-	var show_lock := is_sel and (lock_progress > 0.0 or locked)
+	var show_lock: bool = is_sel and (lock_progress > 0.0 or locked)
 	lock_icon.visible = show_lock
 	if show_lock:
 		lock_icon.modulate = Color(locked_color.r, locked_color.g, locked_color.b,
