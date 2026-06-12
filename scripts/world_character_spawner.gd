@@ -796,8 +796,8 @@ func _server_fire_missile(firing_plane: Node3D, locked_target: Node3D) -> void:
 		missile.global_transform = firing_plane.global_transform
 	missile.target = locked_target
 	missile.host = firing_plane
-	_projectiles.add_child(missile)
 	missile.linear_velocity = firing_plane.linear_velocity
+	_projectiles.add_child(missile)
 	missile.add_collision_exception_with(firing_plane)
 
 

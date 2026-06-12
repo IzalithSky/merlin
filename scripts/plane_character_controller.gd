@@ -149,6 +149,7 @@ const REMOTE_INTERPOLATION_DELAY := 0.1
 const REMOTE_MAX_SNAPSHOTS := 4
 const PREDICTION_HISTORY_MAX := 180
 const RECONCILE_VELOCITY_TOLERANCE := 15.0
+const RECONCILE_ANGULAR_VELOCITY_TOLERANCE_DEG := 20.0
 const RECONCILE_ROTATION_TOLERANCE_DEG := 10.0
 
 @export var flame_trail_scene: PackedScene
@@ -968,6 +969,7 @@ func _record_prediction_state() -> void:
 		"position": global_position,
 		"rotation": global_transform.basis.orthonormalized().get_rotation_quaternion(),
 		"linear_velocity": linear_velocity,
+		"angular_velocity": angular_velocity,
 	})
 	while _prediction_history.size() > PREDICTION_HISTORY_MAX:
 		_prediction_history.pop_front()
@@ -1001,13 +1003,14 @@ func _reconcile_with_server_state(snapshot: Dictionary) -> void:
 	var server_position := Vector3(snapshot.get("position", global_position))
 	var server_rotation := Quaternion(snapshot.get("rotation", Quaternion.IDENTITY)).normalized()
 	var server_velocity := Vector3(snapshot.get("linear_velocity", Vector3.ZERO))
+	var server_angular_velocity := Vector3(snapshot.get("angular_velocity", Vector3.ZERO))
 	var position_error: Vector3 = server_position - Vector3(entry["position"])
 
 	if position_error.length() > reconcile_hard_snap_distance:
 		global_position = server_position
 		global_basis = Basis(server_rotation)
 		linear_velocity = server_velocity
-		angular_velocity = Vector3.ZERO
+		angular_velocity = server_angular_velocity
 		_prediction_history.clear()
 		_correction_position = Vector3.ZERO
 		return
@@ -1030,6 +1033,10 @@ func _reconcile_with_server_state(snapshot: Dictionary) -> void:
 	var velocity_error: Vector3 = server_velocity - Vector3(entry["linear_velocity"])
 	if velocity_error.length() > RECONCILE_VELOCITY_TOLERANCE:
 		linear_velocity += velocity_error * reconcile_velocity_blend
+
+	var angular_velocity_error: Vector3 = server_angular_velocity - Vector3(entry.get("angular_velocity", Vector3.ZERO))
+	if rad_to_deg(angular_velocity_error.length()) > RECONCILE_ANGULAR_VELOCITY_TOLERANCE_DEG:
+		angular_velocity += angular_velocity_error * reconcile_velocity_blend
 
 
 func _take_prediction_entry(ack_seq: int) -> Dictionary:
@@ -1232,6 +1239,7 @@ func _build_snapshot() -> Dictionary:
 		"position": global_position,
 		"rotation": global_transform.basis.orthonormalized().get_rotation_quaternion(),
 		"linear_velocity": linear_velocity,
+		"angular_velocity": angular_velocity,
 	}
 	if _is_net_input_driven():
 		snapshot["ack_seq"] = _net_ack_seq
