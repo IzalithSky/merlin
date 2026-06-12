@@ -16,3 +16,5 @@ material_override = SubResource("StandardMaterial3D_wing_trail")
 mesh = SubResource("ImmediateMesh_wing_trail")
 script = ExtResource("1_trail")
 trail_enabled = false
+sample_smoothing_rate = 12.0
+max_sample_lag = 1.5

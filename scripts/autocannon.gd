@@ -7,6 +7,9 @@ const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 @export var fire_cooldown: float = 0.125
 @export var lead_cone_half_angle_deg: float = 30.0
 @export var damage: float = 2.0
+@export var launch_lateral_offset: float = 0.0
+@export var launch_vertical_offset: float = 0.0
+@export var launch_forward_offset: float = 6.0
 
 var _cooldown_remaining: float = 0.0
 var _projectiles_container: Node = null
@@ -90,7 +93,16 @@ func _fire_local(plane: Node3D, aim_direction: Vector3) -> void:
 	if plane is RigidBody3D:
 		inherited_velocity = (plane as RigidBody3D).linear_velocity
 	var launch_velocity := aim_direction * bullet_speed + inherited_velocity
-	bullet.initialize_launch(plane.global_position, launch_velocity)
+	bullet.initialize_launch(get_and_advance_launch_position(plane), launch_velocity)
+
+
+func get_and_advance_launch_position(plane: Node3D) -> Vector3:
+	var basis := plane.global_transform.basis
+	var origin := plane.global_position
+	origin += basis.x * launch_lateral_offset
+	origin += basis.y * launch_vertical_offset
+	origin += -basis.z * launch_forward_offset
+	return origin
 
 
 static func compute_aim_direction(
@@ -119,13 +131,13 @@ static func compute_aim_direction(
 
 
 static func _compute_intercept_direction(
-	plane_position: Vector3,
-	target_position: Vector3,
+	_plane_position: Vector3,
+	_target_position: Vector3,
 	relative_position: Vector3,
 	relative_velocity: Vector3,
 	projectile_speed: float
 ) -> Vector3:
-	var aim_position := target_position
+	var aim_offset := relative_position
 	var speed_sq := projectile_speed * projectile_speed
 	var a := speed_sq - relative_velocity.length_squared()
 	var b := -2.0 * relative_position.dot(relative_velocity)
@@ -142,12 +154,11 @@ static func _compute_intercept_direction(
 		if t1 > 0.0:
 			intercept_time = minf(intercept_time, t1)
 		if is_finite(intercept_time):
-			aim_position = target_position + relative_velocity * intercept_time
+			aim_offset = relative_position + relative_velocity * intercept_time
 
-	var direction := aim_position - plane_position
-	if direction.length_squared() <= 0.000001:
+	if aim_offset.length_squared() <= 0.000001:
 		return Vector3.FORWARD
-	return direction.normalized()
+	return aim_offset.normalized()
 
 
 static func _clamp_direction_to_cone(

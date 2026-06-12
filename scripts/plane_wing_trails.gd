@@ -7,15 +7,16 @@ const VISUAL_TRAIL_SCRIPT := preload("res://scripts/visual_trail_3d.gd")
 @export var min_airspeed := 50.0
 @export var min_abs_aoa_deg := 4.0
 @export var min_pitch_rate_deg_per_second := 12.0
+@export var disable_abs_aoa_deg := 3.0
+@export var disable_pitch_rate_deg_per_second := 9.0
 
-var _plane: RigidBody3D
+var _plane: PlaneCharacter
 var _trails: Array[Node] = []
-var _last_plane_position := Vector3.ZERO
+var _active := false
 
 
 func _ready() -> void:
-	_plane = get_parent() as RigidBody3D
-	_last_plane_position = _plane.global_position if _plane != null else global_position
+	_plane = get_parent() as PlaneCharacter
 	_collect_trails()
 
 
@@ -32,30 +33,20 @@ func _collect_trails() -> void:
 			_trails.append(child)
 
 
-func _should_emit_trails(delta: float) -> bool:
+func _should_emit_trails(_delta: float) -> bool:
 	if not trails_enabled or _plane == null:
+		_active = false
 		return false
 
-	var estimated_speed := 0.0
-	if delta > 0.0:
-		estimated_speed = _plane.global_position.distance_to(_last_plane_position) / delta
-	_last_plane_position = _plane.global_position
-
-	var airspeed := maxf(_plane.linear_velocity.length(), estimated_speed)
+	var airspeed := _plane.linear_velocity.length()
 	if airspeed < min_airspeed:
+		_active = false
 		return false
 
-	var abs_aoa := _get_abs_aoa_deg()
-	var pitch_rate := _get_abs_pitch_rate_deg_per_second()
-	return abs_aoa >= min_abs_aoa_deg or pitch_rate >= min_pitch_rate_deg_per_second
-
-
-func _get_abs_aoa_deg() -> float:
-	if _plane.has_method("get_aoa_deg"):
-		return absf(float(_plane.call("get_aoa_deg")))
-	return 0.0
-
-
-func _get_abs_pitch_rate_deg_per_second() -> float:
-	var local_angular_velocity := _plane.global_transform.basis.orthonormalized().transposed() * _plane.angular_velocity
-	return absf(rad_to_deg(local_angular_velocity.x))
+	var abs_aoa := absf(_plane.get_aoa_deg())
+	var pitch_rate := absf(rad_to_deg(_plane.get_local_pitch_rate()))
+	if _active:
+		_active = abs_aoa >= disable_abs_aoa_deg or pitch_rate >= disable_pitch_rate_deg_per_second
+	else:
+		_active = abs_aoa >= min_abs_aoa_deg or pitch_rate >= min_pitch_rate_deg_per_second
+	return _active

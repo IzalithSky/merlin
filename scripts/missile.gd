@@ -26,6 +26,7 @@ signal died(exploded: bool, hit_position: Vector3)
 
 var target: Node3D = null
 var host: RigidBody3D = null
+var _is_replica := false
 
 var _time_since_launch: float = 0.0
 var _time_since_target_lost: float = 0.0
@@ -35,10 +36,24 @@ var _previous_deviation: Vector3 = Vector3.ZERO
 var _trail: Node = null
 
 
+func init_replica(transform_value: Transform3D, velocity: Vector3, target_node: Node3D = null) -> void:
+	_is_replica = true
+	target = target_node
+	host = null
+	global_transform = transform_value
+	linear_velocity = velocity
+	angular_velocity = Vector3.ZERO
+	collision_layer = 0
+	collision_mask = 0
+	contact_monitor = false
+	max_contacts_reported = 0
+
+
 func _ready() -> void:
 	add_to_group("missile")
 	_had_target = target != null and is_instance_valid(target)
-	body_entered.connect(_on_body_entered)
+	if not _is_replica:
+		body_entered.connect(_on_body_entered)
 	_spawn_trail()
 
 
@@ -51,6 +66,8 @@ func _physics_process(delta: float) -> void:
 	_apply_guidance(delta)
 
 	if _time_since_launch >= max_lifetime:
+		if _is_replica:
+			return
 		if explode_on_timeout:
 			_spawn_explosion()
 		_die()
@@ -82,6 +99,9 @@ func _apply_guidance(delta: float) -> void:
 		if _had_target:
 			_time_since_target_lost += delta
 			if _time_since_target_lost >= target_loss_grace_period:
+				if _is_replica:
+					target = null
+					return
 				if explode_on_timeout:
 					_spawn_explosion()
 				_die()
@@ -92,6 +112,8 @@ func _apply_guidance(delta: float) -> void:
 	var deviation := target.global_position - global_position
 	var dist := deviation.length()
 	if dist <= 0.001:
+		if _is_replica:
+			return
 		_spawn_explosion()
 		_die()
 		return
@@ -102,6 +124,8 @@ func _apply_guidance(delta: float) -> void:
 		return
 
 	if dist < proximity_radius:
+		if _is_replica:
+			return
 		_spawn_explosion()
 		_die()
 		return
@@ -127,6 +151,8 @@ func _apply_guidance(delta: float) -> void:
 
 
 func _on_body_entered(body: Node) -> void:
+	if _is_replica:
+		return
 	if body == host:
 		return
 	_spawn_explosion()
@@ -135,19 +161,14 @@ func _on_body_entered(body: Node) -> void:
 
 func _die() -> void:
 	var death_pos := global_position
-	if _trail != null and is_instance_valid(_trail):
-		if "trail_enabled" in _trail:
-			_trail.set("trail_enabled", false)
-		if "permanent" in _trail:
-			_trail.set("permanent", false)
-		if "node_ttl" in _trail:
-			_trail.set("node_ttl", trail_ttl_after_death)
-		_trail = null
+	_finish_trail()
 	died.emit(_exploded, death_pos)
 	queue_free()
 
 
 func _spawn_explosion() -> void:
+	if _is_replica:
+		return
 	_exploded = true
 	if explosion_scene != null:
 		var e := explosion_scene.instantiate() as Node3D
@@ -256,6 +277,26 @@ func _get_closest_point_on_shape(shape_node: CollisionShape3D, point_world: Vect
 		return shape_node.global_transform * (segment_point + offset.normalized() * capsule.radius)
 
 	return shape_node.global_position
+
+
+func despawn(hit_pos: Vector3) -> void:
+	global_position = hit_pos
+	if _trail != null and is_instance_valid(_trail):
+		_trail.global_position = hit_pos
+	_finish_trail()
+	queue_free()
+
+
+func _finish_trail() -> void:
+	if _trail == null or not is_instance_valid(_trail):
+		return
+	if "trail_enabled" in _trail:
+		_trail.set("trail_enabled", false)
+	if "permanent" in _trail:
+		_trail.set("permanent", false)
+	if "node_ttl" in _trail:
+		_trail.set("node_ttl", trail_ttl_after_death)
+	_trail = null
 
 
 func _spawn_trail() -> void:

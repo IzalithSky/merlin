@@ -108,7 +108,7 @@ Damage remains server-authoritative in multiplayer:
 - Remote peers apply the replicated HP to their local `Health` nodes, so HUDs and other readers of `current_hp` stay in sync.
 - When a plane is shot down, clients receive a reliable shot-down event, the local `Health` node emits `shot_down`, and `plane_character_controller.gd` runs the same wreckage path everywhere.
 
-Shot-down peers also stop contributing client-authored movement: the server rejects any later `submit_character_state` packets for a dead plane, and remote replicas ignore stale movement packets after their local `is_shot_down` flag is set.
+Shot-down peers also stop steering: the server rejects any later `sv_submit_input` packets for a dead plane and keeps simulating the wreck itself, and the owning client hands its plane over to snapshot interpolation once `is_shot_down` is set locally.
 
 ---
 

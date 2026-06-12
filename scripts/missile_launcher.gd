@@ -60,7 +60,7 @@ func _try_fire(plane: Node3D) -> void:
 
 	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
 		var target_peer_id := -1
-		if locked_target.is_in_group("plane_character"):
+		if locked_target != null and is_instance_valid(locked_target) and locked_target.is_in_group("plane_character"):
 			target_peer_id = locked_target.peer_id
 		var spawner := _find_world_spawner()
 		if spawner != null:
@@ -76,11 +76,9 @@ func _fire(plane: Node3D, locked_target: Node3D) -> void:
 	missile.global_transform = get_and_advance_launch_transform(plane)
 	missile.target = locked_target
 	missile.host = plane
-
-	_projectiles_container.add_child(missile)
-
 	if plane is RigidBody3D:
 		missile.linear_velocity = (plane as RigidBody3D).linear_velocity
+	_projectiles_container.add_child(missile)
 
 	missile.add_collision_exception_with(plane)
 
