@@ -1,3 +1,4 @@
+class_name ForceDebugRenderer3D
 extends MeshInstance3D
 
 const MIN_VECTOR_LENGTH_SQUARED := 0.000001

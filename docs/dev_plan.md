@@ -1,5 +1,7 @@
 # Merlin Dev Plan Notes
 
+Status: target design — describes intended architecture goals; current implementation is partially complete. See `docs/architecture_review.md` for open vs. completed status per item.
+
 Date: May 28, 2026
 
 ## Goal

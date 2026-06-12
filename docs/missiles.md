@@ -1,7 +1,5 @@
 # Missiles and Target Locking
 
-Status: partial — implemented and current for runtime behavior; live default values should be read from the `@export` fields in `scripts/missile.gd`, `scripts/missile_launcher.gd`, and `scripts/plane_weapon_lock.gd`.
-
 ## Overview
 
 The weapon system has three layers that always run in sequence: **selection**

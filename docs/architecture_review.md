@@ -19,9 +19,9 @@ Method: the original review was re-checked against the current tree, and fixed i
 | # | Finding | Type | Severity | Current status |
 |---|---|---|---|---|
 | 1 | Gameplay still runs on a client-authoritative movement relay | Architecture | Critical | Open — interim hardening landed, authority migration untouched |
-| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Partial — first seam split landed, main authority/net split still open |
-| 6 | Stringly-typed cross-script contracts; `class_name` barely used | Implementation | Medium-High | Partial — core gameplay seams now typed, broad cleanup still open |
-| 8 | Documentation discipline improved, but not yet consistent across all design docs | Process | Medium | Partial |
+| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Partial — presentation and bot-setup extracted; core flight/net seams deferred to authority migration |
+| 6 | Stringly-typed cross-script contracts; `class_name` barely used | Implementation | Medium-High | Partial — all core gameplay scripts typed; debug renderers and DisplaySettings typed; remaining duck-typing is intentional |
+| 8 | Documentation discipline improved, but not yet consistent across all design docs | Process | Medium | Partial — status headers now on all design docs |
 
 ---
 
@@ -81,6 +81,11 @@ Do this in the same phase as the authority migration so the seams are introduced
 
 **What improved already.**
 - `class_name` now exists on the core gameplay seam scripts, including `PlaneCharacter`, `PlaneBotPilot`, `Health`, `PlaneWeaponLock`, `Autocannon`, and `MissileLauncher`.
+- `ForceDebugRenderer3D` and `BotDebugRenderer3D` now have `class_name`; all `.call()` / `.has_method()` calls against them are replaced with direct method calls. (Godot 4 limitation: the type annotation is omitted on the hosting variable because using a `class_name` as a type annotation in a script that also `preload`s the defining file fails to resolve at parse time.)
+- `DisplaySettings` is an autoload singleton; `class_name` cannot be added because Godot 4 raises a parse error when a `class_name` matches an autoload name. Assist-setting persistence now accesses the autoload global directly instead of via `get_node_or_null` + string cast.
+- `PlaneBotPilot._plane` is now typed as `PlaneCharacter`; `is_in_group("plane_character")` checks replaced with `is PlaneCharacter` / `as PlaneCharacter` casts across the bot pilot and world spawner.
+- Assist-setting persistence in `PlaneCharacter` now uses direct typed `DisplaySettings` access; the stringly-typed generic helpers are removed.
+- Missile replication in `WorldCharacterSpawner` now casts to `Missile` instead of using `has_signal` / `"target" in node` string guards.
 - Stable plane-child relationships now use direct component accessors instead of ad hoc string lookup in the hot weapon/HUD/camera paths.
 - String-based damage dispatch remains intentionally duck-typed where that flexibility is part of the design.
 
@@ -107,16 +112,12 @@ This is best done alongside the controller/net split in finding `#5`.
 - Several feature docs (`health.md`, `autocannon.md`, `testing_scenes.md`) are already in much better shape.
 
 **What is still open.**
-- Status headers are not yet universal across all design docs.
-- Some docs still mix current behavior, target design, and tuning guidance without clearly labeling which is which.
-- The general discipline is still process-dependent rather than enforced convention.
+- Status headers belong only on architecture and process docs (`dev_plan.md`, `multiplayer.md`, `view_distance.md`, `testing_scenes.md`). Game component docs (`health.md`, `plane_physics_spec.md`, `missiles.md`, `autocannon.md`, `plane_bot_behavior.md`, `fixed_wing_bot_autopilot_summary.md`) describe mechanisms and parameters only — no status header.
+- The general discipline is process-dependent rather than enforced convention — new docs need to follow the same pattern manually.
 
 **Fix.**
 - Keep the rule that docs describe behavior/invariants, not live defaults, unless the document is specifically about recommended presets.
-- Add a one-line status header to every design note:
-  - `implemented`
-  - `partial`
-  - `target design`
+- Status headers on architecture/process docs only. Mechanism docs have no status line.
 
 This is now cleanup work, not an urgent correctness issue.
 

@@ -330,10 +330,11 @@ func submit_character_state(snapshot: Dictionary) -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
-	var character := _characters.get_node_or_null(_character_name(sender_id)) as Node3D
+	var character := _characters.get_node_or_null(_character_name(sender_id))
 	if character == null or not is_instance_valid(character):
 		return
-	if character.is_in_group("plane_character") and character.is_shot_down:
+	var plane_character := character as PlaneCharacter
+	if plane_character != null and plane_character.is_shot_down:
 		return
 	var sanitized_snapshot := _sanitize_submitted_snapshot(character, snapshot)
 	_apply_character_state_locally(sender_id, sanitized_snapshot)
@@ -713,24 +714,23 @@ func _physics_process(_delta: float) -> void:
 func _on_projectile_entered(node: Node) -> void:
 	if not multiplayer.is_server():
 		return
-	if node.scene_file_path != "res://scenes/missile.tscn":
-		return
-	if not node.has_signal("died"):
+	var missile := node as Missile
+	if missile == null:
 		return
 	var missile_id := _next_missile_id
 	_next_missile_id += 1
-	_active_missiles[missile_id] = node
-	var vel := (node as RigidBody3D).linear_velocity if node is RigidBody3D else Vector3.ZERO
+	_active_missiles[missile_id] = missile
+	var vel := missile.linear_velocity
 	var target_peer_id := -1
-	var target_node = node.target if "target" in node else null
-	if target_node != null and is_instance_valid(target_node) and target_node.is_in_group("plane_character"):
-		target_peer_id = target_node.peer_id
-	node.died.connect(
+	var plane_target := missile.target as PlaneCharacter
+	if plane_target != null and is_instance_valid(plane_target):
+		target_peer_id = plane_target.peer_id
+	missile.died.connect(
 		func(exploded: bool, pos: Vector3) -> void: _on_missile_died(missile_id, exploded, pos)
 	)
 	for peer_id in multiplayer.get_peers():
 		if _is_peer_world_ready(peer_id):
-			cl_spawn_missile.rpc_id(peer_id, missile_id, node.global_transform, vel, target_peer_id)
+			cl_spawn_missile.rpc_id(peer_id, missile_id, missile.global_transform, vel, target_peer_id)
 
 
 func _on_missile_died(missile_id: int, exploded: bool, pos: Vector3) -> void:
@@ -741,7 +741,7 @@ func _on_missile_died(missile_id: int, exploded: bool, pos: Vector3) -> void:
 
 
 func _server_fire_missile(firing_plane: Node3D, locked_target: Node3D) -> void:
-	var missile = MISSILE_SCENE.instantiate()
+	var missile := MISSILE_SCENE.instantiate() as Missile
 	var launcher = firing_plane.get_missile_launcher_component()
 	if launcher != null:
 		missile.global_transform = launcher.get_and_advance_launch_transform(firing_plane)

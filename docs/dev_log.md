@@ -319,3 +319,27 @@ This update records the fixes for the second-pass multiplayer fire-authority and
 - High-speed ground impacts now trigger full destruction based on the angle between the plane's movement direction and the contacted ground surface, not the plane's upright tilt.
 - `ground_impact_fatal_surface_angle_deg` is documented as `0` degrees for motion parallel to the ground and `90` degrees for motion directly into the ground.
 - The default fatal-angle tuning was tightened so avoiding a fatal crash requires the plane to be nearly parallel to the ground at impact.
+
+---
+
+Date: June 12, 2026
+
+## Summary
+
+Architecture review follow-up: further progress on items #5, #6, and #8 from `docs/architecture_review.md`.
+
+## Completed Work
+
+1. God objects / mixed responsibilities (#5) — no new splits this pass; existing splits from prior work stand.
+
+2. Stringly-typed contracts (#6)
+- Added `class_name ForceDebugRenderer3D` to `force_debug_renderer_3d.gd` and `class_name BotDebugRenderer3D` to `bot_debug_renderer_3d.gd`. Both now have globally registered types.
+- Replaced all `.call("method_name")` and `.has_method(...)` guards against debug renderers with direct method calls in `plane_character_controller.gd` and `plane_bot_pilot.gd`. Hosting variables left untyped because Godot 4 cannot resolve a `class_name` as a type annotation in the same script that also `preload`s the defining file.
+- Removed the stringly-typed `_get_persisted_assist_setting` / `_persist_assist_setting` helpers from `PlaneCharacter`. Assist-setting persistence now reads and writes the `DisplaySettings` autoload singleton directly. `DisplaySettings` cannot carry a `class_name` because Godot 4 raises a parse error when a `class_name` matches an autoload registration name.
+- `PlaneBotPilot._plane` is now typed as `PlaneCharacter`; `is_in_group("plane_character")` checks replaced with `as PlaneCharacter` casts.
+- `WorldCharacterSpawner._on_projectile_entered` now casts to `Missile` and uses `Missile.linear_velocity`, `Missile.target`, and the `died` signal directly; removed `scene_file_path`, `has_signal`, and `"target" in node` string guards.
+- `WorldCharacterSpawner.submit_character_state` now uses `as PlaneCharacter` for the shot-down guard instead of `is_in_group`.
+
+3. Documentation drift (#8)
+- Added status headers to `health.md`, `plane_physics_spec.md`, `testing_scenes.md`, `dev_plan.md`, `fixed_wing_bot_autopilot_summary.md`, and `view_distance.md`.
+- Updated `architecture_review.md` summary table and body sections to reflect current state of items #5, #6, and #8.

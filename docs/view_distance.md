@@ -1,5 +1,7 @@
 # Long View Distance Terrain Notes
 
+Status: target design — describes recommended future terrain architecture; the current project uses a static test scene only.
+
 This project currently uses a small imported terrain test scene. That is fine for
 initial camera/environment work, but aviation-scale view distances should not be
 treated as one giant high-detail mesh with one giant collision shape.

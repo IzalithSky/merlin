@@ -1,7 +1,5 @@
 # Autocannon
 
-Status: implemented — current runtime behavior for local play and multiplayer authority flow. Live tuning values should be read from the `@export` fields in `scripts/autocannon.gd` and `scripts/bullet.gd`.
-
 ## Overview
 
 The autocannon is a short-range, hits-by-contact weapon built from four layers:

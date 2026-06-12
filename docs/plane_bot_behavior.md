@@ -1,7 +1,5 @@
 # Plane Bot Behavior
 
-Status: partial — implemented for current single-player and multiplayer bot behavior, but still subject to the larger authority migration and controller split planned in `docs/dev_plan.md`.
-
 ## Scope
 This document explains the principles behind the current plane bot implementation.
 

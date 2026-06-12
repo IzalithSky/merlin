@@ -101,7 +101,7 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 	Vector3(0.0, 1500.0, 0.0),
 ]
 
-var _plane
+var _plane: PlaneCharacter
 var _altitude_target_active := false
 var _target_altitude := 0.0
 var _flight_state: int = FlightState.IDLE
@@ -127,7 +127,7 @@ var _last_sustain_turn_limiter_enabled := true
 var _has_applied_turn_limiter_mode := false
 var _collision_avoidance_direction := 0.0
 var _collision_avoidance_exit_time := 0.0
-var _bot_debug_renderer: Node
+var _bot_debug_renderer
 var _cached_player_characters: Array[Node3D] = []
 var _cached_missiles: Array[Node3D] = []
 var _next_group_cache_refresh_time := 0.0
@@ -142,7 +142,7 @@ var _frame_local_angular_velocity := Vector3.ZERO
 
 
 func _ready() -> void:
-	_plane = get_parent()
+	_plane = get_parent() as PlaneCharacter
 	if _plane == null:
 		set_physics_process(false)
 		return
@@ -156,8 +156,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if _plane.is_shot_down:
 		if _bot_debug_renderer != null:
-			if _bot_debug_renderer.has_method("clear"):
-				_bot_debug_renderer.call("clear")
+			_bot_debug_renderer.clear()
 			_bot_debug_renderer.visible = false
 			_bot_debug_renderer = null
 		return
@@ -236,8 +235,8 @@ func _update_bot_debug_renderer_state() -> void:
 
 	var should_show: bool = debug_bot_visuals_enabled and _plane != null and _plane.is_inside_tree()
 	_bot_debug_renderer.visible = should_show
-	if not should_show and _bot_debug_renderer.has_method("clear"):
-		_bot_debug_renderer.call("clear")
+	if not should_show:
+		_bot_debug_renderer.clear()
 
 
 func _update_bot_debug_visuals() -> void:
@@ -264,8 +263,7 @@ func _update_bot_debug_visuals() -> void:
 			has_killzone = true
 			killzone_position = destination_point
 
-	_bot_debug_renderer.call(
-		"update_visuals",
+	_bot_debug_renderer.update_visuals(
 		_frame_position,
 		_frame_forward_axis,
 		_frame_basis.y,
@@ -900,11 +898,12 @@ func _has_follow_target() -> bool:
 	return false
 
 
-func _get_node_velocity(body: Variant) -> Vector3:
-	if body == null or not is_instance_valid(body):
+func _get_node_velocity(body: Node3D) -> Vector3:
+	if not is_instance_valid(body):
 		return Vector3.ZERO
-	if body.is_in_group("plane_character"):
-		return body.get_replicated_velocity()
+	var plane := body as PlaneCharacter
+	if plane != null:
+		return plane.get_replicated_velocity()
 	if body is RigidBody3D:
 		return (body as RigidBody3D).linear_velocity
 	return Vector3.ZERO
@@ -985,11 +984,11 @@ func _find_player_target() -> Node3D:
 	return best_target
 
 
-func _is_bot_character(candidate: Variant) -> bool:
+func _is_bot_character(candidate: Node3D) -> bool:
 	if not is_instance_valid(candidate):
 		return false
-	var bot_value: Variant = candidate.get("is_bot_controlled")
-	return bot_value != null and bool(bot_value)
+	var plane := candidate as PlaneCharacter
+	return plane != null and plane.is_bot_controlled
 
 
 func _get_follow_destination_point() -> Vector3:
@@ -1304,7 +1303,8 @@ func _update_weapon_targeting() -> void:
 	if weapon_lock == null:
 		return
 	var raw_target: Node3D = _follow_target if _has_follow_target() else null
-	if raw_target != null and raw_target.is_in_group("plane_character") and raw_target.is_shot_down:
+	var plane_target := raw_target as PlaneCharacter
+	if plane_target != null and plane_target.is_shot_down:
 		raw_target = null
 	var desired_target: Node3D = raw_target
 	weapon_lock.set_desired_target(desired_target)

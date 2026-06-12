@@ -180,7 +180,7 @@ var sideslip_deg := 0.0
 var throttle_percent := 0.0
 
 var _sync_timer := 0.0
-var _force_debug_renderer: Node
+var _force_debug_renderer
 var _last_total_linear_damp := 0.0
 var _debug_last_thrust_force_world := Vector3.ZERO
 var _debug_last_lift_force_world := Vector3.ZERO
@@ -373,9 +373,10 @@ func _apply_spawn_control_defaults() -> void:
 	_player_yaw_control_active = false
 	_player_direct_roll_control_active = false
 	if is_local_player:
-		_pitch_assist_enabled = _get_persisted_assist_setting("pitch_assist_enabled", true)
-		_stabilization_assist_enabled = _get_persisted_assist_setting("stabilization_assist_enabled", true)
-		_input_decay_enabled = _get_persisted_assist_setting("input_decay_enabled", true)
+		var ds := DisplaySettings
+		_pitch_assist_enabled = ds.pitch_assist_enabled if ds != null else true
+		_stabilization_assist_enabled = ds.stabilization_assist_enabled if ds != null else true
+		_input_decay_enabled = ds.input_decay_enabled if ds != null else true
 	else:
 		_pitch_assist_enabled = true
 		_stabilization_assist_enabled = true
@@ -916,11 +917,11 @@ func _is_ground_body(body: Node) -> bool:
 	return body is StaticBody3D
 
 
-func _find_world_spawner() -> Node:
+func _find_world_spawner() -> WorldCharacterSpawner:
 	var world_nodes := get_tree().get_nodes_in_group("world_character_spawner")
 	if world_nodes.is_empty():
 		return null
-	return world_nodes[0]
+	return world_nodes[0] as WorldCharacterSpawner
 
 
 func apply_ground_impact_damage(impact_speed: float, impact_angle_deg: float) -> void:
@@ -971,9 +972,8 @@ func _on_shot_down() -> void:
 	is_shot_down = true
 	throttle_input = -1.0
 	angular_damp = 0.0
-	if _force_debug_renderer != null and _force_debug_renderer.has_method("clear_frame"):
-		_force_debug_renderer.call("clear_frame")
 	if _force_debug_renderer != null:
+		_force_debug_renderer.clear_frame()
 		_force_debug_renderer.visible = false
 	if flame_trail_scene != null and _flame_trail == null:
 		_flame_trail = flame_trail_scene.instantiate() as Node3D
@@ -1101,8 +1101,8 @@ func _update_force_debug_renderer_state() -> void:
 
 	var should_show := debug_force_vectors_enabled and _is_simulated_locally()
 	_force_debug_renderer.visible = should_show
-	if not should_show and _force_debug_renderer.has_method("clear_frame"):
-		_force_debug_renderer.call("clear_frame")
+	if not should_show:
+		_force_debug_renderer.clear_frame()
 
 
 func _begin_force_debug_frame() -> void:
@@ -1116,7 +1116,7 @@ func _begin_force_debug_frame() -> void:
 	if _force_debug_renderer == null:
 		return
 
-	_force_debug_renderer.call("begin_frame")
+	_force_debug_renderer.begin_frame()
 	var gravity_force := _get_gravity_force_world()
 	_debug_last_gravity_force_world = gravity_force
 	_push_debug_force(global_position, gravity_force, DEBUG_COLOR_GRAVITY)
@@ -1126,28 +1126,28 @@ func _end_force_debug_frame() -> void:
 	if _force_debug_renderer == null:
 		return
 
-	_force_debug_renderer.call("end_frame")
+	_force_debug_renderer.end_frame()
 
 
 func _clear_force_debug_frame() -> void:
 	if _force_debug_renderer == null:
 		return
 
-	_force_debug_renderer.call("clear_frame")
+	_force_debug_renderer.clear_frame()
 
 
 func _push_debug_force(origin_world: Vector3, force_world: Vector3, color: Color) -> void:
 	if _force_debug_renderer == null:
 		return
 
-	_force_debug_renderer.call("push_force", origin_world, force_world, color)
+	_force_debug_renderer.push_force(origin_world, force_world, color)
 
 
 func _push_debug_torque(origin_world: Vector3, torque_world: Vector3, color: Color) -> void:
 	if _force_debug_renderer == null:
 		return
 
-	_force_debug_renderer.call("push_torque", origin_world, torque_world, color)
+	_force_debug_renderer.push_torque(origin_world, torque_world, color)
 
 
 func _get_gravity_force_world() -> Vector3:
@@ -1611,15 +1611,19 @@ func _should_apply_sustain_turn_limiter() -> bool:
 func _handle_assist_toggle_inputs() -> void:
 	if not is_local_player:
 		return
+	var ds := DisplaySettings
 	if Input.is_action_just_pressed("toggle_pitch_assist"):
 		_pitch_assist_enabled = not _pitch_assist_enabled
-		_persist_assist_setting("set_pitch_assist_enabled", _pitch_assist_enabled)
+		if ds != null:
+			ds.set_pitch_assist_enabled(_pitch_assist_enabled)
 	if Input.is_action_just_pressed("toggle_stabilization_assist"):
 		_stabilization_assist_enabled = not _stabilization_assist_enabled
-		_persist_assist_setting("set_stabilization_assist_enabled", _stabilization_assist_enabled)
+		if ds != null:
+			ds.set_stabilization_assist_enabled(_stabilization_assist_enabled)
 	if Input.is_action_just_pressed("toggle_input_decay"):
 		_input_decay_enabled = not _input_decay_enabled
-		_persist_assist_setting("set_input_decay_enabled", _input_decay_enabled)
+		if ds != null:
+			ds.set_input_decay_enabled(_input_decay_enabled)
 
 
 func is_pitch_assist_enabled() -> bool:
@@ -1632,21 +1636,6 @@ func is_stabilization_assist_enabled() -> bool:
 
 func is_input_decay_enabled() -> bool:
 	return _input_decay_enabled
-
-
-func _get_persisted_assist_setting(property_name: String, fallback: bool) -> bool:
-	var display_settings := get_node_or_null("/root/DisplaySettings")
-	if display_settings == null:
-		return fallback
-	var value: Variant = display_settings.get(property_name)
-	return fallback if value == null else bool(value)
-
-
-func _persist_assist_setting(method_name: String, enabled: bool) -> void:
-	var display_settings := get_node_or_null("/root/DisplaySettings")
-	if display_settings == null or not display_settings.has_method(method_name):
-		return
-	display_settings.call(method_name, enabled)
 
 
 func _get_sustainable_aoa_limit(positive_limit: bool) -> float:

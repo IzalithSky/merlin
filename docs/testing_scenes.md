@@ -1,5 +1,7 @@
 # Testing Scenes
 
+Status: implemented — describes the current testing workflow and available smoke suite.
+
 Date: June 11, 2026
 
 This note documents the lightweight scene-testing workflow used for Merlin while making targeted gameplay and networking fixes.
