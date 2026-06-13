@@ -94,6 +94,17 @@
 - Validated with:
   - `bash tests/run_headless_smokes.sh`
 
+## 2026-06-13 (Phase 4 tick interpolation)
+
+- Switched `PlaneNetAdapter` remote interpolation from `received_at` wall-clock timing to a snapshot-tick timeline with a fixed interpolation delay derived from `server_net_tick_hz`.
+- Kept wall-clock extrapolation only as the single-snapshot fallback, so buffer underruns still move remote planes briefly instead of freezing.
+- Propagated the shared net tick rate from `WorldCharacterSpawner` to each `PlaneCharacter` so the broadcaster and adapter use the same tick-to-time mapping.
+- Validation remained green with:
+  - `bash tests/run_headless_smokes.sh`
+- Current smoke metrics remained in the same range after the timing change:
+  - first sampled second: `S 20 pkt/s 4.7 KB/s | R 25 pkt/s 0.6 KB/s`
+  - steady-state sampled second: `S 32 pkt/s 5.8 KB/s | R 61 pkt/s 1.5 KB/s`
+
 ---
 
 

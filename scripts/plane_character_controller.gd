@@ -118,6 +118,7 @@ const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 @export var extra_linear_drag_quadratic_coefficient: float = 0.16
 @export var extra_angular_drag_linear_coefficients: Vector3 = Vector3(20000.0, 12000.0, 20000.0)
 @export var extra_angular_drag_quadratic_coefficients: Vector3 = Vector3(2500.0, 1200.0, 2500.0)
+@export var server_net_tick_hz: float = 30.0
 @export var reconcile_position_tolerance: float = 3.0
 @export var reconcile_hard_snap_distance: float = 60.0
 @export var reconcile_correction_rate: float = 8.0
@@ -319,11 +320,11 @@ func _physics_process(delta: float) -> void:
 	_end_force_debug_frame()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _is_simulated_locally():
 		return
 
-	_net.update_remote_interpolation()
+	_net.update_remote_interpolation(delta)
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
@@ -749,6 +750,14 @@ func apply_spawn_state(character_position: Vector3, yaw: float) -> void:
 
 func build_state_for_batch(world_tick: int) -> Dictionary:
 	return _net.build_state_for_batch(world_tick)
+
+
+func set_server_net_tick_hz(value: float) -> void:
+	server_net_tick_hz = maxf(value, 0.001)
+
+
+func get_server_net_tick_hz() -> float:
+	return server_net_tick_hz
 
 
 func _apply_local_player_mode() -> void:

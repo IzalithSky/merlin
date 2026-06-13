@@ -16,6 +16,9 @@ var _net_last_applied_input_seq := -1
 var _net_ack_seq := -1
 var _prediction_history: Array[Dictionary] = []
 var _correction_position := Vector3.ZERO
+var _latest_server_tick := -1
+var _render_tick_continuous := 0.0
+var _render_tick_initialized := false
 
 
 func _init(plane) -> void:
@@ -107,23 +110,36 @@ func apply_authoritative_state(snapshot: Dictionary) -> void:
 	_reconcile_with_server_state(snapshot)
 
 
-func update_remote_interpolation() -> void:
+func update_remote_interpolation(delta: float) -> void:
 	if _remote_snapshots.is_empty():
 		return
 
+	var tick_hz := maxf(_plane.get_server_net_tick_hz(), 0.001)
+	var interpolation_delay_ticks := maxf(ceil(REMOTE_INTERPOLATION_DELAY * tick_hz), 1.0)
+	var target_render_tick := float(_latest_server_tick) - interpolation_delay_ticks
+	if not _render_tick_initialized:
+		_render_tick_continuous = target_render_tick
+		_render_tick_initialized = true
+	else:
+		_render_tick_continuous = minf(_render_tick_continuous + delta * tick_hz, target_render_tick)
+		if _render_tick_continuous > target_render_tick:
+			_render_tick_continuous = target_render_tick
+
 	var now := Time.get_ticks_usec() * 0.000001
-	var render_time := now - REMOTE_INTERPOLATION_DELAY
-	while _remote_snapshots.size() >= 2 and float(_remote_snapshots[1]["received_at"]) <= render_time:
+	while (
+		_remote_snapshots.size() >= 2 and
+		float(_remote_snapshots[1].get("tick", -1)) <= _render_tick_continuous
+	):
 		_remote_snapshots.pop_front()
 
 	if _remote_snapshots.size() >= 2:
 		var from_snapshot := _remote_snapshots[0]
 		var to_snapshot := _remote_snapshots[1]
-		var from_time := float(from_snapshot["received_at"])
-		var to_time := float(to_snapshot["received_at"])
+		var from_tick := float(from_snapshot.get("tick", 0))
+		var to_tick := float(to_snapshot.get("tick", 0))
 		var alpha := 1.0
-		if to_time > from_time:
-			alpha = clampf((render_time - from_time) / (to_time - from_time), 0.0, 1.0)
+		if to_tick > from_tick:
+			alpha = clampf((_render_tick_continuous - from_tick) / (to_tick - from_tick), 0.0, 1.0)
 		_plane._apply_remote_pose(
 			Vector3(from_snapshot["position"]).lerp(Vector3(to_snapshot["position"]), alpha),
 			Quaternion(from_snapshot["rotation"]).slerp(Quaternion(to_snapshot["rotation"]), alpha)
@@ -153,10 +169,16 @@ func clear_state_for_spawn() -> void:
 	_net_pending_input = {}
 	_net_last_applied_input_seq = -1
 	_net_ack_seq = -1
+	_latest_server_tick = -1
+	_render_tick_continuous = 0.0
+	_render_tick_initialized = false
 
 
 func clear_remote_snapshots() -> void:
 	_remote_snapshots.clear()
+	_latest_server_tick = -1
+	_render_tick_continuous = 0.0
+	_render_tick_initialized = false
 
 
 func clear_prediction_correction() -> void:
@@ -191,6 +213,8 @@ func _store_interpolation_snapshot(snapshot: Dictionary) -> void:
 		var latest_tick := int(_remote_snapshots.back().get("tick", -1))
 		if tick <= latest_tick:
 			return
+	if tick >= 0:
+		_latest_server_tick = tick
 
 	var received_at := Time.get_ticks_usec() * 0.000001
 	var stored_snapshot := {
@@ -201,6 +225,11 @@ func _store_interpolation_snapshot(snapshot: Dictionary) -> void:
 		"received_at": received_at,
 	}
 	_remote_snapshots.append(stored_snapshot)
+	if not _render_tick_initialized and tick >= 0:
+		var tick_hz := maxf(_plane.get_server_net_tick_hz(), 0.001)
+		var interpolation_delay_ticks := maxf(ceil(REMOTE_INTERPOLATION_DELAY * tick_hz), 1.0)
+		_render_tick_continuous = float(tick) - interpolation_delay_ticks
+		_render_tick_initialized = true
 	while _remote_snapshots.size() > REMOTE_MAX_SNAPSHOTS:
 		_remote_snapshots.pop_front()
 

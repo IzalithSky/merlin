@@ -240,6 +240,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	if existing != null:
 		if character_type == CharacterType.PLANE:
 			var existing_plane := existing
+			existing_plane.set_server_net_tick_hz(server_net_tick_hz)
 			existing_plane.configure(peer_id, local_player)
 			_set_character_local_binding(existing_plane, local_player)
 			_configure_bot_behavior(existing_plane, peer_id)
@@ -266,6 +267,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 
 	if character_type == CharacterType.PLANE:
 		var plane := character
+		plane.set_server_net_tick_hz(server_net_tick_hz)
 		_set_character_local_binding(plane, local_player)
 		_configure_bot_behavior(plane, peer_id)
 		_register_lockable_target(plane)
@@ -629,6 +631,7 @@ func _enforce_local_ownership() -> void:
 		character.configure(character_peer_id, local_player)
 		_set_character_local_binding(character, local_player)
 		if character_type == CharacterType.PLANE:
+			character.set_server_net_tick_hz(server_net_tick_hz)
 			_configure_bot_behavior(character, character_peer_id)
 
 		if local_player and character_type == CharacterType.PLANE:
