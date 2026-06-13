@@ -7,6 +7,7 @@ signal local_input_produced(peer_id: int, input: Dictionary)
 const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer_3d.gd")
 const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
+const PLANE_INPUT_COLLECTOR_SCRIPT := preload("res://scripts/plane_input_collector.gd")
 const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 
 @export var rot_rate: float = 2.4
@@ -214,12 +215,14 @@ var _net_limiter_override_active := false
 var _net_effective_pitch_input := 0.0
 var _shot_down_random := RandomNumberGenerator.new()
 var _last_ground_impact_time: float = -INF
+var _input_collector
 var _net
 
 
 func _ready() -> void:
 	add_to_group("player_character")
 	add_to_group("plane_character")
+	_input_collector = PLANE_INPUT_COLLECTOR_SCRIPT.new(self)
 	_net = PLANE_NET_ADAPTER_SCRIPT.new(self)
 	_shot_down_random.randomize()
 	_apply_spawn_control_defaults()
@@ -303,7 +306,7 @@ func _physics_process(delta: float) -> void:
 	elif _is_net_input_driven():
 		_apply_net_inputs()
 	else:
-		_collect_inputs(delta)
+		_input_collector.collect_inputs(delta)
 		_emit_local_input()
 	compute_control_state(delta)
 	apply_thrust()
@@ -469,166 +472,6 @@ func _emit_local_input() -> void:
 
 func _emit_local_state_snapshot(snapshot: Dictionary) -> void:
 	local_state_changed.emit(peer_id, snapshot)
-
-
-func _collect_inputs(delta: float) -> void:
-	_handle_assist_toggle_inputs()
-
-	var rotation_rate := rot_rate * delta
-	var rotation_decay := rot_decay * delta
-
-	_collect_roll_input(delta, rotation_rate, rotation_decay)
-
-	var pitch_analog := KeybindingsSettings.get_analog_value("pitch_axis")
-	var keyboard_pitch := 0.0
-	keyboard_pitch += Input.get_action_strength("pitch_up")
-	keyboard_pitch -= Input.get_action_strength("pitch_down")
-
-	var yaw_analog := KeybindingsSettings.get_analog_value("yaw_axis")
-	var keyboard_yaw := 0.0
-	keyboard_yaw += Input.get_action_strength("yaw_left")
-	keyboard_yaw -= Input.get_action_strength("yaw_right")
-
-	var desired_pitch: float = clampf(keyboard_pitch + pitch_analog, -1.0, 1.0)
-	var desired_yaw: float = clampf(keyboard_yaw + yaw_analog, -1.0, 1.0)
-	var pitch_analog_active := absf(pitch_analog) > 0.001
-	var yaw_analog_active := absf(yaw_analog) > 0.001
-	_player_pitch_control_active = absf(desired_pitch) > 0.001
-	_player_yaw_control_active = absf(desired_yaw) > 0.001
-
-	if pitch_analog_active:
-		pitch_input = desired_pitch
-	elif _player_pitch_control_active:
-		pitch_input = move_toward(pitch_input, desired_pitch, rotation_rate)
-	elif _input_decay_enabled:
-		pitch_input = move_toward(pitch_input, 0.0, rotation_decay)
-
-	if yaw_analog_active:
-		yaw_input = desired_yaw
-	elif _player_yaw_control_active:
-		yaw_input = move_toward(yaw_input, desired_yaw, rotation_rate)
-	elif _input_decay_enabled:
-		yaw_input = move_toward(yaw_input, 0.0, rotation_decay)
-
-	pitch_input = clamp(pitch_input, -1.0, 1.0)
-	yaw_input = clamp(yaw_input, -1.0, 1.0)
-
-	var throttle_rate := thr_rate * delta
-	if Input.is_action_pressed("throttle_up"):
-		throttle_input += throttle_rate
-	if Input.is_action_pressed("throttle_down"):
-		throttle_input -= throttle_rate
-	throttle_input = clamp(throttle_input, -1.0, 1.0)
-
-	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
-
-
-func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: float) -> void:
-	var roll_analog := KeybindingsSettings.get_analog_value("roll_axis")
-	var direct_roll_direction := _get_direct_roll_direction(roll_analog)
-	var relative_roll_direction := _get_relative_roll_direction()
-	_player_direct_roll_control_active = absf(direct_roll_direction) > 0.001
-
-	if _player_direct_roll_control_active:
-		_reset_relative_roll_target()
-		relative_roll_input = move_toward(relative_roll_input, 0.0, rotation_decay)
-		if absf(roll_analog) > 0.001:
-			roll_input = direct_roll_direction
-		else:
-			roll_input = move_toward(roll_input, direct_roll_direction, rotation_rate)
-		roll_input = clampf(roll_input, -1.0, 1.0)
-		return
-
-	_update_relative_roll_target(delta, relative_roll_direction)
-
-	if relative_roll_target_active:
-		var target_roll_input := get_roll_input_for_error(
-			relative_roll_error,
-			relative_roll_error_to_rate_gain,
-			relative_roll_max_desired_rate,
-			relative_roll_rate_response_gain
-		)
-
-		relative_roll_input = move_toward(relative_roll_input, target_roll_input, rotation_rate)
-		roll_input = clampf(relative_roll_input, -1.0, 1.0)
-
-		if _is_relative_roll_settled() and absf(relative_roll_direction) <= 0.001:
-			_reset_relative_roll_target()
-
-		return
-
-	if _input_decay_enabled:
-		relative_roll_input = move_toward(relative_roll_input, 0.0, rotation_decay)
-		roll_input = move_toward(roll_input, 0.0, rotation_decay)
-	roll_input = clampf(roll_input, -1.0, 1.0)
-
-
-func _get_direct_roll_direction(roll_analog: float = 0.0) -> float:
-	var direction := 0.0
-
-	direction += Input.get_action_strength("roll_left")
-	direction -= Input.get_action_strength("roll_right")
-	direction += roll_analog
-
-	return clampf(direction, -1.0, 1.0)
-
-
-func _get_relative_roll_direction() -> float:
-	var direction := 0.0
-
-	direction -= Input.get_action_strength("relative_roll_left")
-	direction += Input.get_action_strength("relative_roll_right")
-
-	return clampf(direction, -1.0, 1.0)
-
-
-func _update_relative_roll_target(delta: float, input_direction: float) -> void:
-	if not relative_roll_target_active:
-		relative_roll_target_up_world = _frame_up_axis
-		relative_roll_error = 0.0
-
-	if absf(input_direction) > 0.001:
-		relative_roll_target_active = true
-		var cursor_angle_step := input_direction * relative_roll_cursor_speed * delta
-		relative_roll_target_up_world = relative_roll_target_up_world.rotated(
-			_frame_forward_axis,
-			cursor_angle_step
-		).normalized()
-
-	if not relative_roll_target_active:
-		return
-
-	_update_relative_roll_error()
-
-
-func _update_relative_roll_error() -> void:
-	var roll_error := _get_roll_error_for_target_up(relative_roll_target_up_world)
-	if not is_finite(roll_error):
-		_reset_relative_roll_target()
-		return
-
-	var max_error := deg_to_rad(maxf(relative_roll_max_error_deg, 1.0))
-	relative_roll_error = clampf(roll_error, -max_error, max_error)
-
-	relative_roll_target_up_world = _frame_up_axis.rotated(
-		_frame_forward_axis,
-		relative_roll_error
-	).normalized()
-
-
-func _reset_relative_roll_target() -> void:
-	relative_roll_target_active = false
-	relative_roll_target_up_world = _frame_up_axis
-	relative_roll_error = 0.0
-	relative_roll_input = 0.0
-
-
-func _is_relative_roll_settled() -> bool:
-	var error_deadband := deg_to_rad(maxf(relative_roll_deadband_deg, 0.0))
-	return (
-		absf(relative_roll_error) <= error_deadband and
-		absf(get_local_roll_rate()) <= maxf(relative_roll_rate_deadband, 0.0)
-	)
 
 
 func _get_signed_direction_error_about_axis(
@@ -1299,6 +1142,14 @@ func is_relative_roll_active() -> bool:
 	return relative_roll_target_active
 
 
+func get_frame_forward_axis() -> Vector3:
+	return _frame_forward_axis
+
+
+func get_frame_up_axis() -> Vector3:
+	return _frame_up_axis
+
+
 func get_local_angular_velocity() -> Vector3:
 	return _frame_body_basis.transposed() * angular_velocity
 
@@ -1344,6 +1195,10 @@ func get_roll_input_for_error(
 		1.0,
 		rate_scale
 	)
+
+
+func get_roll_error_for_target_up(target_up_world: Vector3) -> float:
+	return _get_roll_error_for_target_up(target_up_world)
 
 
 func get_rate_stabilized_axis_input(
@@ -1610,24 +1465,6 @@ func _should_apply_sustain_turn_limiter() -> bool:
 		return false
 
 	return true
-
-
-func _handle_assist_toggle_inputs() -> void:
-	if not is_local_player:
-		return
-	var ds := DisplaySettings
-	if Input.is_action_just_pressed("toggle_pitch_assist"):
-		_pitch_assist_enabled = not _pitch_assist_enabled
-		if ds != null:
-			ds.set_pitch_assist_enabled(_pitch_assist_enabled)
-	if Input.is_action_just_pressed("toggle_stabilization_assist"):
-		_stabilization_assist_enabled = not _stabilization_assist_enabled
-		if ds != null:
-			ds.set_stabilization_assist_enabled(_stabilization_assist_enabled)
-	if Input.is_action_just_pressed("toggle_input_decay"):
-		_input_decay_enabled = not _input_decay_enabled
-		if ds != null:
-			ds.set_input_decay_enabled(_input_decay_enabled)
 
 
 func is_pitch_assist_enabled() -> bool:

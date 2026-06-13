@@ -52,23 +52,12 @@ func consume_pending_input() -> Dictionary:
 func build_local_input_payload() -> Dictionary:
 	if not _plane._is_predicting_client():
 		return {}
+	return _plane._input_collector.build_local_input_payload(next_input_seq())
 
+
+func next_input_seq() -> int:
 	_net_input_seq += 1
-	return {
-		"seq": _net_input_seq,
-		"roll": _plane.roll_input,
-		"pitch": _plane.pitch_input,
-		"yaw": _plane.yaw_input,
-		"throttle": _plane.throttle_input,
-		"effective_pitch": _plane._get_turn_limited_pitch_input(_plane.pitch_input),
-		"pitch_control_active": _plane._player_pitch_control_active,
-		"yaw_control_active": _plane._player_yaw_control_active,
-		"direct_roll_control_active": _plane._player_direct_roll_control_active,
-		"relative_roll_target_active": _plane.relative_roll_target_active,
-		"pitch_assist_enabled": _plane._pitch_assist_enabled,
-		"stabilization_assist_enabled": _plane._stabilization_assist_enabled,
-		"limiter_override_active": Input.is_action_pressed("limiter_override"),
-	}
+	return _net_input_seq
 
 
 func record_prediction_state() -> void:
