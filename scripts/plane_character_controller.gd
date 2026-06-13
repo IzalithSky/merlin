@@ -6,7 +6,9 @@ signal local_input_produced(peer_id: int, input: PackedByteArray)
 const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer_3d.gd")
 const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
+const PLANE_CRASH_DAMAGE_MODEL_SCRIPT := preload("res://scripts/plane_crash_damage_model.gd")
 const PLANE_FLIGHT_MODEL_SCRIPT := preload("res://scripts/plane_flight_model.gd")
+const PLANE_FORCE_DEBUG_ADAPTER_SCRIPT := preload("res://scripts/plane_force_debug_adapter.gd")
 const PLANE_INPUT_COLLECTOR_SCRIPT := preload("res://scripts/plane_input_collector.gd")
 const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 
@@ -217,6 +219,8 @@ var _net_effective_pitch_input := 0.0
 var _shot_down_random := RandomNumberGenerator.new()
 var _last_ground_impact_time: float = -INF
 var _input_collector
+var _crash_damage
+var _force_debug
 var _net
 var _flight_model
 var _preserve_remote_wreck_velocities := false
@@ -226,6 +230,8 @@ func _ready() -> void:
 	add_to_group("player_character")
 	add_to_group("plane_character")
 	_input_collector = PLANE_INPUT_COLLECTOR_SCRIPT.new(self)
+	_crash_damage = PLANE_CRASH_DAMAGE_MODEL_SCRIPT.new(self)
+	_force_debug = PLANE_FORCE_DEBUG_ADAPTER_SCRIPT.new(self)
 	_net = PLANE_NET_ADAPTER_SCRIPT.new(self)
 	_flight_model = PLANE_FLIGHT_MODEL_SCRIPT.new(self)
 	_shot_down_random.randomize()
@@ -546,88 +552,15 @@ func _apply_local_player_mode() -> void:
 
 
 func _handle_ground_impact_contacts(state: PhysicsDirectBodyState3D) -> void:
-	if is_shot_down or not _is_simulated_locally():
-		return
-
-	var now_seconds := Time.get_ticks_msec() / 1000.0
-	if now_seconds - _last_ground_impact_time < GROUND_IMPACT_COOLDOWN_SECONDS:
-		return
-
-	var impact_speed := linear_velocity.length()
-	if impact_speed <= ground_impact_damage_speed_threshold:
-		return
-
-	var contact_count := state.get_contact_count()
-	if contact_count <= 0:
-		return
-
-	var impact_angle_deg := -1.0
-	for contact_index in range(contact_count):
-		var collider := state.get_contact_collider_object(contact_index)
-		if not is_instance_valid(collider) or not _is_ground_body(collider):
-			continue
-
-		var surface_normal_world := state.get_contact_local_normal(contact_index)
-		impact_angle_deg = _get_surface_impact_angle_deg(surface_normal_world, linear_velocity)
-		if impact_angle_deg >= 0.0:
-			break
-
-	if impact_angle_deg < 0.0:
-		return
-
-	_last_ground_impact_time = now_seconds
-
-	# Only the simulation authority applies damage. A predicting client detects
-	# its own contacts too, but the server observes the same impact on its
-	# instance of this plane — there is nothing to report.
-	if multiplayer.multiplayer_peer == null or multiplayer.is_server():
-		apply_ground_impact_damage(impact_speed, impact_angle_deg)
-
-
-func _is_ground_body(body: Node) -> bool:
-	return body is StaticBody3D
+	_crash_damage.handle_ground_impact_contacts(state)
 
 
 func apply_ground_impact_damage(impact_speed: float, impact_angle_deg: float) -> void:
-	if is_shot_down:
-		return
-
-	var health = get_health_component()
-	if health == null:
-		return
-
-	var fatal_speed_threshold := maxf(ground_impact_fatal_speed_threshold, ground_impact_damage_speed_threshold)
-	if (
-		impact_speed >= fatal_speed_threshold and
-		impact_angle_deg >= maxf(ground_impact_fatal_surface_angle_deg, 0.0)
-	):
-		health.take_damage(health.max_hp)
-		return
-
-	if impact_speed <= ground_impact_damage_speed_threshold:
-		return
-
-	var speed_span := maxf(fatal_speed_threshold - ground_impact_damage_speed_threshold, 0.001)
-	var damage_ratio := clampf(
-		(impact_speed - ground_impact_damage_speed_threshold) / speed_span,
-		0.0,
-		1.0
-	)
-	var damage_amount := ground_impact_max_damage * damage_ratio
-	if damage_amount > 0.0:
-		health.take_damage(damage_amount)
+	_crash_damage.apply_ground_impact_damage(impact_speed, impact_angle_deg)
 
 
 func _get_surface_impact_angle_deg(surface_normal_world: Vector3, movement_velocity_world: Vector3) -> float:
-	var normal_length_squared := surface_normal_world.length_squared()
-	var speed_squared := movement_velocity_world.length_squared()
-	if normal_length_squared <= 0.000001 or speed_squared <= 0.000001:
-		return -1.0
-
-	var normalized_surface_normal := surface_normal_world / sqrt(normal_length_squared)
-	var movement_direction := movement_velocity_world / sqrt(speed_squared)
-	var perpendicular_ratio := clampf(absf(normalized_surface_normal.dot(movement_direction)), 0.0, 1.0)
-	return rad_to_deg(asin(perpendicular_ratio))
+	return _crash_damage.get_surface_impact_angle_deg(surface_normal_world, movement_velocity_world)
 
 
 func _on_shot_down() -> void:
@@ -707,29 +640,34 @@ func get_replicated_velocity() -> Vector3:
 
 
 func _ensure_force_debug_renderer() -> void:
-	if not debug_force_vectors_enabled:
-		return
-
-	if _force_debug_renderer != null:
-		return
-
-	_force_debug_renderer = FORCE_DEBUG_RENDERER_SCRIPT.new()
-	_force_debug_renderer.name = "ForceDebugRenderer3D"
-	add_child(_force_debug_renderer)
-	_update_force_debug_renderer_state()
+	_force_debug.ensure_renderer()
 
 
 func _update_force_debug_renderer_state() -> void:
-	if _force_debug_renderer == null:
-		return
-
-	var should_show := debug_force_vectors_enabled and _is_simulated_locally()
-	_force_debug_renderer.visible = should_show
-	if not should_show:
-		_force_debug_renderer.clear_frame()
+	_force_debug.update_renderer_state()
 
 
 func _begin_force_debug_frame() -> void:
+	_force_debug.begin_frame()
+
+
+func _end_force_debug_frame() -> void:
+	_force_debug.end_frame()
+
+
+func _clear_force_debug_frame() -> void:
+	_force_debug.clear_frame()
+
+
+func _push_debug_force(origin_world: Vector3, force_world: Vector3, color: Color) -> void:
+	_force_debug.push_force(origin_world, force_world, color)
+
+
+func _push_debug_torque(origin_world: Vector3, torque_world: Vector3, color: Color) -> void:
+	_force_debug.push_torque(origin_world, torque_world, color)
+
+
+func reset_debug_force_accumulators() -> void:
 	_debug_last_thrust_force_world = Vector3.ZERO
 	_debug_last_lift_force_world = Vector3.ZERO
 	_debug_last_drag_force_world = Vector3.ZERO
@@ -737,41 +675,40 @@ func _begin_force_debug_frame() -> void:
 	_debug_last_gravity_force_world = Vector3.ZERO
 	_debug_last_damping_force_world = Vector3.ZERO
 
-	if _force_debug_renderer == null:
-		return
 
-	_force_debug_renderer.begin_frame()
-	var gravity_force := _get_gravity_force_world()
-	_debug_last_gravity_force_world = gravity_force
-	_push_debug_force(global_position, gravity_force, DEBUG_COLOR_GRAVITY)
+func set_debug_thrust_force_world(value: Vector3) -> void:
+	_debug_last_thrust_force_world = value
 
 
-func _end_force_debug_frame() -> void:
-	if _force_debug_renderer == null:
-		return
-
-	_force_debug_renderer.end_frame()
+func set_debug_lift_force_world(value: Vector3) -> void:
+	_debug_last_lift_force_world = value
 
 
-func _clear_force_debug_frame() -> void:
-	if _force_debug_renderer == null:
-		return
-
-	_force_debug_renderer.clear_frame()
+func set_debug_drag_force_world(value: Vector3) -> void:
+	_debug_last_drag_force_world = value
 
 
-func _push_debug_force(origin_world: Vector3, force_world: Vector3, color: Color) -> void:
-	if _force_debug_renderer == null:
-		return
-
-	_force_debug_renderer.push_force(origin_world, force_world, color)
+func set_debug_side_force_world(value: Vector3) -> void:
+	_debug_last_side_force_world = value
 
 
-func _push_debug_torque(origin_world: Vector3, torque_world: Vector3, color: Color) -> void:
-	if _force_debug_renderer == null:
-		return
+func set_debug_gravity_force_world(value: Vector3) -> void:
+	_debug_last_gravity_force_world = value
 
-	_force_debug_renderer.push_torque(origin_world, torque_world, color)
+
+func set_debug_damping_force_world(value: Vector3) -> void:
+	_debug_last_damping_force_world = value
+
+
+func get_debug_force_balance_terms() -> Dictionary:
+	return {
+		"thrust": _debug_last_thrust_force_world,
+		"lift": _debug_last_lift_force_world,
+		"drag": _debug_last_drag_force_world,
+		"side": _debug_last_side_force_world,
+		"gravity": _debug_last_gravity_force_world,
+		"damping": _debug_last_damping_force_world,
+	}
 
 
 func _get_gravity_force_world() -> Vector3:
@@ -839,33 +776,7 @@ func _compute_axis_drag_torque_component(axis_rate: float, linear_coefficient: f
 
 
 func get_force_balance_snapshot() -> Dictionary:
-	var velocity := linear_velocity
-	var speed := velocity.length()
-	var velocity_dir := Vector3.ZERO
-	if speed > 0.001:
-		velocity_dir = velocity / speed
-
-	var thrust_force := _debug_last_thrust_force_world
-	var drag_force := _debug_last_drag_force_world
-	var gravity_force := _debug_last_gravity_force_world
-	var damping_force := _debug_last_damping_force_world
-	var net_force := (
-		thrust_force +
-		_debug_last_lift_force_world +
-		_debug_last_side_force_world +
-		drag_force +
-		gravity_force +
-		damping_force
-	)
-
-	return {
-		"speed": speed,
-		"thrust_along_velocity": thrust_force.dot(velocity_dir),
-		"drag_along_velocity": drag_force.dot(velocity_dir),
-		"gravity_along_velocity": gravity_force.dot(velocity_dir),
-		"damping_along_velocity": damping_force.dot(velocity_dir),
-		"net_along_velocity": net_force.dot(velocity_dir),
-	}
+	return _force_debug.get_force_balance_snapshot()
 
 
 func is_hostile_to(other: Node) -> bool:
@@ -988,6 +899,14 @@ func set_sustain_turn_vy_update_timer(value: float) -> void:
 
 func set_sustain_turn_using_vy(value: bool) -> void:
 	_sustain_turn_using_vy = value
+
+
+func get_last_ground_impact_time() -> float:
+	return _last_ground_impact_time
+
+
+func set_last_ground_impact_time(value: float) -> void:
+	_last_ground_impact_time = value
 
 
 func get_roll_input_for_error(

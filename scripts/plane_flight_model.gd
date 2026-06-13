@@ -22,7 +22,7 @@ func apply_thrust() -> void:
 		return
 
 	_plane.apply_central_force(thrust_force)
-	_plane._debug_last_thrust_force_world = thrust_force
+	_plane.set_debug_thrust_force_world(thrust_force)
 	_plane._push_debug_force(_plane.global_position, thrust_force, _plane.DEBUG_COLOR_THRUST)
 
 
@@ -82,9 +82,9 @@ func apply_aerodynamic_forces() -> void:
 	var side_force := side_axis * side_force_magnitude
 
 	var aerodynamic_force := drag_force + lift_force + side_force
-	_plane._debug_last_drag_force_world = drag_force
-	_plane._debug_last_lift_force_world = lift_force
-	_plane._debug_last_side_force_world = side_force
+	_plane.set_debug_drag_force_world(drag_force)
+	_plane.set_debug_lift_force_world(lift_force)
+	_plane.set_debug_side_force_world(side_force)
 
 	if aerodynamic_force.is_finite():
 		_plane.apply_central_force(aerodynamic_force)
@@ -152,9 +152,10 @@ func apply_extra_drag_forces() -> void:
 		_plane.apply_torque(angular_drag_torque)
 		_plane._push_debug_torque(_plane.global_position, angular_drag_torque, _plane.DEBUG_COLOR_DAMPING)
 
-	_plane._debug_last_damping_force_world = _get_engine_damping_force_world() + extra_linear_drag_force
-	if _plane._debug_last_damping_force_world.length_squared() > 0.0 and _plane._debug_last_damping_force_world.is_finite():
-		_plane._push_debug_force(_plane.global_position, _plane._debug_last_damping_force_world, _plane.DEBUG_COLOR_DAMPING)
+	var damping_force := _get_engine_damping_force_world() + extra_linear_drag_force
+	_plane.set_debug_damping_force_world(damping_force)
+	if damping_force.length_squared() > 0.0 and damping_force.is_finite():
+		_plane._push_debug_force(_plane.global_position, damping_force, _plane.DEBUG_COLOR_DAMPING)
 
 
 func get_roll_input_for_error(
