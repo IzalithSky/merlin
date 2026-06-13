@@ -74,6 +74,9 @@ func _try_fire(plane: Node3D) -> void:
 	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
 		var projectile_net = _find_projectile_net()
 		if projectile_net != null:
+			var spawner = WorldCharacterSpawner.find_in_tree(self)
+			if spawner != null:
+				spawner.record_net_send("projectile", [multiplayer.get_unique_id(), target_peer_id])
 			projectile_net.sv_request_fire_autocannon.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
 		else:
 			_fire_local(plane, aim_direction)

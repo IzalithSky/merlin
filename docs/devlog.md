@@ -55,6 +55,18 @@
   - `godot --headless --path . --scene res://scenes/bot_duel.tscn --quit-after 2`
   - `godot --headless --path . --scene res://scenes/bot_chase_debug.tscn --quit-after 3`
 
+## 2026-06-13 (Phase 1 metrics)
+
+- Started Phase 1 of `tasks/net_protocol_and_god_object_completion_plan.md` for finding `#14`.
+- Added `scripts/net_metrics.gd` and wired debug-only packet/byte accounting into the current snapshot, input, spawn, health, and projectile RPC paths.
+- Added a small local HUD text overlay in `scripts/plane_telemetry_hud.gd` and a once-per-second host smoke log path so network cost is visible during live MP runs.
+- Baseline from `tests/mp_host_smoke.gd` with `2` human peers and `1` bot before batching/packing:
+  - first sampled second: `S 56 pkt/s 11.8 KB/s | R 32 pkt/s 13.0 KB/s`
+  - steady-state sampled second: `S 94 pkt/s 18.3 KB/s | R 60 pkt/s 25.1 KB/s`
+  - steady-state breakdown: `state send 93 pkt/s 18.2 KB/s`, `input recv 60 pkt/s 25.1 KB/s`
+- Validated with:
+  - `bash tests/run_headless_smokes.sh`
+
 ---
 
 

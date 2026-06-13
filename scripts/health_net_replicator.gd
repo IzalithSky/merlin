@@ -28,8 +28,10 @@ func sync_health_states_to_peer(target_peer_id: int) -> void:
 		if health == null:
 			continue
 
+		_spawner.record_net_send("health", [peer_id, health.current_hp])
 		cl_health_changed.rpc_id(target_peer_id, peer_id, health.current_hp)
 		if _is_character_shot_down(peer_id):
+			_spawner.record_net_send("health", [peer_id, true])
 			cl_shot_down.rpc_id(target_peer_id, peer_id)
 
 
@@ -55,6 +57,7 @@ func _on_character_damaged(_amount: float, current_hp: float, peer_id: int) -> v
 
 	for target_peer_id in multiplayer.get_peers():
 		if _spawner.is_peer_world_ready(target_peer_id):
+			_spawner.record_net_send("health", [peer_id, current_hp])
 			cl_health_changed.rpc_id(target_peer_id, peer_id, current_hp)
 
 
@@ -64,12 +67,15 @@ func _on_character_shot_down(peer_id: int) -> void:
 
 	for target_peer_id in multiplayer.get_peers():
 		if _spawner.is_peer_world_ready(target_peer_id):
+			_spawner.record_net_send("health", [peer_id, 0.0])
 			cl_health_changed.rpc_id(target_peer_id, peer_id, 0.0)
+			_spawner.record_net_send("health", [peer_id, true])
 			cl_shot_down.rpc_id(target_peer_id, peer_id)
 
 
 @rpc("authority", "reliable")
 func cl_health_changed(peer_id: int, current_hp: float) -> void:
+	_spawner.record_net_recv("health", [peer_id, current_hp])
 	var health = _get_character_health(peer_id)
 	if health == null:
 		return
@@ -79,6 +85,7 @@ func cl_health_changed(peer_id: int, current_hp: float) -> void:
 
 @rpc("authority", "reliable")
 func cl_shot_down(peer_id: int) -> void:
+	_spawner.record_net_recv("health", [peer_id, true])
 	var health = _get_character_health(peer_id)
 	if health != null:
 		health.apply_shot_down_from_network()

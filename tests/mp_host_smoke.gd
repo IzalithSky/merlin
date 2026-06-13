@@ -16,6 +16,7 @@ var _saw_remote_plane := false
 var _validated_local_authority := false
 var _client_plane_first_position := Vector3.ZERO
 var _client_plane_moved := false
+var _net_metrics_enabled := false
 
 const CLIENT_PLANE_MIN_DISPLACEMENT := 50.0
 
@@ -47,6 +48,10 @@ func _process(delta: float) -> bool:
 	var world := current_scene
 	if world == null or world.name != "world":
 		return false
+	if not _net_metrics_enabled:
+		world.net_metrics_enabled = true
+		world.net_metrics_print_summary = true
+		_net_metrics_enabled = true
 
 	var characters := world.get_node_or_null("characters")
 	if characters == null:

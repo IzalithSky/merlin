@@ -74,6 +74,9 @@ func _try_fire(plane: Node3D) -> void:
 			target_id = locked_target_component.get_target_id()
 		var projectile_net := _find_projectile_net()
 		if projectile_net != null:
+			var spawner = WorldCharacterSpawner.find_in_tree(self)
+			if spawner != null:
+				spawner.record_net_send("projectile", [multiplayer.get_unique_id(), target_kind, target_id])
 			projectile_net.sv_request_fire_missile.rpc_id(1, multiplayer.get_unique_id(), target_kind, target_id)
 	else:
 		var projectile_net := _find_projectile_net()

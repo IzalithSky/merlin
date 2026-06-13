@@ -38,6 +38,7 @@ var _global_direction_markers_enabled := true
 var _shot_down_detached := false
 var _base_root_size := Vector2.ZERO
 var _indicator_half_size := Vector2.ZERO
+var _net_metrics_label: Label
 
 const GLOBAL_DIRECTION_MARKER_DISTANCE := 1000.0
 const MIN_DIRECTION_SPEED_SQUARED := 0.01
@@ -46,6 +47,7 @@ const MIN_DIRECTION_SPEED_SQUARED := 0.01
 func _ready() -> void:
 	_base_root_size = $Root.size
 	_indicator_half_size = _nose_direction_indicator.size * 0.5
+	_create_net_metrics_label()
 	_assign_global_direction_indicator_textures()
 	_collect_advanced_hud_nodes()
 	DisplaySettings.settings_changed.connect(_apply_display_settings)
@@ -129,6 +131,7 @@ func _process(_delta: float) -> void:
 
 	_update_relative_roll_clock()
 	_update_global_direction_indicators()
+	_update_net_metrics_overlay()
 
 
 func _reset_labels() -> void:
@@ -146,6 +149,7 @@ func _reset_labels() -> void:
 	_roll_input_bar.value = 0.0
 	_throttle_input_bar.value = -100.0
 	_reset_force_balance_debug()
+	_update_net_metrics_overlay()
 
 
 func _reset_advanced_labels() -> void:
@@ -356,3 +360,48 @@ func _fit_to_contents() -> void:
 		maxf(_base_root_size.x, panel.position.x + panel_size.x),
 		maxf(_base_root_size.y, panel.position.y + panel_size.y)
 	)
+	if _net_metrics_label != null:
+		_net_metrics_label.position = Vector2(panel.position.x, panel.position.y + panel_size.y + 8.0)
+
+
+func _create_net_metrics_label() -> void:
+	_net_metrics_label = Label.new()
+	_net_metrics_label.name = "NetMetricsLabel"
+	_net_metrics_label.visible = false
+	_net_metrics_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	$Root.add_child(_net_metrics_label)
+
+
+func _update_net_metrics_overlay() -> void:
+	if _net_metrics_label == null:
+		return
+
+	var spawner = _find_world_spawner()
+	if (
+		spawner == null
+		or not is_instance_valid(spawner)
+		or not _advanced_hud_enabled
+		or not spawner.net_metrics_enabled
+	):
+		_net_metrics_label.visible = false
+		return
+
+	var summary_text: String = spawner.get_net_metrics_summary_text()
+	if summary_text.is_empty():
+		_net_metrics_label.visible = false
+		return
+
+	_net_metrics_label.text = "NET %s" % summary_text
+	_net_metrics_label.visible = true
+
+
+func _find_world_spawner():
+	if _target != null and is_instance_valid(_target):
+		var spawner = WorldCharacterSpawner.find_in_tree(_target)
+		if spawner != null:
+			return spawner
+
+	var nodes := get_tree().get_nodes_in_group("world_character_spawner")
+	if nodes.is_empty():
+		return null
+	return nodes[0]

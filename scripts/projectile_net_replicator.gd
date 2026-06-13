@@ -80,6 +80,7 @@ func _on_projectile_entered(node: Node) -> void:
 
 	for peer_id in multiplayer.get_peers():
 		if _spawner.is_peer_world_ready(peer_id):
+			_spawner.record_net_send("projectile", [missile_id, missile.global_transform, velocity, target_ref.x, target_ref.y])
 			cl_spawn_missile.rpc_id(peer_id, missile_id, missile.global_transform, velocity, target_ref.x, target_ref.y)
 
 
@@ -89,6 +90,7 @@ func _on_missile_died(missile_id: int, exploded: bool, pos: Vector3) -> void:
 		return
 	for peer_id in multiplayer.get_peers():
 		if _spawner.is_peer_world_ready(peer_id):
+			_spawner.record_net_send("projectile", [missile_id, exploded, pos])
 			cl_despawn_missile.rpc_id(peer_id, missile_id, exploded, pos)
 
 
@@ -138,6 +140,7 @@ func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_peer_id:
 
 	for peer_id in multiplayer.get_peers():
 		if _spawner.is_peer_world_ready(peer_id):
+			_spawner.record_net_send("projectile", [bullet_id, bullet.global_position, bullet.linear_velocity])
 			cl_spawn_bullet.rpc_id(peer_id, bullet_id, bullet.global_position, bullet.linear_velocity)
 
 
@@ -195,6 +198,7 @@ func _on_bullet_died(_hit: bool, pos: Vector3, bullet_id: int) -> void:
 		return
 	for peer_id in multiplayer.get_peers():
 		if _spawner.is_peer_world_ready(peer_id):
+			_spawner.record_net_send("projectile", [bullet_id, pos])
 			cl_despawn_bullet.rpc_id(peer_id, bullet_id, pos)
 
 
@@ -202,6 +206,7 @@ func _on_bullet_died(_hit: bool, pos: Vector3, bullet_id: int) -> void:
 func sv_request_fire_missile(firing_peer_id: int, target_kind: int, target_id: int) -> void:
 	if not multiplayer.is_server():
 		return
+	_spawner.record_net_recv("projectile", [firing_peer_id, target_kind, target_id])
 	if multiplayer.get_remote_sender_id() != firing_peer_id:
 		return
 
@@ -226,6 +231,7 @@ func sv_request_fire_missile(firing_peer_id: int, target_kind: int, target_id: i
 func sv_request_fire_autocannon(firing_peer_id: int, target_peer_id: int) -> void:
 	if not multiplayer.is_server():
 		return
+	_spawner.record_net_recv("projectile", [firing_peer_id, target_peer_id])
 	if multiplayer.get_remote_sender_id() != firing_peer_id:
 		return
 
@@ -247,6 +253,7 @@ func cl_spawn_missile(missile_id: int, transform_value: Transform3D, velocity: V
 	if multiplayer.is_server():
 		return
 
+	_spawner.record_net_recv("projectile", [missile_id, transform_value, velocity, target_kind, target_id])
 	var missile := MISSILE_SCENE.instantiate() as Missile
 	_projectiles.add_child(missile)
 	missile.init_replica(transform_value, velocity, _resolve_remote_missile_target(target_kind, target_id))
@@ -258,6 +265,7 @@ func cl_spawn_bullet(bullet_id: int, pos: Vector3, velocity: Vector3) -> void:
 	if multiplayer.is_server():
 		return
 
+	_spawner.record_net_recv("projectile", [bullet_id, pos, velocity])
 	var bullet := BULLET_SCENE.instantiate() as Bullet
 	_projectiles.add_child(bullet)
 	bullet.init_replica(pos, velocity)
@@ -269,6 +277,7 @@ func cl_despawn_missile(missile_id: int, exploded: bool, pos: Vector3) -> void:
 	if multiplayer.is_server():
 		return
 
+	_spawner.record_net_recv("projectile", [missile_id, exploded, pos])
 	var visual = _remote_missiles.get(missile_id)
 	if visual != null and is_instance_valid(visual):
 		if exploded:
@@ -306,6 +315,7 @@ func cl_despawn_bullet(bullet_id: int, pos: Vector3) -> void:
 	if multiplayer.is_server():
 		return
 
+	_spawner.record_net_recv("projectile", [bullet_id, pos])
 	var visual = _active_bullet_visuals.get(bullet_id)
 	if visual != null and is_instance_valid(visual):
 		visual.despawn(pos)

@@ -5,6 +5,7 @@ const PLAYER_CHARACTER_SCENE := preload("res://scenes/player_character.tscn")
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 const LOCAL_PLANE_PRESENTATION_BINDING := preload("res://scripts/local_plane_presentation_binding.gd")
+const NET_METRICS_SCRIPT := preload("res://scripts/net_metrics.gd")
 const PLANE_BOT_SETUP := preload("res://scripts/plane_bot_setup.gd")
 const CHARACTER_NAME_PREFIX := "PlayerCharacter_"
 const BOT_PEER_ID_BASE := 1000000
@@ -25,6 +26,8 @@ enum CharacterType {
 @export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
 @export var bot_player_killzone_distance := 250.0
 @export var bot_player_killzone_tolerance := 150.0
+@export var net_metrics_enabled := false
+@export var net_metrics_print_summary := false
 @onready var _characters: Node3D = $characters
 @onready var _projectiles: Node3D = $projectiles
 @onready var _target_registry = $TargetRegistry
@@ -39,6 +42,8 @@ var _bot_follow_target: Node3D
 var _local_plane_presentation
 var _server_aero_payload: Dictionary = {}
 var _client_aero_payload: Dictionary = {}
+var _net_metrics := NET_METRICS_SCRIPT.new()
+var _net_metrics_print_accumulator := 0.0
 
 
 func _ready() -> void:
@@ -69,6 +74,18 @@ func _ready() -> void:
 		_spawn_bots(true)
 	else:
 		call_deferred("_request_world_sync")
+
+
+func _process(delta: float) -> void:
+	if not net_metrics_enabled or not net_metrics_print_summary:
+		return
+
+	_net_metrics_print_accumulator += delta
+	if _net_metrics_print_accumulator < 1.0:
+		return
+
+	_net_metrics_print_accumulator = 0.0
+	print("net_metrics %s" % get_net_metrics_summary_text())
 
 
 static func find_in_tree(from_node: Node):
@@ -286,6 +303,7 @@ func _on_local_character_input_produced(_peer_id: int, input: Dictionary) -> voi
 	if multiplayer.multiplayer_peer == null or multiplayer.is_server():
 		return
 
+	record_net_send("input", input)
 	sv_submit_input.rpc_id(1, input)
 
 
@@ -293,6 +311,7 @@ func _request_world_sync() -> void:
 	if multiplayer.multiplayer_peer == null or multiplayer.is_server():
 		return
 
+	record_net_send("spawn", [])
 	request_world_sync.rpc_id(1)
 
 
@@ -301,6 +320,7 @@ func request_world_sync() -> void:
 	if not multiplayer.is_server():
 		return
 
+	record_net_recv("spawn", [])
 	var sender_id := multiplayer.get_remote_sender_id()
 	var is_new_peer := _register_peer(sender_id)
 	_world_ready_peers[sender_id] = true
@@ -319,6 +339,7 @@ func _send_aero_tables_to_peer(target_peer_id: int) -> void:
 	if _server_aero_payload.is_empty():
 		return
 
+	record_net_send("spawn", _server_aero_payload)
 	cl_apply_aero_tables.rpc_id(target_peer_id, _server_aero_payload)
 
 
@@ -340,6 +361,7 @@ func cl_apply_aero_tables(payload: Dictionary) -> void:
 	if multiplayer.is_server():
 		return
 
+	record_net_recv("spawn", payload)
 	_client_aero_payload = payload.duplicate(true)
 	for character in _characters.get_children():
 		var plane_character := character as PlaneCharacter
@@ -349,12 +371,14 @@ func cl_apply_aero_tables(payload: Dictionary) -> void:
 
 @rpc("authority", "reliable")
 func spawn_character(peer_id: int, character_position: Vector3, yaw: float) -> void:
+	record_net_recv("spawn", [peer_id, character_position, yaw])
 	_spawn_character(peer_id, _is_local_peer(peer_id), character_position, yaw)
 	_enforce_local_ownership()
 
 
 @rpc("authority", "reliable")
 func despawn_character(peer_id: int) -> void:
+	record_net_recv("spawn", [peer_id])
 	_despawn_character(peer_id)
 
 
@@ -363,6 +387,7 @@ func sv_submit_input(input: Dictionary) -> void:
 	if not multiplayer.is_server():
 		return
 
+	record_net_recv("input", input)
 	var sender_id := multiplayer.get_remote_sender_id()
 	var plane_character := _characters.get_node_or_null(_character_name(sender_id)) as PlaneCharacter
 	if plane_character == null or not is_instance_valid(plane_character):
@@ -399,6 +424,7 @@ func _is_valid_input_packet(input: Dictionary) -> bool:
 
 @rpc("authority", "call_remote", "unreliable_ordered", 2)
 func apply_character_state(peer_id: int, snapshot: Dictionary) -> void:
+	record_net_recv("state", [peer_id, snapshot])
 	var character := _characters.get_node_or_null(_character_name(peer_id))
 	if character == null:
 		return
@@ -431,6 +457,7 @@ func _spawn_peer_character_locally(peer_id: int) -> void:
 func _sync_spawn_states_to_peer(target_peer_id: int) -> void:
 	for peer_id in _sorted_peer_ids():
 		var spawn_state: Dictionary = _peer_spawn_states[peer_id]
+		record_net_send("spawn", [peer_id, spawn_state["character_position"], spawn_state["yaw"]])
 		spawn_character.rpc_id(
 			target_peer_id,
 			peer_id,
@@ -446,6 +473,7 @@ func _broadcast_spawn_state(peer_id: int, excluded_peer_id: int) -> void:
 		if target_peer_id == excluded_peer_id or not _is_peer_world_ready(target_peer_id):
 			continue
 
+		record_net_send("spawn", [peer_id, spawn_state["character_position"], spawn_state["yaw"]])
 		spawn_character.rpc_id(
 			target_peer_id,
 			peer_id,
@@ -633,6 +661,7 @@ func _broadcast_character_state(peer_id: int, snapshot: Dictionary) -> void:
 		if not _is_peer_world_ready(target_peer_id):
 			continue
 
+		record_net_send("state", [peer_id, snapshot])
 		apply_character_state.rpc_id(target_peer_id, peer_id, snapshot)
 
 
@@ -641,6 +670,7 @@ func _broadcast_despawn(peer_id: int) -> void:
 		if not _is_peer_world_ready(target_peer_id):
 			continue
 
+		record_net_send("spawn", [peer_id])
 		despawn_character.rpc_id(target_peer_id, peer_id)
 
 
@@ -716,3 +746,41 @@ func _apply_client_aero_tables_to_character(character: Node) -> void:
 
 func _has_property(object: Object, property_name: String) -> bool:
 	return DISPLAY_SETTINGS_APPLIER._has_property(object, property_name)
+
+
+func record_net_send(kind: String, payload: Variant) -> void:
+	record_net_send_bytes(kind, _estimate_payload_bytes(payload))
+
+
+func record_net_recv(kind: String, payload: Variant) -> void:
+	record_net_recv_bytes(kind, _estimate_payload_bytes(payload))
+
+
+func record_net_send_bytes(kind: String, byte_len: int) -> void:
+	if not net_metrics_enabled:
+		return
+	_net_metrics.record_send(kind, byte_len)
+
+
+func record_net_recv_bytes(kind: String, byte_len: int) -> void:
+	if not net_metrics_enabled:
+		return
+	_net_metrics.record_recv(kind, byte_len)
+
+
+func get_net_metrics_summary() -> Dictionary:
+	if not net_metrics_enabled:
+		return {}
+	return _net_metrics.get_summary()
+
+
+func get_net_metrics_summary_text() -> String:
+	if not net_metrics_enabled:
+		return ""
+	return _net_metrics.get_summary_text()
+
+
+func _estimate_payload_bytes(payload: Variant) -> int:
+	if payload is PackedByteArray:
+		return (payload as PackedByteArray).size()
+	return var_to_bytes(payload).size()
