@@ -50,6 +50,8 @@ var _net_metrics_print_accumulator := 0.0
 var _world_snapshot_tick := 0
 var _physics_tick_counter := 0
 var _packet_budget_warning_active := false
+var _probe_last_snapshot_usec := 0
+var _probe_env_accum := 0.0
 
 
 func _ready() -> void:
@@ -83,6 +85,22 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_probe_env_accum += delta
+	if _probe_env_accum >= 1.0:
+		_probe_env_accum = 0.0
+		# fps vs physics rate, fps cap, and whether engine physics interpolation
+		# is on. If render fps > physics rate with interpolation off, the local
+		# (real RigidBody) plane visually steps at the physics rate.
+		NetProbe.log_line("ENV", "fps=%.1f physics_hz=%d max_fps=%d phys_interp=%s net_tick_hz=%.1f snap_interval=%d peers=%d" % [
+			Engine.get_frames_per_second(),
+			Engine.physics_ticks_per_second,
+			Engine.max_fps,
+			str(ProjectSettings.get_setting("physics/common/physics_interpolation", false)),
+			server_net_tick_hz,
+			_snapshot_physics_tick_interval(),
+			(multiplayer.get_peers().size() if multiplayer.multiplayer_peer != null else 0),
+		])
+
 	if not net_metrics_enabled or not net_metrics_print_summary:
 		return
 
@@ -455,6 +473,15 @@ func _is_valid_input_packet(input: Dictionary) -> bool:
 
 @rpc("authority", "call_remote", "unreliable_ordered", 2)
 func apply_world_snapshot(world_snapshot: PackedByteArray) -> void:
+	# Inter-arrival time of world snapshots as the client actually receives them.
+	# Server broadcasts at a fixed cadence (server_net_tick_hz); dt jitter here is
+	# the variance the interpolation playhead has to absorb.
+	var now_usec := Time.get_ticks_usec()
+	var dt_ms := 0.0
+	if _probe_last_snapshot_usec > 0:
+		dt_ms = float(now_usec - _probe_last_snapshot_usec) * 0.001
+	_probe_last_snapshot_usec = now_usec
+	NetProbe.log_line("SNAP_RECV", "dt_ms=%.3f bytes=%d" % [dt_ms, world_snapshot.size()])
 	record_net_recv("state", world_snapshot)
 	var decoded_snapshot := NET_WIRE.decode_world_snapshot(world_snapshot)
 	if decoded_snapshot.is_empty():
