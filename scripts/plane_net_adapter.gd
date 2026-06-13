@@ -163,6 +163,7 @@ func update_remote_interpolation(delta: float) -> void:
 func apply_spawn_state(character_position: Vector3, yaw: float) -> void:
 	_plane.global_position = character_position
 	_plane.rotation = Vector3(0.0, yaw, 0.0)
+	_plane.reset_physics_interpolation()
 	clear_state_for_spawn()
 
 
@@ -254,6 +255,7 @@ func _apply_first_shot_down_snapshot(snapshot: Dictionary) -> void:
 	_plane.global_basis = Basis(Quaternion(snapshot.get("rotation", Quaternion.IDENTITY)).normalized())
 	_plane.linear_velocity = Vector3(snapshot.get("linear_velocity", _plane.linear_velocity))
 	_plane.angular_velocity = Vector3(snapshot.get("angular_velocity", _plane.angular_velocity))
+	_plane.reset_physics_interpolation()
 	_store_interpolation_snapshot(snapshot)
 
 
@@ -292,6 +294,7 @@ func _reconcile_with_server_state(snapshot: Dictionary) -> void:
 		_plane.global_basis = Basis(server_rotation)
 		_plane.linear_velocity = server_velocity
 		_plane.angular_velocity = server_angular_velocity
+		_plane.reset_physics_interpolation()
 		_prediction_history.clear()
 		_correction_position = Vector3.ZERO
 		return

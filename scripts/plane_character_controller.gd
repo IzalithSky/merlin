@@ -535,6 +535,10 @@ func get_server_net_tick_hz() -> float:
 
 
 func _apply_local_player_mode() -> void:
+	# Remote planes are frozen and posed from code; KINEMATIC (not the default
+	# STATIC) is the engine-recommended freeze mode for code-moved bodies so they
+	# derive velocity from transform deltas and produce correct contacts.
+	freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
 	freeze = not _is_simulated_locally()
 
 	if _is_simulated_locally():

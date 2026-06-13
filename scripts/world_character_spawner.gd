@@ -48,7 +48,7 @@ var _client_aero_payload: Dictionary = {}
 var _net_metrics := NET_METRICS_SCRIPT.new()
 var _net_metrics_print_accumulator := 0.0
 var _world_snapshot_tick := 0
-var _world_snapshot_accumulator := 0.0
+var _physics_tick_counter := 0
 var _packet_budget_warning_active := false
 
 
@@ -83,8 +83,6 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	_tick_world_snapshot_broadcast(delta)
-
 	if not net_metrics_enabled or not net_metrics_print_summary:
 		return
 
@@ -97,16 +95,30 @@ func _process(delta: float) -> void:
 	print("net_metrics %s" % get_net_metrics_summary_text())
 
 
-func _tick_world_snapshot_broadcast(delta: float) -> void:
+func _physics_process(_delta: float) -> void:
+	_tick_world_snapshot_broadcast()
+
+
+func _tick_world_snapshot_broadcast() -> void:
 	if multiplayer.multiplayer_peer == null or not multiplayer.is_server():
 		return
 
-	var tick_hz := maxf(server_net_tick_hz, 0.001)
-	_world_snapshot_accumulator += delta
-	var tick_interval := 1.0 / tick_hz
-	while _world_snapshot_accumulator >= tick_interval:
-		_world_snapshot_accumulator -= tick_interval
-		_broadcast_world_snapshot()
+	# Snapshots are sourced from the fixed-rate physics tick (where plane state
+	# actually advances), not the render loop, so the stream is uniform in both
+	# value and time. Sampling at render rate aliases the 60 Hz simulation and
+	# produces speed wobble on the client even at zero ping.
+	_physics_tick_counter += 1
+	var tick_interval := _snapshot_physics_tick_interval()
+	if _physics_tick_counter % tick_interval != 0:
+		return
+
+	_broadcast_world_snapshot()
+
+
+func _snapshot_physics_tick_interval() -> int:
+	var physics_hz := float(Engine.physics_ticks_per_second)
+	var interval := int(round(physics_hz / maxf(server_net_tick_hz, 0.001)))
+	return maxi(interval, 1)
 
 
 static func find_in_tree(from_node: Node):
