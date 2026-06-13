@@ -16,6 +16,12 @@ var _projectiles_container: Node = null
 
 
 func _ready() -> void:
+	var projectile_net = _find_projectile_net()
+	if projectile_net != null:
+		_projectiles_container = projectile_net.get_projectiles_container()
+		if _projectiles_container != null:
+			return
+
 	_projectiles_container = get_tree().current_scene.get_node_or_null("projectiles")
 	if _projectiles_container == null:
 		push_warning("Autocannon: no 'projectiles' node found in scene root; bullets will be added to scene root")
@@ -66,20 +72,24 @@ func _try_fire(plane: Node3D) -> void:
 	)
 
 	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
-		var spawner = _find_world_spawner()
-		if spawner != null:
-			spawner.sv_request_fire_autocannon.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
+		var projectile_net = _find_projectile_net()
+		if projectile_net != null:
+			projectile_net.sv_request_fire_autocannon.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
 		else:
 			_fire_local(plane, aim_direction)
 	elif multiplayer.multiplayer_peer != null and multiplayer.is_server():
-		var spawner = _find_world_spawner()
+		var projectile_net = _find_projectile_net()
 		var firing_peer_id = plane.peer_id
-		if spawner != null:
-			spawner._server_fire_autocannon(plane, firing_peer_id, target_peer_id)
+		if projectile_net != null:
+			projectile_net.fire_autocannon(plane, firing_peer_id, target_peer_id)
 		else:
 			_fire_local(plane, aim_direction)
 	else:
-		_fire_local(plane, aim_direction)
+		var projectile_net = _find_projectile_net()
+		if projectile_net != null:
+			projectile_net.fire_autocannon(plane, plane.peer_id, target_peer_id)
+		else:
+			_fire_local(plane, aim_direction)
 
 	_cooldown_remaining = fire_cooldown
 
@@ -193,8 +203,11 @@ func _is_local_player(plane: Node3D) -> bool:
 	return plane.is_local_player
 
 
-func _find_world_spawner() -> Node:
+func _find_projectile_net() -> Node:
 	var world_nodes := get_tree().get_nodes_in_group("world_character_spawner")
 	if world_nodes.is_empty():
 		return null
-	return world_nodes[0]
+	var spawner = world_nodes[0]
+	if spawner == null or not is_instance_valid(spawner):
+		return null
+	return spawner.get_projectile_net()

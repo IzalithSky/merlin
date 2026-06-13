@@ -14,6 +14,12 @@ var _next_hardpoint_index: int = 0
 
 
 func _ready() -> void:
+	var projectile_net = _find_projectile_net()
+	if projectile_net != null:
+		_projectiles_container = projectile_net.get_projectiles_container()
+		if _projectiles_container != null:
+			return
+
 	_projectiles_container = get_tree().current_scene.get_node_or_null("projectiles")
 	if _projectiles_container == null:
 		push_warning("MissileLauncher: no 'projectiles' node found in scene root; missiles will be added to scene root")
@@ -62,11 +68,15 @@ func _try_fire(plane: Node3D) -> void:
 		var target_peer_id := -1
 		if locked_target != null and is_instance_valid(locked_target) and locked_target.is_in_group("plane_character"):
 			target_peer_id = locked_target.peer_id
-		var spawner := _find_world_spawner()
-		if spawner != null:
-			spawner.sv_request_fire_missile.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
+		var projectile_net := _find_projectile_net()
+		if projectile_net != null:
+			projectile_net.sv_request_fire_missile.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
 	else:
-		_fire(plane, locked_target)
+		var projectile_net := _find_projectile_net()
+		if projectile_net != null:
+			projectile_net.fire_missile(plane, locked_target)
+		else:
+			_fire(plane, locked_target)
 
 	_cooldown_remaining = fire_cooldown
 
@@ -100,8 +110,11 @@ func _is_local_player(plane: Node3D) -> bool:
 	return plane.is_local_player
 
 
-func _find_world_spawner() -> Node:
+func _find_projectile_net() -> Node:
 	var world_nodes := get_tree().get_nodes_in_group("world_character_spawner")
 	if world_nodes.is_empty():
 		return null
-	return world_nodes[0]
+	var spawner = world_nodes[0]
+	if spawner == null or not is_instance_valid(spawner):
+		return null
+	return spawner.get_projectile_net()

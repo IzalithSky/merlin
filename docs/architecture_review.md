@@ -18,7 +18,7 @@ Method: every open finding was re-checked against the current tree (all three la
 
 | # | Finding | Type | Severity | Current status |
 |---|---|---|---|---|
-| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Open — split plan active; phases 1–3 landed |
+| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Open — split plan active; phases 1–4a landed |
 | 6 | Stringly-typed cross-script contracts | Implementation | Medium | Open leftovers only — short, named list below |
 | 8 | Documentation discipline | Process | Low | Open — convention is manual, not enforced |
 | 14 | Unbatched, string-keyed network protocol; packet budget (dev_plan §3) never implemented | Implementation | Medium-High | Open — new finding this pass |
@@ -26,15 +26,15 @@ Method: every open finding was re-checked against the current tree (all three la
 
 ---
 
-## 5. God objects / mixed responsibilities — High — OPEN (phases 1–3 done)
+## 5. God objects / mixed responsibilities — High — OPEN (phases 1–4a done)
 
 **What.** The same three large files still carry too many roles, and all three grew again during the authority migration (third-pass counts):
 
 - `plane_character_controller.gd` — **1,860 lines** (was 1,864 at the second pass): flight model, input collection/smoothing, bot-facing control surface, net-input application, prediction history, reconciliation, remote interpolation, snapshot build, crash damage, sustain-turn/Vy limiter math, debug rendering, aero-table persistence.
 - `plane_bot_pilot.gd` — **1,386 lines**: bot state machine, target acquisition, collision avoidance, ground probing, weapon targeting, and controller-adjacent math helpers.
-- `world_character_spawner.gd` — **998 lines**: spawn registry, ownership binding, input/state relay RPCs, projectile netcode, server fire authority + cooldowns, health replication, aero-table distribution, presentation binding.
+- `world_character_spawner.gd` — **772 lines**: spawn registry, ownership binding, input/state relay RPCs, health replication, aero-table distribution, presentation binding.
 
-**Phases 1–3 landed.** `plane_bot_pilot.gd` now delegates its pitch-rate stabilization calls to `PlaneCharacter.get_rate_stabilized_axis_input` / `get_rate_stabilized_input_for_desired_rate`, matching the existing roll delegation and deleting the duplicated control-law helpers. Networking state sync is extracted into `scripts/plane_net_adapter.gd` (**280 lines**), and local-player input collection/smoothing is extracted into `scripts/plane_input_collector.gd` (**204 lines**). `plane_character_controller.gd` now delegates prediction, reconciliation, interpolation, snapshot build, input seq/ack bookkeeping, and local input collection through those helpers. `tests/run_headless_smokes.sh` and headless boots of `res://scenes/world_0.tscn` and `res://scenes/bot_duel.tscn` passed after the refactor.
+**Phases 1–4a landed.** `plane_bot_pilot.gd` now delegates its pitch-rate stabilization calls to `PlaneCharacter.get_rate_stabilized_axis_input` / `get_rate_stabilized_input_for_desired_rate`, matching the existing roll delegation and deleting the duplicated control-law helpers. Networking state sync is extracted into `scripts/plane_net_adapter.gd` (**280 lines**), local-player input collection/smoothing is extracted into `scripts/plane_input_collector.gd` (**204 lines**), and projectile RPC/cooldown/state replication is extracted into `scripts/projectile_net_replicator.gd` (**282 lines**). `plane_character_controller.gd` and `world_character_spawner.gd` now delegate those responsibilities through helper nodes/scripts. `tests/run_headless_smokes.sh` and headless boots of `res://scenes/world_0.tscn` and `res://scenes/bot_duel.tscn` passed after the refactor.
 
 **Why it matters.** Every multiplayer or flight-model change lands in the same three hot files; review scope and regression risk grow with each feature. The prediction/reconciliation block alone (~250 lines of the controller) is a self-contained module with a clean interface already. The net seams are already explicit (input modes local / bot / net, prediction + reconciliation, snapshot build/apply, aero-table sync each have typed entry points), so extraction is mechanical.
 

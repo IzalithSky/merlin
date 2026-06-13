@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=4 uid="uid://dj47wc5nnm06h"]
+[gd_scene load_steps=16 format=4 uid="uid://dj47wc5nnm06h"]
 
 [ext_resource type="Texture2D" uid="uid://c8iuitgcercyk" path="res://textures/256x256/Grass/Grass_03-256x256.png" id="1_fhkym"]
 
@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/game_menu.gd" id="4_fhkym"]
 [ext_resource type="Script" path="res://scripts/options_menu.gd" id="5_options"]
 [ext_resource type="PackedScene" path="res://scenes/keybindings_menu.tscn" id="6_kbmenu"]
+[ext_resource type="Script" path="res://scripts/projectile_net_replicator.gd" id="7_projectile_net"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dihnr"]
 albedo_texture = ExtResource("1_fhkym")
@@ -104,6 +105,9 @@ shadow_enabled = true
 [node name="characters" type="Node3D" parent="."]
 
 [node name="projectiles" type="Node3D" parent="."]
+
+[node name="ProjectileNetReplicator" type="Node" parent="."]
+script = ExtResource("7_projectile_net")
 
 [node name="ui" type="CanvasLayer" parent="."]
 layer = 10
