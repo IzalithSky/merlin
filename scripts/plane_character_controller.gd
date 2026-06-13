@@ -7,6 +7,7 @@ signal local_input_produced(peer_id: int, input: Dictionary)
 const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer_3d.gd")
 const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
+const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 
 @export var rot_rate: float = 2.4
 @export var rot_decay: float = 3.0
@@ -145,13 +146,6 @@ const DEBUG_COLOR_DAMPING := Color(0.8, 0.8, 0.8, 1.0)
 const DEBUG_COLOR_ROLL_FORCE := Color(0.97, 0.35, 0.95, 1.0)
 const DEBUG_COLOR_PITCH_YAW_FORCE := Color(0.1, 0.95, 0.95, 1.0)
 const DEBUG_COLOR_ALIGNMENT_TORQUE := Color(1.0, 0.95, 0.3, 1.0)
-const REMOTE_INTERPOLATION_DELAY := 0.1
-const REMOTE_MAX_SNAPSHOTS := 4
-const PREDICTION_HISTORY_MAX := 180
-const RECONCILE_VELOCITY_TOLERANCE := 15.0
-const RECONCILE_ANGULAR_VELOCITY_TOLERANCE_DEG := 20.0
-const RECONCILE_ROTATION_TOLERANCE_DEG := 10.0
-
 @export var flame_trail_scene: PackedScene
 
 @onready var _health = $Health
@@ -189,7 +183,6 @@ var aoa_deg := 0.0
 var sideslip_deg := 0.0
 var throttle_percent := 0.0
 
-var _sync_timer := 0.0
 var _force_debug_renderer
 var _last_total_linear_damp := 0.0
 var _debug_last_thrust_force_world := Vector3.ZERO
@@ -217,23 +210,17 @@ var _sustain_turn_vy_update_timer := 0.0
 var _sustain_turn_using_vy := false
 var _altitude_rising := false
 var _flame_trail: Node3D
-var _snapshot_tick: int = 0
-var _remote_snapshots: Array[Dictionary] = []
-var _net_input_seq := 0
-var _net_pending_input: Dictionary = {}
-var _net_last_applied_input_seq := -1
-var _net_ack_seq := -1
 var _net_limiter_override_active := false
 var _net_effective_pitch_input := 0.0
-var _prediction_history: Array[Dictionary] = []
-var _correction_position := Vector3.ZERO
 var _shot_down_random := RandomNumberGenerator.new()
 var _last_ground_impact_time: float = -INF
+var _net
 
 
 func _ready() -> void:
 	add_to_group("player_character")
 	add_to_group("plane_character")
+	_net = PLANE_NET_ADAPTER_SCRIPT.new(self)
 	_shot_down_random.randomize()
 	_apply_spawn_control_defaults()
 	_sanitize_aero_tables()
@@ -298,15 +285,12 @@ func _physics_process(delta: float) -> void:
 		_clear_force_debug_frame()
 		return
 
-	_record_prediction_state()
-	_apply_pending_correction(delta)
+	_net.record_prediction_state()
+	_net.apply_pending_correction(delta)
 
 	if is_shot_down:
 		_clear_force_debug_frame()
-		_sync_timer += delta
-		if _sync_timer >= max(network_sync_interval, 0.001):
-			_sync_timer = 0.0
-			_emit_local_state()
+		_net.emit_state_if_due(delta)
 		return
 
 	_begin_force_debug_frame()
@@ -329,17 +313,14 @@ func _physics_process(delta: float) -> void:
 	apply_directional_alignment()
 	_end_force_debug_frame()
 
-	_sync_timer += delta
-	if _sync_timer >= max(network_sync_interval, 0.001):
-		_sync_timer = 0.0
-		_emit_local_state()
+	_net.emit_state_if_due(delta)
 
 
 func _process(_delta: float) -> void:
 	if _is_simulated_locally():
 		return
 
-	_update_remote_interpolation()
+	_net.update_remote_interpolation()
 
 
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
@@ -457,57 +438,37 @@ func _apply_bot_inputs(delta: float) -> void:
 
 
 func apply_net_control_input(input: Dictionary) -> void:
-	var input_seq := int(input.get("seq", -1))
-	var newest_known := maxi(int(_net_pending_input.get("seq", -1)), _net_last_applied_input_seq)
-	if input_seq <= newest_known:
-		return
-	_net_pending_input = input
+	_net.apply_net_control_input(input)
 
 
 func _apply_net_inputs() -> void:
-	# Latch the ack before consuming a newer input: the body state this tick was
-	# integrated from the previously applied seq.
-	_net_ack_seq = _net_last_applied_input_seq
-	if not _net_pending_input.is_empty():
-		var input_seq := int(_net_pending_input.get("seq", -1))
-		if input_seq > _net_last_applied_input_seq:
-			# The owning client already applied rate/decay smoothing; apply directly.
-			roll_input = clampf(float(_net_pending_input.get("roll", 0.0)), -1.0, 1.0)
-			pitch_input = clampf(float(_net_pending_input.get("pitch", 0.0)), -1.0, 1.0)
-			yaw_input = clampf(float(_net_pending_input.get("yaw", 0.0)), -1.0, 1.0)
-			throttle_input = clampf(float(_net_pending_input.get("throttle", -1.0)), -1.0, 1.0)
-			_player_pitch_control_active = bool(_net_pending_input.get("pitch_control_active", false))
-			_player_yaw_control_active = bool(_net_pending_input.get("yaw_control_active", false))
-			_player_direct_roll_control_active = bool(_net_pending_input.get("direct_roll_control_active", false))
-			relative_roll_target_active = bool(_net_pending_input.get("relative_roll_target_active", false))
-			_pitch_assist_enabled = bool(_net_pending_input.get("pitch_assist_enabled", true))
-			_stabilization_assist_enabled = bool(_net_pending_input.get("stabilization_assist_enabled", true))
-			_net_limiter_override_active = bool(_net_pending_input.get("limiter_override_active", false))
-			_net_effective_pitch_input = clampf(float(_net_pending_input.get("effective_pitch", pitch_input)), -1.0, 1.0)
-			_net_last_applied_input_seq = input_seq
-		_net_pending_input = {}
+	var input: Dictionary = _net.consume_pending_input()
+	if not input.is_empty():
+		# The owning client already applied rate/decay smoothing; apply directly.
+		roll_input = clampf(float(input.get("roll", 0.0)), -1.0, 1.0)
+		pitch_input = clampf(float(input.get("pitch", 0.0)), -1.0, 1.0)
+		yaw_input = clampf(float(input.get("yaw", 0.0)), -1.0, 1.0)
+		throttle_input = clampf(float(input.get("throttle", -1.0)), -1.0, 1.0)
+		_player_pitch_control_active = bool(input.get("pitch_control_active", false))
+		_player_yaw_control_active = bool(input.get("yaw_control_active", false))
+		_player_direct_roll_control_active = bool(input.get("direct_roll_control_active", false))
+		relative_roll_target_active = bool(input.get("relative_roll_target_active", false))
+		_pitch_assist_enabled = bool(input.get("pitch_assist_enabled", true))
+		_stabilization_assist_enabled = bool(input.get("stabilization_assist_enabled", true))
+		_net_limiter_override_active = bool(input.get("limiter_override_active", false))
+		_net_effective_pitch_input = clampf(float(input.get("effective_pitch", pitch_input)), -1.0, 1.0)
 	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
 
 
 func _emit_local_input() -> void:
-	if not _is_predicting_client():
+	var input: Dictionary = _net.build_local_input_payload()
+	if input.is_empty():
 		return
-	_net_input_seq += 1
-	local_input_produced.emit(peer_id, {
-		"seq": _net_input_seq,
-		"roll": roll_input,
-		"pitch": pitch_input,
-		"yaw": yaw_input,
-		"throttle": throttle_input,
-		"effective_pitch": _get_turn_limited_pitch_input(pitch_input),
-		"pitch_control_active": _player_pitch_control_active,
-		"yaw_control_active": _player_yaw_control_active,
-		"direct_roll_control_active": _player_direct_roll_control_active,
-		"relative_roll_target_active": relative_roll_target_active,
-		"pitch_assist_enabled": _pitch_assist_enabled,
-		"stabilization_assist_enabled": _stabilization_assist_enabled,
-		"limiter_override_active": Input.is_action_pressed("limiter_override"),
-	})
+	local_input_produced.emit(peer_id, input)
+
+
+func _emit_local_state_snapshot(snapshot: Dictionary) -> void:
+	local_state_changed.emit(peer_id, snapshot)
 
 
 func _collect_inputs(delta: float) -> void:
@@ -935,149 +896,16 @@ func apply_extra_drag_forces() -> void:
 
 
 func apply_remote_state(snapshot: Dictionary) -> void:
-	if is_local_player:
-		return
-
-	_store_interpolation_snapshot(snapshot)
+	_net.apply_remote_state(snapshot)
 
 
 func apply_authoritative_state(snapshot: Dictionary) -> void:
 	# Server echo of this client's own plane (carries ack_seq for reconciliation).
-	if not is_local_player:
-		return
-
-	if not _is_simulated_locally():
-		# Shot-down handover: the wreck is interpolated like a remote plane.
-		_store_interpolation_snapshot(snapshot)
-		return
-
-	_reconcile_with_server_state(snapshot)
-
-
-func _store_interpolation_snapshot(snapshot: Dictionary) -> void:
-	var tick := int(snapshot.get("tick", -1))
-	if tick >= 0 and not _remote_snapshots.is_empty():
-		var latest_tick := int(_remote_snapshots.back().get("tick", -1))
-		if tick <= latest_tick:
-			return
-
-	var received_at := Time.get_ticks_usec() * 0.000001
-	var stored_snapshot := {
-		"tick": tick,
-		"position": snapshot.get("position", global_position),
-		"rotation": snapshot.get("rotation", global_transform.basis.get_rotation_quaternion()),
-		"linear_velocity": snapshot.get("linear_velocity", Vector3.ZERO),
-		"received_at": received_at,
-	}
-	_remote_snapshots.append(stored_snapshot)
-	while _remote_snapshots.size() > REMOTE_MAX_SNAPSHOTS:
-		_remote_snapshots.pop_front()
-
-
-func _record_prediction_state() -> void:
-	if not _is_predicting_client():
-		return
-
-	# Top of the physics tick: the body state is the integrated result of the
-	# forces computed from input seq `_net_input_seq` (sent last tick).
-	_prediction_history.append({
-		"seq": _net_input_seq,
-		"position": global_position,
-		"rotation": global_transform.basis.orthonormalized().get_rotation_quaternion(),
-		"linear_velocity": linear_velocity,
-		"angular_velocity": angular_velocity,
-	})
-	while _prediction_history.size() > PREDICTION_HISTORY_MAX:
-		_prediction_history.pop_front()
-
-
-func _apply_pending_correction(delta: float) -> void:
-	if not _is_predicting_client():
-		return
-	if _correction_position.length_squared() <= 0.000001:
-		return
-
-	var fold_fraction := clampf(reconcile_correction_rate * delta, 0.0, 1.0)
-	var step := _correction_position * fold_fraction
-	global_position += step
-	# Shift recorded history by the same offset so later acks measure only the
-	# remaining error, not the part already corrected.
-	for entry in _prediction_history:
-		entry["position"] = Vector3(entry["position"]) + step
-	_correction_position -= step
-
-
-func _reconcile_with_server_state(snapshot: Dictionary) -> void:
-	var ack_seq := int(snapshot.get("ack_seq", -1))
-	if ack_seq < 0:
-		return
-
-	var entry := _take_prediction_entry(ack_seq)
-	if entry.is_empty():
-		return
-
-	var server_position := Vector3(snapshot.get("position", global_position))
-	var server_rotation := Quaternion(snapshot.get("rotation", Quaternion.IDENTITY)).normalized()
-	var server_velocity := Vector3(snapshot.get("linear_velocity", Vector3.ZERO))
-	var server_angular_velocity := Vector3(snapshot.get("angular_velocity", Vector3.ZERO))
-	var position_error: Vector3 = server_position - Vector3(entry["position"])
-
-	if position_error.length() > reconcile_hard_snap_distance:
-		global_position = server_position
-		global_basis = Basis(server_rotation)
-		linear_velocity = server_velocity
-		angular_velocity = server_angular_velocity
-		_prediction_history.clear()
-		_correction_position = Vector3.ZERO
-		return
-
-	# Assign (not accumulate): history is shifted as corrections fold in, so each
-	# ack measures the remaining error. An in-tolerance ack clears stale corrections.
-	if position_error.length() > reconcile_position_tolerance:
-		_correction_position = position_error
-	else:
-		_correction_position = Vector3.ZERO
-
-	var entry_rotation := Quaternion(entry["rotation"]).normalized()
-	var rotation_error_rad := entry_rotation.angle_to(server_rotation)
-	if rotation_error_rad > deg_to_rad(RECONCILE_ROTATION_TOLERANCE_DEG):
-		var rotation_offset := server_rotation * entry_rotation.inverse()
-		var partial_offset := Quaternion.IDENTITY.slerp(rotation_offset, reconcile_rotation_blend)
-		var current_rotation := global_transform.basis.orthonormalized().get_rotation_quaternion()
-		global_basis = Basis((partial_offset * current_rotation).normalized())
-
-	var velocity_error: Vector3 = server_velocity - Vector3(entry["linear_velocity"])
-	if velocity_error.length() > RECONCILE_VELOCITY_TOLERANCE:
-		linear_velocity += velocity_error * reconcile_velocity_blend
-
-	var angular_velocity_error: Vector3 = server_angular_velocity - Vector3(entry.get("angular_velocity", Vector3.ZERO))
-	if rad_to_deg(angular_velocity_error.length()) > RECONCILE_ANGULAR_VELOCITY_TOLERANCE_DEG:
-		angular_velocity += angular_velocity_error * reconcile_velocity_blend
-
-
-func _take_prediction_entry(ack_seq: int) -> Dictionary:
-	while not _prediction_history.is_empty():
-		var entry: Dictionary = _prediction_history.front()
-		var entry_seq := int(entry["seq"])
-		if entry_seq < ack_seq:
-			_prediction_history.pop_front()
-			continue
-		if entry_seq == ack_seq:
-			_prediction_history.pop_front()
-			return entry
-		break
-	return {}
+	_net.apply_authoritative_state(snapshot)
 
 
 func apply_spawn_state(character_position: Vector3, yaw: float) -> void:
-	global_position = character_position
-	rotation = Vector3(0.0, yaw, 0.0)
-	_remote_snapshots.clear()
-	_prediction_history.clear()
-	_correction_position = Vector3.ZERO
-	_net_pending_input = {}
-	_net_last_applied_input_seq = -1
-	_net_ack_seq = -1
+	_net.apply_spawn_state(character_position, yaw)
 
 
 func _apply_local_player_mode() -> void:
@@ -1086,7 +914,7 @@ func _apply_local_player_mode() -> void:
 	if _is_simulated_locally():
 		sleeping = false
 		can_sleep = false
-		_remote_snapshots.clear()
+		_net.clear_remote_snapshots()
 	else:
 		roll_input = 0.0
 		pitch_input = 0.0
@@ -1206,8 +1034,7 @@ func _on_shot_down() -> void:
 			roll_spin_deg *= -1.0
 		angular_velocity += roll_axis * deg_to_rad(roll_spin_deg)
 	else:
-		_prediction_history.clear()
-		_correction_position = Vector3.ZERO
+		_net.clear_prediction_correction()
 	_apply_local_player_mode()
 
 
@@ -1242,59 +1069,6 @@ func set_sustain_turn_limiter_runtime_enabled(enabled: bool) -> void:
 	_sustain_turn_limiter_runtime_enabled = enabled
 
 
-func _emit_local_state() -> void:
-	if _is_predicting_client():
-		return
-	_snapshot_tick += 1
-	local_state_changed.emit(peer_id, _build_snapshot())
-
-
-func _build_snapshot() -> Dictionary:
-	var snapshot := {
-		"tick": _snapshot_tick,
-		"position": global_position,
-		"rotation": global_transform.basis.orthonormalized().get_rotation_quaternion(),
-		"linear_velocity": linear_velocity,
-		"angular_velocity": angular_velocity,
-	}
-	if _is_net_input_driven():
-		snapshot["ack_seq"] = _net_ack_seq
-	return snapshot
-
-
-func _update_remote_interpolation() -> void:
-	if _remote_snapshots.is_empty():
-		return
-
-	var now := Time.get_ticks_usec() * 0.000001
-	var render_time := now - REMOTE_INTERPOLATION_DELAY
-	while _remote_snapshots.size() >= 2 and float(_remote_snapshots[1]["received_at"]) <= render_time:
-		_remote_snapshots.pop_front()
-
-	if _remote_snapshots.size() >= 2:
-		var from_snapshot := _remote_snapshots[0]
-		var to_snapshot := _remote_snapshots[1]
-		var from_time := float(from_snapshot["received_at"])
-		var to_time := float(to_snapshot["received_at"])
-		var alpha := 1.0
-		if to_time > from_time:
-			alpha = clampf((render_time - from_time) / (to_time - from_time), 0.0, 1.0)
-		_apply_remote_pose(
-			Vector3(from_snapshot["position"]).lerp(Vector3(to_snapshot["position"]), alpha),
-			Quaternion(from_snapshot["rotation"]).slerp(Quaternion(to_snapshot["rotation"]), alpha)
-		)
-		return
-
-	var latest_snapshot := _remote_snapshots[0]
-	var latest_position := Vector3(latest_snapshot["position"])
-	var latest_velocity := Vector3(latest_snapshot["linear_velocity"])
-	var extrapolation := maxf(now - float(latest_snapshot["received_at"]), 0.0)
-	_apply_remote_pose(
-		latest_position + latest_velocity * extrapolation,
-		Quaternion(latest_snapshot["rotation"])
-	)
-
-
 func _apply_remote_pose(remote_position: Vector3, rotation_quaternion: Quaternion) -> void:
 	global_position = remote_position
 	global_basis = Basis(rotation_quaternion.normalized())
@@ -1303,11 +1077,7 @@ func _apply_remote_pose(remote_position: Vector3, rotation_quaternion: Quaternio
 
 
 func get_replicated_velocity() -> Vector3:
-	if _is_simulated_locally():
-		return linear_velocity
-	if not _remote_snapshots.is_empty():
-		return Vector3(_remote_snapshots.back().get("linear_velocity", Vector3.ZERO))
-	return linear_velocity
+	return _net.get_replicated_velocity()
 
 
 func _ensure_force_debug_renderer() -> void:
