@@ -217,6 +217,7 @@ var _shot_down_random := RandomNumberGenerator.new()
 var _last_ground_impact_time: float = -INF
 var _input_collector
 var _net
+var _preserve_remote_wreck_velocities := false
 
 
 func _ready() -> void:
@@ -745,6 +746,7 @@ func apply_authoritative_state(snapshot: Dictionary) -> void:
 
 
 func apply_spawn_state(character_position: Vector3, yaw: float) -> void:
+	_preserve_remote_wreck_velocities = false
 	_net.apply_spawn_state(character_position, yaw)
 
 
@@ -764,6 +766,7 @@ func _apply_local_player_mode() -> void:
 	freeze = not _is_simulated_locally()
 
 	if _is_simulated_locally():
+		_preserve_remote_wreck_velocities = false
 		sleeping = false
 		can_sleep = false
 		_net.clear_remote_snapshots()
@@ -864,6 +867,7 @@ func _get_surface_impact_angle_deg(surface_normal_world: Vector3, movement_veloc
 func _on_shot_down() -> void:
 	if is_shot_down:
 		return
+	var was_predicting_client := _is_predicting_client()
 	is_shot_down = true
 	throttle_input = -1.0
 	angular_damp = 0.0
@@ -887,6 +891,9 @@ func _on_shot_down() -> void:
 		angular_velocity += roll_axis * deg_to_rad(roll_spin_deg)
 	else:
 		_net.clear_prediction_correction()
+	if was_predicting_client:
+		_preserve_remote_wreck_velocities = true
+		_net.begin_shot_down_remote_handoff()
 	_apply_local_player_mode()
 
 
@@ -924,8 +931,9 @@ func set_sustain_turn_limiter_runtime_enabled(enabled: bool) -> void:
 func _apply_remote_pose(remote_position: Vector3, rotation_quaternion: Quaternion) -> void:
 	global_position = remote_position
 	global_basis = Basis(rotation_quaternion.normalized())
-	linear_velocity = Vector3.ZERO
-	angular_velocity = Vector3.ZERO
+	if not _preserve_remote_wreck_velocities:
+		linear_velocity = Vector3.ZERO
+		angular_velocity = Vector3.ZERO
 
 
 func get_replicated_velocity() -> Vector3:

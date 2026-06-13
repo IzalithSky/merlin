@@ -20,7 +20,6 @@ Method: every open finding was re-checked against the current tree (all three la
 |---|---|---|---|---|
 | 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Open — split plan active; phases 1–4b landed |
 | 8 | Documentation discipline | Process | Low | Open — convention is manual, not enforced |
-| 14 | Unbatched, string-keyed network protocol; packet budget (dev_plan §3) never implemented | Implementation | Medium-High | Open — new finding this pass |
 | 15 | Multiplayer lifecycle is untested and incomplete (no respawn; no late-join/disconnect smokes) | Process / Architecture | Medium | Open — new finding this pass |
 
 ---
@@ -37,9 +36,9 @@ Method: every open finding was re-checked against the current tree (all three la
 
 **Why it matters.** Every multiplayer or flight-model change lands in the same three hot files; review scope and regression risk grow with each feature. The prediction/reconciliation block alone (~250 lines of the controller) is a self-contained module with a clean interface already. The net seams are already explicit (input modes local / bot / net, prediction + reconciliation, snapshot build/apply, aero-table sync each have typed entry points), so extraction is mechanical.
 
-**Fix.** Phased, behavior-preserving split — full plan with module boundaries, moved-function inventory, RPC node-path constraints, and per-phase acceptance criteria in **`tasks/god_object_split_plan.md`**:
+**Fix.** Phased, behavior-preserving split — see **`tasks/net_protocol_and_god_object_completion_plan.md`** for the current combined plan:
 1. Delete the duplicated bot-pilot rate-stabilization helpers (delegate to the controller's public versions).
-2. `PlaneNetAdapter`: prediction + reconciliation + interpolation + snapshot/seq bookkeeping out of the controller (coordinate with #14 — the wire-format change lands inside this module afterwards).
+2. `PlaneNetAdapter`: prediction + reconciliation + interpolation + snapshot/seq bookkeeping out of the controller.
 3. `PlaneInputCollector`: local input collection/smoothing out of the controller.
 4. `ProjectileNetReplicator` (and optionally health replication) out of the spawner.
 5. Optional stretch: flight-model extraction when that code next changes materially.
@@ -49,26 +48,6 @@ Method: every open finding was re-checked against the current tree (all three la
 ## 8. Documentation discipline — Low — OPEN
 
 The convention is settled and the current docs comply (status headers on architecture/process docs only; mechanism docs status-free and behavior-focused, pointing at live `@export` values instead of embedding defaults). What remains open is that it is convention, not enforcement — new docs must follow the pattern manually. Cleanup-on-touch work, not a correctness issue.
-
----
-
-## 14. Unbatched, string-keyed network protocol; no packet budget — Medium-High — NEW
-
-**What.** The authority migration got the *semantics* right but kept a prototype wire format, and `dev_plan.md` §3 ("reliability policy and packet budget … track packet size and send frequency in debug metrics") was never implemented. Three compounding inefficiencies:
-
-1. **O(planes × peers) unbatched packets.** Every plane has its own `_sync_timer` and emits `local_state_changed` independently; `_broadcast_character_state` (`world_character_spawner.gd:603`) then sends one `apply_character_state.rpc_id(...)` per peer. With 8 planes and 3 clients at ~30 Hz that is ~720 separate ENet/UDP packets per second from the server, each paying its own UDP/ENet header, instead of ~90 (one batched world snapshot per peer per tick).
-2. **String-keyed Dictionaries as the wire format.** Snapshots serialize the literal key strings `tick / position / rotation / linear_velocity / angular_velocity / ack_seq` (~58 chars plus per-entry Variant overhead) around ~70 bytes of actual state — roughly 3× inflation per packet. Input intent is worse: 13 keys totalling ~200 chars of key text (e.g. `stabilization_assist_enabled`) sent **60 times per second per client** around ~30 bytes of real payload — roughly an order of magnitude of overhead, continuously, on the most frequent message in the game.
-3. **Interpolation ignores the tick it already receives.** Remote planes interpolate on `received_at` wall-clock time (`plane_character_controller.gd` `_store_interpolation_snapshot` / `_update_remote_interpolation`); the snapshot `tick` is used only for stale rejection. Network jitter therefore passes straight into remote-plane rendering instead of being absorbed by a tick-based timeline with a fixed interpolation delay (dev_plan §2 is half-done: tick IDs exist but don't drive timing).
-
-**Why it matters.** Correctness is fine on LAN, but bandwidth and packet rate scale as planes × peers, and every new replicated field multiplies the string-key cost. The longer the protocol surface accretes (input flags were just added; more will follow), the more call sites a format change has to touch — this is the classic "cheap now, expensive later" item. It also blocks the dev_plan goal of measuring anything: there are no send-rate/size metrics to even see regressions.
-
-**Fix (best practice, incremental).**
-1. Server: accumulate all plane states once per net tick and send **one** snapshot RPC per peer containing all planes (arrays positional, not keyed) — this also centralizes the per-peer world-ready check.
-2. Replace Dictionary payloads with positional `Array`s or a `PackedByteArray` via `StreamPeerBuffer`; pack the 8 input booleans into one int bitmask. (Versioning: one leading format byte.)
-3. Key remote interpolation off snapshot tick × fixed tick duration with a constant interpolation delay; keep `received_at` only as a fallback.
-4. Add the dev_plan §3 debug metrics (bytes/s and packets/s per peer) so the improvement is measurable and future regressions visible.
-
-Best done together with the #5 net-adapter extraction — the same functions are being rewritten either way.
 
 ---
 
@@ -96,7 +75,7 @@ Best done together with the #5 net-adapter extraction — the same functions are
 
 ## Recommended fix order
 
-1. **#5 split, phases 1–2 (`tasks/god_object_split_plan.md`)** — duplicate-math deletion, then the `PlaneNetAdapter` extraction; immediately follow with **#14** inside the new module (batch + pack snapshots/inputs, packet metrics). Same code is rewritten either way; doing them back-to-back is cheaper than separately.
+1. **#5 split continuation (`tasks/net_protocol_and_god_object_completion_plan.md`)** — the network protocol follow-up that used to be finding `#14` has landed; continue with the remaining controller/bot/spawner decomposition phases.
 2. **#15 lifecycle** — late-join and disconnect smokes first (they protect everything else), then minimal respawn.
 3. **#5 phases 3–4** — input collector and spawner split per the plan.
 4. **#8 doc discipline** — keep the status-header convention on new docs; no standing work.

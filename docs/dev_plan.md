@@ -1,6 +1,6 @@
 # Merlin Dev Plan Notes
 
-Status: target design — describes intended architecture goals; current implementation is partially complete. See `docs/architecture_review.md` for open vs. completed status per item.
+Status: partially implemented — movement authority, snapshot smoothing, packed wire format, and packet-budget instrumentation are in place. See `docs/architecture_review.md` for remaining open items.
 
 Date: May 28, 2026
 
@@ -21,12 +21,14 @@ Evolve current multiplayer prototype into a stable, testable, server-authoritati
 - Keep small per-remote snapshot buffers on clients.
 - Interpolate remote characters with fixed interpolation delay.
 - Avoid direct hard-snapping each incoming packet.
+- Status: implemented with snapshot ticks, a fixed interpolation delay, and fallback extrapolation for single-snapshot underruns.
 
 3. Add reliability policy and packet budget
 - Keep spawn/lobby/despawn traffic reliable.
 - Keep frequent movement traffic unreliable or unreliable ordered.
 - Add fixed network send rate (for example 20-30 Hz).
 - Track packet size and send frequency in debug metrics.
+- Status: implemented with reliable spawn/health/projectile RPCs, `unreliable_ordered` input/state channels, `server_net_tick_hz = 30`, rolling net metrics, and a soft per-peer packet-budget warning.
 
 4. Stabilize scene transition protocol
 - Keep world-ready handshake as requirement before world RPC delivery.
@@ -66,6 +68,7 @@ Evolve current multiplayer prototype into a stable, testable, server-authoritati
 3. No RPC path errors for missing world node.
 4. Server rejects impossible movement inputs.
 5. Remote movement appears smooth under simulated packet loss/latency.
+   - Current implementation uses tick-based remote interpolation; synthetic loss/latency simulation is still future validation work.
 
 ## Implementation Order Recommendation
 

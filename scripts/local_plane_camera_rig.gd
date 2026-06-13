@@ -99,7 +99,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_apply_camera_look()
 
 
-func _physics_process(delta: float) -> void:
+func _process(delta: float) -> void:
 	if _is_detached:
 		_apply_max_lift_aoa_shake(0.0)
 		return
@@ -114,7 +114,9 @@ func _physics_process(delta: float) -> void:
 		_apply_max_lift_aoa_shake(0.0)
 		return
 
-	var target_shot_down: bool = _target.is_shot_down
+	var target_shot_down: bool = false
+	if _target != null and "is_shot_down" in _target:
+		target_shot_down = _target.is_shot_down
 	if target_shot_down:
 		if _shot_down_detach_deadline < 0.0:
 			if shot_down_detach_delay_sec <= 0.0:

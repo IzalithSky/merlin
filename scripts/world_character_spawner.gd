@@ -28,6 +28,7 @@ enum CharacterType {
 @export var bot_player_killzone_distance := 250.0
 @export var bot_player_killzone_tolerance := 150.0
 @export var server_net_tick_hz: float = 30.0
+@export var packet_budget_pkts_per_sec: float = 35.0
 @export var net_metrics_enabled := false
 @export var net_metrics_print_summary := false
 @onready var _characters: Node3D = $characters
@@ -48,6 +49,7 @@ var _net_metrics := NET_METRICS_SCRIPT.new()
 var _net_metrics_print_accumulator := 0.0
 var _world_snapshot_tick := 0
 var _world_snapshot_accumulator := 0.0
+var _packet_budget_warning_active := false
 
 
 func _ready() -> void:
@@ -91,6 +93,7 @@ func _process(delta: float) -> void:
 		return
 
 	_net_metrics_print_accumulator = 0.0
+	_check_packet_budget()
 	print("net_metrics %s" % get_net_metrics_summary_text())
 
 
@@ -817,3 +820,39 @@ func _estimate_payload_bytes(payload: Variant) -> int:
 	if payload is PackedByteArray:
 		return (payload as PackedByteArray).size()
 	return var_to_bytes(payload).size()
+
+
+func _check_packet_budget() -> void:
+	if not net_metrics_enabled:
+		return
+	if packet_budget_pkts_per_sec <= 0.0:
+		_packet_budget_warning_active = false
+		return
+
+	var summary := get_net_metrics_summary()
+	var send_summary: Dictionary = summary.get("send", {})
+	var total_packets_per_sec := float(send_summary.get("packets_per_sec", 0.0))
+	var peer_count := maxf(float(_get_budget_target_peer_count()), 1.0)
+	var per_peer_packets_per_sec := total_packets_per_sec / peer_count
+	if per_peer_packets_per_sec > packet_budget_pkts_per_sec:
+		if not _packet_budget_warning_active:
+			_packet_budget_warning_active = true
+			push_warning(
+				"Net packet budget exceeded: %.1f pkt/s per peer > %.1f budget" % [
+					per_peer_packets_per_sec,
+					packet_budget_pkts_per_sec,
+				]
+			)
+	elif _packet_budget_warning_active:
+		_packet_budget_warning_active = false
+
+
+func _get_budget_target_peer_count() -> int:
+	if multiplayer.multiplayer_peer == null or not multiplayer.is_server():
+		return 1
+
+	var ready_peer_count := 0
+	for target_peer_id in multiplayer.get_peers():
+		if _is_peer_world_ready(target_peer_id):
+			ready_peer_count += 1
+	return maxi(ready_peer_count, 1)

@@ -19,6 +19,7 @@ var _correction_position := Vector3.ZERO
 var _latest_server_tick := -1
 var _render_tick_continuous := 0.0
 var _render_tick_initialized := false
+var _awaiting_first_shot_down_snapshot := false
 
 
 func _init(plane) -> void:
@@ -104,6 +105,9 @@ func apply_authoritative_state(snapshot: Dictionary) -> void:
 		return
 
 	if not _plane._is_simulated_locally():
+		if _awaiting_first_shot_down_snapshot:
+			_apply_first_shot_down_snapshot(snapshot)
+			return
 		_store_interpolation_snapshot(snapshot)
 		return
 
@@ -172,6 +176,7 @@ func clear_state_for_spawn() -> void:
 	_latest_server_tick = -1
 	_render_tick_continuous = 0.0
 	_render_tick_initialized = false
+	_awaiting_first_shot_down_snapshot = false
 
 
 func clear_remote_snapshots() -> void:
@@ -179,11 +184,19 @@ func clear_remote_snapshots() -> void:
 	_latest_server_tick = -1
 	_render_tick_continuous = 0.0
 	_render_tick_initialized = false
+	_awaiting_first_shot_down_snapshot = false
 
 
 func clear_prediction_correction() -> void:
 	_prediction_history.clear()
 	_correction_position = Vector3.ZERO
+
+
+func begin_shot_down_remote_handoff() -> void:
+	_awaiting_first_shot_down_snapshot = true
+	_prediction_history.clear()
+	_correction_position = Vector3.ZERO
+	_seed_remote_snapshot_from_current_state()
 
 
 func get_replicated_velocity() -> Vector3:
@@ -232,6 +245,31 @@ func _store_interpolation_snapshot(snapshot: Dictionary) -> void:
 		_render_tick_initialized = true
 	while _remote_snapshots.size() > REMOTE_MAX_SNAPSHOTS:
 		_remote_snapshots.pop_front()
+
+
+func _apply_first_shot_down_snapshot(snapshot: Dictionary) -> void:
+	_awaiting_first_shot_down_snapshot = false
+	_remote_snapshots.clear()
+	_plane.global_position = Vector3(snapshot.get("position", _plane.global_position))
+	_plane.global_basis = Basis(Quaternion(snapshot.get("rotation", Quaternion.IDENTITY)).normalized())
+	_plane.linear_velocity = Vector3(snapshot.get("linear_velocity", _plane.linear_velocity))
+	_plane.angular_velocity = Vector3(snapshot.get("angular_velocity", _plane.angular_velocity))
+	_store_interpolation_snapshot(snapshot)
+
+
+func _seed_remote_snapshot_from_current_state() -> void:
+	var seed_tick := _latest_server_tick
+	if seed_tick < 0:
+		seed_tick = 0
+	var seed_snapshot := {
+		"tick": seed_tick,
+		"position": _plane.global_position,
+		"rotation": _plane.global_transform.basis.orthonormalized().get_rotation_quaternion(),
+		"linear_velocity": _plane.linear_velocity,
+		"angular_velocity": _plane.angular_velocity,
+	}
+	_remote_snapshots.clear()
+	_store_interpolation_snapshot(seed_snapshot)
 
 
 func _reconcile_with_server_state(snapshot: Dictionary) -> void:

@@ -150,7 +150,7 @@ control:
 - Interest/visibility per peer.
 - Bandwidth budgets.
 
-Good first replicated aircraft state:
+Current replicated aircraft state:
 
 ```text
 peer_id
@@ -159,9 +159,44 @@ position
 rotation
 linear_velocity
 angular_velocity
-throttle
-health/status flags
+ack_seq
 ```
+
+Current high-rate wire contract:
+
+- `sv_submit_input(data: PackedByteArray)` on channel `1`, `unreliable_ordered`
+- `apply_world_snapshot(data: PackedByteArray)` on channel `2`, `unreliable_ordered`
+- Every packed payload starts with one format-version byte (`1` currently).
+- Input payload layout:
+  - `u8 version`
+  - `i32 seq`
+  - `f32 roll, pitch, yaw, throttle, effective_pitch`
+  - `u8 flags`
+- Input flags bitmask:
+  - bit `0`: `pitch_control_active`
+  - bit `1`: `yaw_control_active`
+  - bit `2`: `direct_roll_control_active`
+  - bit `3`: `relative_roll_target_active`
+  - bit `4`: `pitch_assist_enabled`
+  - bit `5`: `stabilization_assist_enabled`
+  - bit `6`: `limiter_override_active`
+- World snapshot payload layout:
+  - `u8 version`
+  - `u32 server_tick`
+  - `u16 plane_count`
+  - repeated per plane:
+    - `i32 peer_id`
+    - `f32 position[3]`
+    - `f32 linear_velocity[3]`
+    - `f32 angular_velocity[3]`
+    - `f32 rotation_quaternion[4]`
+    - `i32 ack_seq`
+
+Debug budget guard:
+
+- `WorldCharacterSpawner` owns a rolling one-second `NetMetrics` window.
+- The project currently logs bytes/s and packets/s by logical channel (`state`, `input`, `spawn`, `health`, `projectile`) when enabled.
+- `packet_budget_pkts_per_sec` provides a soft per-peer warning if send rate regresses above the configured budget.
 
 Do not synchronize large resources, mesh data, textures, terrain arrays, or
 object references. Replicate small identifiers and primitive values.
