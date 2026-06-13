@@ -1,7 +1,6 @@
 class_name PlaneCharacter
 extends RigidBody3D
 
-signal local_state_changed(peer_id: int, snapshot: Dictionary)
 signal local_input_produced(peer_id: int, input: Dictionary)
 
 const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
@@ -119,7 +118,6 @@ const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 @export var extra_linear_drag_quadratic_coefficient: float = 0.16
 @export var extra_angular_drag_linear_coefficients: Vector3 = Vector3(20000.0, 12000.0, 20000.0)
 @export var extra_angular_drag_quadratic_coefficients: Vector3 = Vector3(2500.0, 1200.0, 2500.0)
-@export var network_sync_interval: float = 0.033
 @export var reconcile_position_tolerance: float = 3.0
 @export var reconcile_hard_snap_distance: float = 60.0
 @export var reconcile_correction_rate: float = 8.0
@@ -298,7 +296,6 @@ func _physics_process(delta: float) -> void:
 
 	if is_shot_down:
 		_clear_force_debug_frame()
-		_net.emit_state_if_due(delta)
 		return
 
 	_begin_force_debug_frame()
@@ -320,8 +317,6 @@ func _physics_process(delta: float) -> void:
 	apply_extra_drag_forces()
 	apply_directional_alignment()
 	_end_force_debug_frame()
-
-	_net.emit_state_if_due(delta)
 
 
 func _process(_delta: float) -> void:
@@ -473,10 +468,6 @@ func _emit_local_input() -> void:
 	if input.is_empty():
 		return
 	local_input_produced.emit(peer_id, input)
-
-
-func _emit_local_state_snapshot(snapshot: Dictionary) -> void:
-	local_state_changed.emit(peer_id, snapshot)
 
 
 func _get_signed_direction_error_about_axis(
@@ -754,6 +745,10 @@ func apply_authoritative_state(snapshot: Dictionary) -> void:
 
 func apply_spawn_state(character_position: Vector3, yaw: float) -> void:
 	_net.apply_spawn_state(character_position, yaw)
+
+
+func build_state_for_batch(world_tick: int) -> Dictionary:
+	return _net.build_state_for_batch(world_tick)
 
 
 func _apply_local_player_mode() -> void:

@@ -26,6 +26,7 @@ enum CharacterType {
 @export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
 @export var bot_player_killzone_distance := 250.0
 @export var bot_player_killzone_tolerance := 150.0
+@export var server_net_tick_hz: float = 30.0
 @export var net_metrics_enabled := false
 @export var net_metrics_print_summary := false
 @onready var _characters: Node3D = $characters
@@ -44,6 +45,8 @@ var _server_aero_payload: Dictionary = {}
 var _client_aero_payload: Dictionary = {}
 var _net_metrics := NET_METRICS_SCRIPT.new()
 var _net_metrics_print_accumulator := 0.0
+var _world_snapshot_tick := 0
+var _world_snapshot_accumulator := 0.0
 
 
 func _ready() -> void:
@@ -77,6 +80,8 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_tick_world_snapshot_broadcast(delta)
+
 	if not net_metrics_enabled or not net_metrics_print_summary:
 		return
 
@@ -86,6 +91,18 @@ func _process(delta: float) -> void:
 
 	_net_metrics_print_accumulator = 0.0
 	print("net_metrics %s" % get_net_metrics_summary_text())
+
+
+func _tick_world_snapshot_broadcast(delta: float) -> void:
+	if multiplayer.multiplayer_peer == null or not multiplayer.is_server():
+		return
+
+	var tick_hz := maxf(server_net_tick_hz, 0.001)
+	_world_snapshot_accumulator += delta
+	var tick_interval := 1.0 / tick_hz
+	while _world_snapshot_accumulator >= tick_interval:
+		_world_snapshot_accumulator -= tick_interval
+		_broadcast_world_snapshot()
 
 
 static func find_in_tree(from_node: Node):
@@ -292,13 +309,6 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	_broadcast_despawn(peer_id)
 
 
-func _on_local_character_state_changed(peer_id: int, snapshot: Dictionary) -> void:
-	if multiplayer.multiplayer_peer == null or not multiplayer.is_server():
-		return
-
-	_broadcast_character_state(peer_id, snapshot)
-
-
 func _on_local_character_input_produced(_peer_id: int, input: Dictionary) -> void:
 	if multiplayer.multiplayer_peer == null or multiplayer.is_server():
 		return
@@ -423,20 +433,27 @@ func _is_valid_input_packet(input: Dictionary) -> bool:
 
 
 @rpc("authority", "call_remote", "unreliable_ordered", 2)
-func apply_character_state(peer_id: int, snapshot: Dictionary) -> void:
-	record_net_recv("state", [peer_id, snapshot])
-	var character := _characters.get_node_or_null(_character_name(peer_id))
-	if character == null:
-		return
+func apply_world_snapshot(world_snapshot: Dictionary) -> void:
+	record_net_recv("state", world_snapshot)
+	var planes: Array = world_snapshot.get("planes", [])
+	for snapshot_variant in planes:
+		if not snapshot_variant is Dictionary:
+			continue
+		var snapshot: Dictionary = snapshot_variant
+		var peer_id := int(snapshot.get("peer_id", -1))
+		if peer_id < 0:
+			continue
+		var character := _characters.get_node_or_null(_character_name(peer_id))
+		if character == null:
+			continue
 
-	if peer_id == multiplayer.get_unique_id():
-		# Server echo of our own plane: reconciliation (or wreck interpolation).
-		var plane_character := character as PlaneCharacter
-		if plane_character != null:
-			plane_character.apply_authoritative_state(snapshot)
-		return
+		if peer_id == multiplayer.get_unique_id():
+			var plane_character := character as PlaneCharacter
+			if plane_character != null:
+				plane_character.apply_authoritative_state(snapshot)
+			continue
 
-	character.apply_remote_state(snapshot)
+		character.apply_remote_state(snapshot)
 
 
 func _spawn_registered_characters_locally() -> void:
@@ -577,20 +594,6 @@ func get_target_registry():
 func _set_character_local_binding(character: Node3D, local_player: bool) -> void:
 	var is_mp := multiplayer.multiplayer_peer != null
 	var is_server := is_mp and multiplayer.is_server()
-	var character_peer_id: int = character.peer_id
-	var local_bot_authority := _is_bot_peer(character_peer_id) and not is_mp
-
-	# State binding: whoever simulates a plane authoritatively rebroadcasts its
-	# state. The server simulates every plane; in single player the handler
-	# no-ops, so the old local/bot binding is kept for symmetry.
-	var local_state_callback := Callable(self, "_on_local_character_state_changed")
-	var state_connected: bool = character.local_state_changed.is_connected(local_state_callback)
-	var should_bind_state := is_server or (not is_mp and (local_player or local_bot_authority))
-
-	if should_bind_state and not state_connected:
-		character.local_state_changed.connect(local_state_callback)
-	elif not should_bind_state and state_connected:
-		character.local_state_changed.disconnect(local_state_callback)
 
 	# Input binding: a pure client forwards its own plane's input intent to the
 	# server instead of submitting poses.
@@ -654,15 +657,34 @@ func _unregister_lockable_target(character: Node3D) -> void:
 		_target_registry.unregister_target(lockable_target)
 
 
-func _broadcast_character_state(peer_id: int, snapshot: Dictionary) -> void:
-	# The owner gets its own state echoed back: the ack_seq in the snapshot is
-	# what drives client-side reconciliation.
+func _broadcast_world_snapshot() -> void:
+	var world_snapshot := _build_world_snapshot()
+	var planes: Array = world_snapshot.get("planes", [])
+	if planes.is_empty():
+		return
+
 	for target_peer_id in multiplayer.get_peers():
 		if not _is_peer_world_ready(target_peer_id):
 			continue
 
-		record_net_send("state", [peer_id, snapshot])
-		apply_character_state.rpc_id(target_peer_id, peer_id, snapshot)
+		record_net_send("state", world_snapshot)
+		apply_world_snapshot.rpc_id(target_peer_id, world_snapshot)
+
+
+func _build_world_snapshot() -> Dictionary:
+	_world_snapshot_tick += 1
+	var planes: Array[Dictionary] = []
+	for peer_id in _sorted_peer_ids():
+		var plane_character := get_character(peer_id) as PlaneCharacter
+		if plane_character == null or not is_instance_valid(plane_character):
+			continue
+		var snapshot := plane_character.build_state_for_batch(_world_snapshot_tick)
+		snapshot["peer_id"] = peer_id
+		planes.append(snapshot)
+	return {
+		"tick": _world_snapshot_tick,
+		"planes": planes,
+	}
 
 
 func _broadcast_despawn(peer_id: int) -> void:

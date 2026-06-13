@@ -9,8 +9,6 @@ const RECONCILE_ANGULAR_VELOCITY_TOLERANCE_DEG := 20.0
 const RECONCILE_ROTATION_TOLERANCE_DEG := 10.0
 
 var _plane
-var _sync_timer := 0.0
-var _snapshot_tick: int = 0
 var _remote_snapshots: Array[Dictionary] = []
 var _net_input_seq := 0
 var _net_pending_input: Dictionary = {}
@@ -89,19 +87,6 @@ func apply_pending_correction(delta: float) -> void:
 	for entry in _prediction_history:
 		entry["position"] = Vector3(entry["position"]) + step
 	_correction_position -= step
-
-
-func emit_state_if_due(delta: float) -> void:
-	if _plane._is_predicting_client():
-		return
-
-	_sync_timer += delta
-	if _sync_timer < max(_plane.network_sync_interval, 0.001):
-		return
-
-	_sync_timer = 0.0
-	_snapshot_tick += 1
-	_plane._emit_local_state_snapshot(_build_snapshot())
 
 
 func apply_remote_state(snapshot: Dictionary) -> void:
@@ -187,9 +172,9 @@ func get_replicated_velocity() -> Vector3:
 	return _plane.linear_velocity
 
 
-func _build_snapshot() -> Dictionary:
+func build_state_for_batch(world_tick: int) -> Dictionary:
 	var snapshot := {
-		"tick": _snapshot_tick,
+		"tick": world_tick,
 		"position": _plane.global_position,
 		"rotation": _plane.global_transform.basis.orthonormalized().get_rotation_quaternion(),
 		"linear_velocity": _plane.linear_velocity,

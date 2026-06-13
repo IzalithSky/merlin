@@ -67,6 +67,19 @@
 - Validated with:
   - `bash tests/run_headless_smokes.sh`
 
+## 2026-06-13 (Phase 2 batched snapshots)
+
+- Replaced per-plane state fan-out with one `apply_world_snapshot` RPC per world-ready peer per server net tick.
+- Moved the send cadence to `WorldCharacterSpawner` at `server_net_tick_hz = 30`, and changed `PlaneNetAdapter` to only build/apply per-plane state.
+- Removed the plane-local snapshot timer/emission path from `PlaneCharacter`; own-plane reconciliation still works because batched per-plane states still carry `ack_seq`.
+- Measured after Phase 2 on `tests/mp_host_smoke.gd` with `2` human peers and `1` bot:
+  - first sampled second: `S 24 pkt/s 13.1 KB/s | R 30 pkt/s 12.1 KB/s`
+  - steady-state sampled second: `S 31 pkt/s 20.0 KB/s | R 60 pkt/s 25.1 KB/s`
+  - steady-state breakdown: `state send 30 pkt/s 19.9 KB/s`, `input recv 60 pkt/s 25.1 KB/s`
+- Result versus Phase 1 baseline: state packet rate dropped from `93 pkt/s` to `30 pkt/s` for the same smoke scenario, matching the expected `O(peers)` send pattern.
+- Validated with:
+  - `bash tests/run_headless_smokes.sh`
+
 ---
 
 
