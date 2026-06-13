@@ -20,7 +20,7 @@
 
 ## 2026-06-12 (later)
 
-- Landed the server-authoritative movement migration from `docs/mp_plan.md`.
+- Landed the server-authoritative movement migration documented in `docs/multiplayer.md`.
 - Clients now send sequenced input intent instead of final poses; the server simulates all planes and broadcasts authoritative snapshots.
 - Clients predict only their own living plane and reconcile against server snapshots using per-seq history plus smooth correction instead of rewind/replay.
 - The server now owns the aero tables in multiplayer and sends them during world sync so client prediction uses the same flight model.
@@ -459,7 +459,7 @@ Date: June 12, 2026 (later)
 
 ## Summary
 
-Server-authoritative movement migration (architecture review item #1, option B): clients now send input intent, the server simulates every plane, and clients predict + reconcile their own plane. The server defines the aero tables. Design contract in `docs/mp_plan.md`.
+Server-authoritative movement migration (architecture review item #1, option B): clients now send input intent, the server simulates every plane, and clients predict + reconcile their own plane. The server defines the aero tables. Mechanism documented in `docs/multiplayer.md`.
 
 ## Completed Work
 
@@ -488,6 +488,44 @@ Server-authoritative movement migration (architecture review item #1, option B):
 - `tests/mp_host_smoke.gd` now also asserts the remote player's plane actually moves on the host (server simulation driving it, ≥50 m displacement).
 - `tests/mp_client_smoke.gd` now lingers after its health-sync success instead of quitting immediately, so the host smoke can observe the client plane; it completes when the linger elapses or the session ends.
 - Full headless suite passes: autocannon, bot autocannon, missile hardpoint, camera detach (17 asserts), mp host + client smokes; `bot_duel.tscn` boots clean in single player.
+
+---
+
+Date: June 13, 2026
+
+## Summary
+
+Closed architecture review finding `#5` with the remaining god-object split phases (`6`-`9`): flight-model extraction, crash/debug extraction, bot engagement/debug extraction, and final close-out/status updates.
+
+## Completed Work
+
+1. `PlaneCharacter` structural split
+- Extracted flight and limiter logic into `scripts/plane_flight_model.gd`.
+- Extracted crash / ground-impact damage into `scripts/plane_crash_damage_model.gd`.
+- Extracted force-debug renderer and force-balance bookkeeping into `scripts/plane_force_debug_adapter.gd`.
+- `scripts/plane_character_controller.gd` now keeps orchestration, scene-facing exports, and thin compatibility wrappers for adjacent callers.
+
+2. `PlaneBotPilot` structural split
+- Extracted follow-target, player acquisition, collision threat, weapon targeting, and cache/probe support into `scripts/plane_bot_engagement_model.gd`.
+- Extracted bot debug rendering and label generation into `scripts/plane_bot_debug_adapter.gd`.
+- `scripts/plane_bot_pilot.gd` now keeps the state machine and steering/navigation control-law core.
+
+3. Final file counts
+- `scripts/world_character_spawner.gd`: `858` lines
+- `scripts/plane_character_controller.gd`: `1,222` lines
+- `scripts/plane_bot_pilot.gd`: `986` lines
+
+4. Module map after close-out
+- `PlaneNetAdapter`, `PlaneInputCollector`, `HealthNetReplicator`, `ProjectileNetReplicator`
+- `PlaneFlightModel`, `PlaneCrashDamageModel`, `PlaneForceDebugAdapter`
+- `PlaneBotEngagementModel`, `PlaneBotDebugAdapter`
+
+5. Status call
+- `docs/architecture_review.md` finding `#5` is now resolved.
+- Remaining reduction of the controller orchestration shell and the bot steering core is explicitly deferred as optional maintainability follow-on, not an active blocking finding.
+
+6. Validation
+- `bash tests/run_headless_smokes.sh` passed after each extraction phase and on final close-out.
 
 ---
 

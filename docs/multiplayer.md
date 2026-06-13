@@ -1,6 +1,6 @@
 # Godot Multiplayer Notes
 
-Status: implemented (movement model) — the server-authoritative input-intent/simulation/snapshot flow described here is now in place (see `docs/mp_plan.md`); the project uses custom RPCs on `WorldCharacterSpawner` rather than `MultiplayerSpawner`/`MultiplayerSynchronizer`, which this document discusses as options.
+Status: implemented (movement model) — the server-authoritative input-intent/simulation/snapshot flow described here is now in place; the project uses custom RPCs on `WorldCharacterSpawner` rather than `MultiplayerSpawner`/`MultiplayerSynchronizer`, which this document discusses as options. See `docs/dev_plan.md` for remaining multiplayer follow-on work.
 
 This document summarizes how Godot 4 multiplayer works and what networking
 architecture makes sense for Merlin.

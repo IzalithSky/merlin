@@ -3,7 +3,7 @@
 Date: June 11, 2026 — first pass at `2d7200b`; second pass updated against later fixes; third pass June 13, 2026 re-verified everything against `49646ee` (merge of `server_authoritive_movement_1`).
 Scope: review of `docs/` and `scripts/` with emphasis on the remaining architecture/process issues that still block the project's stated goal: a stable, testable, server-authoritative baseline.
 
-Method: every open finding was re-checked against the current tree (all three large gameplay scripts read in full, plus the spawner RPC surface, weapons, health, lobby, persistence, tests, and all docs). Fixed items are removed; this document tracks only open work. Finding numbers are historical and stable across passes (gaps are fixed-and-removed items). The resolved authority migration (formerly finding #1, Critical) is documented in `docs/mp_plan.md` (design contract) and `docs/devlog.md` (implementation passes).
+Method: every open finding was re-checked against the current tree (all three large gameplay scripts read in full, plus the spawner RPC surface, weapons, health, lobby, persistence, tests, and all docs). Fixed items are removed; this document tracks only open work. Finding numbers are historical and stable across passes (gaps are fixed-and-removed items). The resolved authority migration (formerly finding #1, Critical) is documented in `docs/multiplayer.md` (mechanism) and `docs/devlog.md` (implementation passes).
 
 ## Severity scale
 
@@ -18,30 +18,39 @@ Method: every open finding was re-checked against the current tree (all three la
 
 | # | Finding | Type | Severity | Current status |
 |---|---|---|---|---|
-| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Open — split plan active; phases 1–4b landed |
+| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Resolved — phases 1–9 landed; remaining shrink is optional follow-on |
 | 8 | Documentation discipline | Process | Low | Open — convention is manual, not enforced |
 | 15 | Multiplayer lifecycle is untested and incomplete (no respawn; no late-join/disconnect smokes) | Process / Architecture | Medium | Open — new finding this pass |
 
 ---
 
-## 5. God objects / mixed responsibilities — High — OPEN (phases 1–4b done)
+## 5. God objects / mixed responsibilities — High — RESOLVED
 
-**What.** The same three large files still carry too many roles, and all three grew again during the authority migration (third-pass counts):
+**What changed.** The structural split is now complete enough that this is no longer an active architecture finding. The original hot files were reduced and their major secondary responsibilities were extracted into dedicated helpers:
 
-- `plane_character_controller.gd` — **1,860 lines** (was 1,864 at the second pass): flight model, input collection/smoothing, bot-facing control surface, net-input application, prediction history, reconciliation, remote interpolation, snapshot build, crash damage, sustain-turn/Vy limiter math, debug rendering, aero-table persistence.
-- `plane_bot_pilot.gd` — **1,386 lines**: bot state machine, target acquisition, collision avoidance, ground probing, weapon targeting, and controller-adjacent math helpers.
-- `world_character_spawner.gd` — **694 lines**: spawn registry, ownership binding, input/state relay RPCs, aero-table distribution, presentation binding.
+- `plane_character_controller.gd` — **1,222 lines**, down from **1,860**.
+- `plane_bot_pilot.gd` — **986 lines**, down from **1,386**.
+- `world_character_spawner.gd` — **858 lines**, still under the plan's rough `< 900` close-out target.
 
-**Phases 1–4b landed.** `plane_bot_pilot.gd` now delegates its pitch-rate stabilization calls to `PlaneCharacter.get_rate_stabilized_axis_input` / `get_rate_stabilized_input_for_desired_rate`, matching the existing roll delegation and deleting the duplicated control-law helpers. Networking state sync is extracted into `scripts/plane_net_adapter.gd` (**280 lines**), local-player input collection/smoothing is extracted into `scripts/plane_input_collector.gd` (**204 lines**), projectile RPC/cooldown/state replication is extracted into `scripts/projectile_net_replicator.gd` (**289 lines**), and health replication is extracted into `scripts/health_net_replicator.gd` (**88 lines**). `plane_character_controller.gd` and `world_character_spawner.gd` now delegate those responsibilities through helper nodes/scripts. `tests/run_headless_smokes.sh` and headless boots of `res://scenes/world_0.tscn` and `res://scenes/bot_duel.tscn` passed after the refactor.
+**Landings.** The phased split from `tasks/net_protocol_and_god_object_completion_plan.md` produced the following module map:
 
-**Why it matters.** Every multiplayer or flight-model change lands in the same three hot files; review scope and regression risk grow with each feature. The prediction/reconciliation block alone (~250 lines of the controller) is a self-contained module with a clean interface already. The net seams are already explicit (input modes local / bot / net, prediction + reconciliation, snapshot build/apply, aero-table sync each have typed entry points), so extraction is mechanical.
+- `scripts/plane_net_adapter.gd` — prediction, reconciliation, interpolation, snapshot build/apply.
+- `scripts/plane_input_collector.gd` — local input collection and smoothing.
+- `scripts/health_net_replicator.gd` and `scripts/projectile_net_replicator.gd` — spawner-owned network fan-out helpers.
+- `scripts/plane_flight_model.gd` — flight-model, limiter, and Vy logic.
+- `scripts/plane_crash_damage_model.gd` — crash / ground-impact damage.
+- `scripts/plane_force_debug_adapter.gd` — force debug renderer and force-balance bookkeeping.
+- `scripts/plane_bot_engagement_model.gd` — follow-target, collision threat, player acquisition, weapon targeting, and group-cache logic.
+- `scripts/plane_bot_debug_adapter.gd` — bot debug renderer / label generation.
 
-**Fix.** Phased, behavior-preserving split — see **`tasks/net_protocol_and_god_object_completion_plan.md`** for the current combined plan:
-1. Delete the duplicated bot-pilot rate-stabilization helpers (delegate to the controller's public versions).
-2. `PlaneNetAdapter`: prediction + reconciliation + interpolation + snapshot/seq bookkeeping out of the controller.
-3. `PlaneInputCollector`: local input collection/smoothing out of the controller.
-4. `ProjectileNetReplicator` (and optionally health replication) out of the spawner.
-5. Optional stretch: flight-model extraction when that code next changes materially.
+**Validation.** `tests/run_headless_smokes.sh` stayed green across the split work, and headless boots of `res://scenes/world_0.tscn` and `res://scenes/bot_duel.tscn` remained clean during the refactor passes.
+
+**Residual stretch, explicitly deferred.** Two files are still above the plan's original rough `~900` line heuristic:
+
+- `plane_character_controller.gd` still owns orchestration plus some aero-table persistence/accessor surface.
+- `plane_bot_pilot.gd` still owns the steering / navigation control-law core.
+
+Those are maintainability improvements worth doing if those areas change materially again, but they are no longer blocking the architecture baseline the review was tracking.
 
 ---
 
@@ -75,7 +84,7 @@ The convention is settled and the current docs comply (status headers on archite
 
 ## Recommended fix order
 
-1. **#5 split continuation (`tasks/net_protocol_and_god_object_completion_plan.md`)** — the network protocol follow-up that used to be finding `#14` has landed; continue with the remaining controller/bot/spawner decomposition phases.
-2. **#15 lifecycle** — late-join and disconnect smokes first (they protect everything else), then minimal respawn.
-3. **#5 phases 3–4** — input collector and spawner split per the plan.
+1. **#15 lifecycle** — late-join and disconnect smokes first (they protect everything else), then minimal respawn.
+2. **Aero-table load centralization** — move per-plane disk reads to a single world/spawner load path.
+3. **Projectile container injection** — remove scene-root path convention from `Autocannon` / `MissileLauncher`.
 4. **#8 doc discipline** — keep the status-header convention on new docs; no standing work.

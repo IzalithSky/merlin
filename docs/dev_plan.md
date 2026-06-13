@@ -1,6 +1,6 @@
 # Merlin Dev Plan Notes
 
-Status: partially implemented — movement authority, snapshot smoothing, packed wire format, and packet-budget instrumentation are in place. See `docs/architecture_review.md` for remaining open items.
+Status: forward-looking plan only. Historical implementation detail belongs in `docs/devlog.md`; current architecture status belongs in `docs/architecture_review.md`.
 
 Date: May 28, 2026
 
@@ -15,20 +15,20 @@ Evolve current multiplayer prototype into a stable, testable, server-authoritati
 - Run authoritative movement simulation on server.
 - Broadcast server snapshots to all clients.
 - Add server validation for rate, speed, and acceleration bounds.
+- Tighten the current input-validation envelope beyond finite/ownership/seq checks so impossible sustained motion is rejected explicitly, not just corrected after the fact.
 
 2. Add network smoothing
 - Introduce snapshot timestamps or tick IDs.
 - Keep small per-remote snapshot buffers on clients.
 - Interpolate remote characters with fixed interpolation delay.
 - Avoid direct hard-snapping each incoming packet.
-- Status: implemented with snapshot ticks, a fixed interpolation delay, and fallback extrapolation for single-snapshot underruns.
+- Validate smoothing under synthetic packet loss / latency and retune reconciliation thresholds if remote or own-plane correction still reads as visible jitter.
 
 3. Add reliability policy and packet budget
 - Keep spawn/lobby/despawn traffic reliable.
 - Keep frequent movement traffic unreliable or unreliable ordered.
 - Add fixed network send rate (for example 20-30 Hz).
 - Track packet size and send frequency in debug metrics.
-- Status: implemented with reliable spawn/health/projectile RPCs, `unreliable_ordered` input/state channels, `server_net_tick_hz = 30`, rolling net metrics, and a soft per-peer packet-budget warning.
 
 4. Stabilize scene transition protocol
 - Keep world-ready handshake as requirement before world RPC delivery.
@@ -52,6 +52,10 @@ Evolve current multiplayer prototype into a stable, testable, server-authoritati
   - exactly one local-controlled character per peer
   - no world RPC before world-ready
   - no teleport of existing peers on late join
+- Add multiplayer validation coverage for prediction/reconciliation edge cases:
+  - owner-client shot-down handover
+  - sustained-turn correction stability
+  - late-join health/spawn-state sync
 
 7. Gameplay expansion baseline
 - Replace placeholder cube avatar with aircraft/player rig root.
@@ -68,7 +72,6 @@ Evolve current multiplayer prototype into a stable, testable, server-authoritati
 3. No RPC path errors for missing world node.
 4. Server rejects impossible movement inputs.
 5. Remote movement appears smooth under simulated packet loss/latency.
-   - Current implementation uses tick-based remote interpolation; synthetic loss/latency simulation is still future validation work.
 
 ## Implementation Order Recommendation
 
