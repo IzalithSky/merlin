@@ -1150,7 +1150,7 @@ func _get_local_roll_rate() -> float:
 
 
 func _get_pitch_input_for_error(pitch_error: float) -> float:
-	return _get_rate_stabilized_axis_input(
+	return _plane.get_rate_stabilized_axis_input(
 		pitch_error,
 		SPEED_RECOVERY_PITCH_ANGLE_TO_RATE_GAIN,
 		SPEED_RECOVERY_MAX_DESIRED_PITCH_RATE,
@@ -1158,43 +1158,6 @@ func _get_pitch_input_for_error(pitch_error: float) -> float:
 		SPEED_RECOVERY_PITCH_RATE_RESPONSE_GAIN,
 		1.0,
 		-1.0
-	)
-
-
-func _get_rate_stabilized_axis_input(
-	angle_error: float,
-	angle_to_rate_gain: float,
-	max_desired_rate: float,
-	local_rate: float,
-	rate_response_gain: float,
-	error_to_rate_sign: float,
-	input_sign: float,
-	rate_scale: float = 1.0
-) -> float:
-	var desired_rate := clampf(
-		angle_error * angle_to_rate_gain * clampf(rate_scale, 0.0, 1.0) * error_to_rate_sign,
-		-max_desired_rate,
-		max_desired_rate
-	)
-	return _get_rate_stabilized_input_for_desired_rate(
-		desired_rate,
-		local_rate,
-		rate_response_gain,
-		input_sign
-	)
-
-
-func _get_rate_stabilized_input_for_desired_rate(
-	desired_rate: float,
-	local_rate: float,
-	rate_response_gain: float,
-	input_sign: float
-) -> float:
-	var rate_error := desired_rate - local_rate
-	return clampf(
-		rate_error * rate_response_gain * input_sign,
-		-CONTROL_INPUT_LIMIT,
-		CONTROL_INPUT_LIMIT
 	)
 
 
@@ -1214,7 +1177,7 @@ func _get_turn_pull_pitch_target(turn_angle: float) -> float:
 	if turn_angle <= TURN_MIN_PULL_ANGLE_RAD:
 		return 0.0
 
-	return _get_rate_stabilized_axis_input(
+	return _plane.get_rate_stabilized_axis_input(
 		turn_angle,
 		TURN_PITCH_ANGLE_TO_RATE_GAIN,
 		TURN_MAX_DESIRED_PITCH_RATE,
@@ -1226,7 +1189,7 @@ func _get_turn_pull_pitch_target(turn_angle: float) -> float:
 
 
 func _get_correction_turn_pitch_target() -> float:
-	return _get_rate_stabilized_input_for_desired_rate(
+	return _plane.get_rate_stabilized_input_for_desired_rate(
 		-CORRECTION_TURN_PITCH_DOWN_RATE,
 		_get_local_pitch_rate(),
 		TURN_PITCH_RATE_RESPONSE_GAIN,
