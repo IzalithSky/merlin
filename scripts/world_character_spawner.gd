@@ -6,6 +6,7 @@ const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 const LOCAL_PLANE_PRESENTATION_BINDING := preload("res://scripts/local_plane_presentation_binding.gd")
 const NET_METRICS_SCRIPT := preload("res://scripts/net_metrics.gd")
+const NET_WIRE := preload("res://scripts/net_wire.gd")
 const PLANE_BOT_SETUP := preload("res://scripts/plane_bot_setup.gd")
 const CHARACTER_NAME_PREFIX := "PlayerCharacter_"
 const BOT_PEER_ID_BASE := 1000000
@@ -309,7 +310,7 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	_broadcast_despawn(peer_id)
 
 
-func _on_local_character_input_produced(_peer_id: int, input: Dictionary) -> void:
+func _on_local_character_input_produced(_peer_id: int, input: PackedByteArray) -> void:
 	if multiplayer.multiplayer_peer == null or multiplayer.is_server():
 		return
 
@@ -393,20 +394,23 @@ func despawn_character(peer_id: int) -> void:
 
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 1)
-func sv_submit_input(input: Dictionary) -> void:
+func sv_submit_input(input: PackedByteArray) -> void:
 	if not multiplayer.is_server():
 		return
 
 	record_net_recv("input", input)
+	var decoded_input := NET_WIRE.decode_input(input)
+	if decoded_input.is_empty():
+		return
 	var sender_id := multiplayer.get_remote_sender_id()
 	var plane_character := _characters.get_node_or_null(_character_name(sender_id)) as PlaneCharacter
 	if plane_character == null or not is_instance_valid(plane_character):
 		return
 	if plane_character.is_shot_down:
 		return
-	if not _is_valid_input_packet(input):
+	if not _is_valid_input_packet(decoded_input):
 		return
-	plane_character.apply_net_control_input(input)
+	plane_character.apply_net_control_input(decoded_input)
 
 
 func _is_valid_input_packet(input: Dictionary) -> bool:
@@ -433,9 +437,12 @@ func _is_valid_input_packet(input: Dictionary) -> bool:
 
 
 @rpc("authority", "call_remote", "unreliable_ordered", 2)
-func apply_world_snapshot(world_snapshot: Dictionary) -> void:
+func apply_world_snapshot(world_snapshot: PackedByteArray) -> void:
 	record_net_recv("state", world_snapshot)
-	var planes: Array = world_snapshot.get("planes", [])
+	var decoded_snapshot := NET_WIRE.decode_world_snapshot(world_snapshot)
+	if decoded_snapshot.is_empty():
+		return
+	var planes: Array = decoded_snapshot.get("planes", [])
 	for snapshot_variant in planes:
 		if not snapshot_variant is Dictionary:
 			continue
@@ -662,13 +669,14 @@ func _broadcast_world_snapshot() -> void:
 	var planes: Array = world_snapshot.get("planes", [])
 	if planes.is_empty():
 		return
+	var encoded_snapshot := NET_WIRE.encode_world_snapshot(int(world_snapshot.get("tick", -1)), planes)
 
 	for target_peer_id in multiplayer.get_peers():
 		if not _is_peer_world_ready(target_peer_id):
 			continue
 
-		record_net_send("state", world_snapshot)
-		apply_world_snapshot.rpc_id(target_peer_id, world_snapshot)
+		record_net_send("state", encoded_snapshot)
+		apply_world_snapshot.rpc_id(target_peer_id, encoded_snapshot)
 
 
 func _build_world_snapshot() -> Dictionary:

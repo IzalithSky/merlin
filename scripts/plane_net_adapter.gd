@@ -47,9 +47,9 @@ func consume_pending_input() -> Dictionary:
 	return input
 
 
-func build_local_input_payload() -> Dictionary:
+func build_local_input_payload() -> PackedByteArray:
 	if not _plane._is_predicting_client():
-		return {}
+		return PackedByteArray()
 	return _plane._input_collector.build_local_input_payload(next_input_seq())
 
 

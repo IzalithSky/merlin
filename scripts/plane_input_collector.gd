@@ -1,6 +1,8 @@
 class_name PlaneInputCollector
 extends RefCounted
 
+const NET_WIRE := preload("res://scripts/net_wire.gd")
+
 var _plane
 
 
@@ -60,8 +62,8 @@ func collect_inputs(delta: float) -> void:
 	_plane.throttle_percent = ((_plane.throttle_input + 1.0) * 0.5) * 100.0
 
 
-func build_local_input_payload(seq: int) -> Dictionary:
-	return {
+func build_local_input_payload(seq: int) -> PackedByteArray:
+	return NET_WIRE.encode_input({
 		"seq": seq,
 		"roll": _plane.roll_input,
 		"pitch": _plane.pitch_input,
@@ -75,7 +77,7 @@ func build_local_input_payload(seq: int) -> Dictionary:
 		"pitch_assist_enabled": _plane._pitch_assist_enabled,
 		"stabilization_assist_enabled": _plane._stabilization_assist_enabled,
 		"limiter_override_active": Input.is_action_pressed("limiter_override"),
-	}
+	})
 
 
 func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: float) -> void:

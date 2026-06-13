@@ -1,7 +1,7 @@
 class_name PlaneCharacter
 extends RigidBody3D
 
-signal local_input_produced(peer_id: int, input: Dictionary)
+signal local_input_produced(peer_id: int, input: PackedByteArray)
 
 const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 const FORCE_DEBUG_RENDERER_SCRIPT := preload("res://scripts/force_debug_renderer_3d.gd")
@@ -464,7 +464,7 @@ func _apply_net_inputs() -> void:
 
 
 func _emit_local_input() -> void:
-	var input: Dictionary = _net.build_local_input_payload()
+	var input: PackedByteArray = _net.build_local_input_payload()
 	if input.is_empty():
 		return
 	local_input_produced.emit(peer_id, input)

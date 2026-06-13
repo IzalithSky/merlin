@@ -80,6 +80,20 @@
 - Validated with:
   - `bash tests/run_headless_smokes.sh`
 
+## 2026-06-13 (Phase 3 packed wire format)
+
+- Added `scripts/net_wire.gd` as the single source of truth for packed movement/input messages with a leading format-version byte.
+- Switched `sv_submit_input` and `apply_world_snapshot` to `PackedByteArray` payloads and decode/validate at the `WorldCharacterSpawner` boundary.
+- Packed input flags into one byte and added `tests/net_wire_smoke.gd` to round-trip both message types under headless test.
+- Measured after Phase 3 on `tests/mp_host_smoke.gd` with `2` human peers and `1` bot:
+  - first sampled second: `S 24 pkt/s 5.4 KB/s | R 30 pkt/s 0.7 KB/s`
+  - steady-state sampled second: `S 31 pkt/s 5.6 KB/s | R 60 pkt/s 1.5 KB/s`
+  - steady-state breakdown: `state send 30 pkt/s 5.5 KB/s`, `input recv 60 pkt/s 1.5 KB/s`
+- Result versus Phase 2 baseline: state bytes dropped from `19.9 KB/s` to `5.5 KB/s`, and input bytes dropped from `25.1 KB/s` to `1.5 KB/s` for the same smoke scenario.
+- `tests/net_wire_smoke.gd` reports `input_bytes=26` and `snapshot_bytes=127` for its fixed round-trip sample.
+- Validated with:
+  - `bash tests/run_headless_smokes.sh`
+
 ---
 
 
