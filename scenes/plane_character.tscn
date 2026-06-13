@@ -1,8 +1,9 @@
-[gd_scene format=3 uid="uid://bio3tkswfltrc"]
+[gd_scene load_steps=10 format=3 uid="uid://bio3tkswfltrc"]
 
 [ext_resource type="Script" uid="uid://cga1tya6tia2b" path="res://scripts/plane_character_controller.gd" id="1_plane"]
 [ext_resource type="PackedScene" path="res://scenes/wing_trail.tscn" id="2_wing_trail"]
 [ext_resource type="Script" uid="uid://d1o81vttixei4" path="res://scripts/plane_wing_trails.gd" id="3_wing_trails"]
+[ext_resource type="Script" path="res://scripts/plane_lockable_target.gd" id="10_lockable_target"]
 [ext_resource type="Script" path="res://scripts/plane_reference_rings.gd" id="9_rings"]
 [ext_resource type="Script" path="res://scripts/plane_weapon_lock.gd" id="4_weapon_lock"]
 [ext_resource type="Script" path="res://scripts/missile_launcher.gd" id="5_launcher"]
@@ -42,6 +43,9 @@ mesh = SubResource("PrismMesh_plane_body")
 script = ExtResource("9_rings")
 
 [node name="Health" parent="." instance=ExtResource("6_health")]
+
+[node name="LockableTarget" type="Node" parent="."]
+script = ExtResource("10_lockable_target")
 
 [node name="PlaneWeaponLock" type="Node" parent="."]
 script = ExtResource("4_weapon_lock")

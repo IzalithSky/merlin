@@ -60,17 +60,21 @@ func _try_fire(plane: Node3D) -> void:
 		return
 
 	var locked_target: Node3D = null
+	var locked_target_component = null
 	var weapon_lock = plane.get_weapon_lock_component()
 	if weapon_lock != null and is_instance_valid(weapon_lock):
 		locked_target = weapon_lock.get_locked_target()
+		locked_target_component = weapon_lock.get_locked_target_component()
 
 	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
-		var target_peer_id := -1
-		if locked_target != null and is_instance_valid(locked_target) and locked_target.is_in_group("plane_character"):
-			target_peer_id = locked_target.peer_id
+		var target_kind := -1
+		var target_id := -1
+		if locked_target_component != null and is_instance_valid(locked_target_component):
+			target_kind = locked_target_component.get_target_kind()
+			target_id = locked_target_component.get_target_id()
 		var projectile_net := _find_projectile_net()
 		if projectile_net != null:
-			projectile_net.sv_request_fire_missile.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
+			projectile_net.sv_request_fire_missile.rpc_id(1, multiplayer.get_unique_id(), target_kind, target_id)
 	else:
 		var projectile_net := _find_projectile_net()
 		if projectile_net != null:

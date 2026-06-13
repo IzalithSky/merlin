@@ -29,6 +29,13 @@ func get_locked_target() -> Node3D:
 	return null
 
 
+func get_locked_target_component():
+	var target := get_locked_target()
+	if target == null:
+		return null
+	return _get_lockable_target(target)
+
+
 func get_desired_target() -> Node3D:
 	if _desired_target != null and is_instance_valid(_desired_target):
 		return _desired_target
@@ -51,13 +58,17 @@ func is_target_in_envelope(target: Node3D) -> bool:
 	return _check_lock_envelope(target)
 
 
+func is_target_lockable(target: Node3D) -> bool:
+	return _get_lockable_target(target) != null and _is_lockable(target)
+
+
 func _physics_process(delta: float) -> void:
 	_update_lock(delta)
 
 
 func _update_lock(delta: float) -> void:
-	var owner_plane := get_parent() as Node3D
-	if owner_plane != null and owner_plane.get("is_shot_down") == true:
+	var owner_plane := _get_owner_plane()
+	if owner_plane != null and owner_plane.is_shot_down:
 		_desired_target = null
 		if _locked:
 			_locked = false
@@ -97,13 +108,14 @@ func _update_lock(delta: float) -> void:
 
 
 func _check_lock_envelope(target: Node3D) -> bool:
-	if target == null or not is_instance_valid(target):
+	var lockable_target = _get_lockable_target(target)
+	if lockable_target == null:
 		return false
-	var owner_plane := get_parent() as Node3D
-	if owner_plane == null or owner_plane.get("is_shot_down") == true:
+	var owner_plane := _get_owner_plane()
+	if owner_plane == null or owner_plane.is_shot_down:
 		return false
-	var to_target := target.global_position - owner_plane.global_position
-	var dist := to_target.length()
+	var to_target: Vector3 = lockable_target.get_aim_point() - owner_plane.global_position
+	var dist: float = to_target.length()
 	if dist < 0.001 or dist > lock_max_range:
 		return false
 	var fwd := -owner_plane.global_transform.basis.z
@@ -112,6 +124,17 @@ func _check_lock_envelope(target: Node3D) -> bool:
 
 
 func _is_lockable(target: Node3D) -> bool:
-	if not is_instance_valid(target):
+	var lockable_target = _get_lockable_target(target)
+	if lockable_target == null:
 		return false
-	return target.get("is_shot_down") != true
+	return lockable_target.is_lockable()
+
+
+func _get_lockable_target(target: Node3D):
+	if target == null or not is_instance_valid(target):
+		return null
+	return target.get_node_or_null("LockableTarget")
+
+
+func _get_owner_plane() -> PlaneCharacter:
+	return get_parent() as PlaneCharacter

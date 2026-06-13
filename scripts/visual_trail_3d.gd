@@ -27,6 +27,32 @@ var _immediate_mesh: ImmediateMesh
 var _renderer: MeshInstance3D
 
 
+func configure(
+	enabled: bool,
+	is_permanent: bool,
+	color_start: Color,
+	color_end: Color,
+	width_start: float,
+	width_end: float,
+	trail_motion_delta: float = motion_delta,
+	trail_lifespan: float = lifespan
+) -> void:
+	trail_enabled = enabled
+	permanent = is_permanent
+	start_color = color_start
+	end_color = color_end
+	from_width = width_start
+	to_width = width_end
+	motion_delta = trail_motion_delta
+	lifespan = trail_lifespan
+
+
+func finish(ttl: float) -> void:
+	trail_enabled = false
+	permanent = false
+	node_ttl = ttl
+
+
 func _ready() -> void:
 	_last_position = global_position
 	_sample_position = global_position

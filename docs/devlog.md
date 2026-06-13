@@ -40,6 +40,21 @@
 - Smoothed wing-trail point sampling with a lag cap so local contrails no longer advertise every tiny reconciliation correction.
 - Multiplayer headless smokes now pass in the current environment; recent work was repeatedly validated with `bash tests/run_headless_smokes.sh`.
 
+## 2026-06-13 (later)
+
+- Completed the remaining `#6` stringly-contract cleanup from `docs/architecture_review.md`.
+- Added `scripts/lockable_target.gd` as the shared lockable-target contract and `scripts/plane_lockable_target.gd` as the plane-specific implementation.
+- Added `scripts/target_registry.gd` and wired it into `scenes/world_0.tscn` so replicated missile targets resolve through `(target_kind, target_id)` instead of plane-only peer IDs.
+- Updated `scripts/plane_weapon_lock.gd` to lock against target components rather than casting targets to `PlaneCharacter`.
+- Updated `scripts/missile_launcher.gd` and `scripts/projectile_net_replicator.gd` so missile lock/replication now depends on the target contract instead of the plane class.
+- Replaced the temporary bot-chase dummy-plane workaround with a real lockable dummy target in `scenes/bot_chase_debug.tscn`.
+- Kept autocannon target validation unchanged; that path still uses plane peer IDs and remains future cleanup if full target-type symmetry is needed.
+- Validated with:
+  - `bash tests/run_headless_smokes.sh`
+  - `godot --headless --path . --scene res://scenes/world_0.tscn --quit-after 2`
+  - `godot --headless --path . --scene res://scenes/bot_duel.tscn --quit-after 2`
+  - `godot --headless --path . --scene res://scenes/bot_chase_debug.tscn --quit-after 3`
+
 ---
 
 

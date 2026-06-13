@@ -33,7 +33,7 @@ var _time_since_target_lost: float = 0.0
 var _had_target: bool = false
 var _exploded: bool = false
 var _previous_deviation: Vector3 = Vector3.ZERO
-var _trail: Node = null
+var _trail: VisualTrail3D = null
 
 
 func init_replica(transform_value: Transform3D, velocity: Vector3, target_node: Node3D = null) -> void:
@@ -290,31 +290,22 @@ func despawn(hit_pos: Vector3) -> void:
 func _finish_trail() -> void:
 	if _trail == null or not is_instance_valid(_trail):
 		return
-	if "trail_enabled" in _trail:
-		_trail.set("trail_enabled", false)
-	if "permanent" in _trail:
-		_trail.set("permanent", false)
-	if "node_ttl" in _trail:
-		_trail.set("node_ttl", trail_ttl_after_death)
+	_trail.finish(trail_ttl_after_death)
 	_trail = null
 
 
 func _spawn_trail() -> void:
-	var trail := TRAIL_SCENE.instantiate()
-	if "permanent" in trail:
-		trail.set("permanent", false)
-	if "trail_enabled" in trail:
-		trail.set("trail_enabled", true)
-	if "start_color" in trail:
-		trail.set("start_color", Color(1.0, 0.85, 0.0, 0.85))
-	if "end_color" in trail:
-		trail.set("end_color", Color(1.0, 0.85, 0.0, 0.0))
-	if "from_width" in trail:
-		trail.set("from_width", 0.8)
-	if "to_width" in trail:
-		trail.set("to_width", 0.15)
-	if "lifespan" in trail:
-		trail.set("lifespan", trail_lifespan)
+	var trail := TRAIL_SCENE.instantiate() as VisualTrail3D
+	trail.configure(
+		true,
+		false,
+		Color(1.0, 0.85, 0.0, 0.85),
+		Color(1.0, 0.85, 0.0, 0.0),
+		0.8,
+		0.15,
+		trail.motion_delta,
+		trail_lifespan
+	)
 	get_tree().current_scene.add_child(trail)
 	trail.global_position = global_position
 	_trail = trail

@@ -150,6 +150,7 @@ const DEBUG_COLOR_ALIGNMENT_TORQUE := Color(1.0, 0.95, 0.3, 1.0)
 @export var flame_trail_scene: PackedScene
 
 @onready var _health = $Health
+@onready var _lockable_target = $LockableTarget
 @onready var _weapon_lock = $PlaneWeaponLock
 @onready var _missile_launcher = $MissileLauncher
 @onready var _autocannon = $Autocannon
@@ -248,6 +249,10 @@ func configure(new_peer_id: int, local_player: bool) -> void:
 
 func get_health_component():
 	return _health
+
+
+func get_lockable_target_component():
+	return _lockable_target
 
 
 func get_weapon_lock_component():

@@ -1,8 +1,6 @@
 extends Node3D
 
 
-const VISUAL_TRAIL_SCRIPT := preload("res://scripts/visual_trail_3d.gd")
-
 @export var trails_enabled := true
 @export var min_airspeed := 50.0
 @export var min_abs_aoa_deg := 4.0
@@ -11,7 +9,7 @@ const VISUAL_TRAIL_SCRIPT := preload("res://scripts/visual_trail_3d.gd")
 @export var disable_pitch_rate_deg_per_second := 9.0
 
 var _plane: PlaneCharacter
-var _trails: Array[Node] = []
+var _trails: Array[VisualTrail3D] = []
 var _active := false
 
 
@@ -23,14 +21,14 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	var active := _should_emit_trails(delta)
 	for trail in _trails:
-		trail.set("trail_enabled", active)
+		trail.trail_enabled = active
 
 
 func _collect_trails() -> void:
 	_trails.clear()
 	for child in get_children():
-		if child.get_script() == VISUAL_TRAIL_SCRIPT:
-			_trails.append(child)
+		if child is VisualTrail3D:
+			_trails.append(child as VisualTrail3D)
 
 
 func _should_emit_trails(_delta: float) -> bool:

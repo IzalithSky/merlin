@@ -1,7 +1,8 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/bot_chase_debug_scene.gd" id="1_chase"]
 [ext_resource type="PackedScene" path="res://scenes/game_menu_ui.tscn" id="2_menu"]
+[ext_resource type="Script" path="res://scripts/lockable_target.gd" id="3_lockable_target"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dummy"]
 albedo_color = Color(0.05, 0.75, 1, 1)
@@ -29,6 +30,9 @@ script = ExtResource("1_chase")
 
 [node name="DummyTarget" type="Node3D" parent="."]
 unique_name_in_owner = true
+
+[node name="LockableTarget" type="Node" parent="DummyTarget"]
+script = ExtResource("3_lockable_target")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="DummyTarget"]
 mesh = SubResource("BoxMesh_dummy")

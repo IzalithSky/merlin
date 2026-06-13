@@ -18,15 +18,14 @@ Method: every open finding was re-checked against the current tree (all three la
 
 | # | Finding | Type | Severity | Current status |
 |---|---|---|---|---|
-| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Open — split plan active; phases 1–4a landed |
-| 6 | Stringly-typed cross-script contracts | Implementation | Medium | Open leftovers only — short, named list below |
+| 5 | God objects / mixed responsibilities in controller, bot pilot, and spawner | Architecture | High | Open — split plan active; phases 1–4b landed |
 | 8 | Documentation discipline | Process | Low | Open — convention is manual, not enforced |
 | 14 | Unbatched, string-keyed network protocol; packet budget (dev_plan §3) never implemented | Implementation | Medium-High | Open — new finding this pass |
 | 15 | Multiplayer lifecycle is untested and incomplete (no respawn; no late-join/disconnect smokes) | Process / Architecture | Medium | Open — new finding this pass |
 
 ---
 
-## 5. God objects / mixed responsibilities — High — OPEN (phases 1–4a done)
+## 5. God objects / mixed responsibilities — High — OPEN (phases 1–4b done)
 
 **What.** The same three large files still carry too many roles, and all three grew again during the authority migration (third-pass counts):
 
@@ -44,18 +43,6 @@ Method: every open finding was re-checked against the current tree (all three la
 3. `PlaneInputCollector`: local input collection/smoothing out of the controller.
 4. `ProjectileNetReplicator` (and optionally health replication) out of the spawner.
 5. Optional stretch: flight-model extraction when that code next changes materially.
-
----
-
-## 6. Stringly-typed contracts — Medium — OPEN LEFTOVERS ONLY
-
-The core seams are typed (21 `class_name` scripts, typed casts and accessors across the bot/spawner/projectile paths). What remains, verified this pass:
-
-- `plane_weapon_lock.gd` still probes its parent with `owner_plane.get("is_shot_down") == true` in three places instead of casting to `PlaneCharacter` — a stable seam that deserves the cast.
-- The trail-configuration `if "prop" in trail: trail.set("prop", …)` block is copy-pasted across 5 scripts (`bullet.gd`, `bullet_visual.gd`, `missile.gd`, `missile_visual.gd`, `plane_wing_trails.gd`). `VisualTrail3D` has a `class_name`; a typed `configure(...)` method would delete ~60 lines.
-- Intentional and out of scope: `has_method`/`call` in debug/menu scaffolding (`bot_chase_debug_scene.gd`, `bot_duel_scene.gd`, `game_menu.gd`) and the deliberately duck-typed `take_damage` dispatch.
-
-**Fix.** Do the weapon-lock cast and the trail `configure()` consolidation opportunistically (phase 1/4 of `tasks/god_object_split_plan.md` touch the same files); both are mechanical. This finding no longer gates anything.
 
 ---
 
@@ -111,5 +98,5 @@ Best done together with the #5 net-adapter extraction — the same functions are
 
 1. **#5 split, phases 1–2 (`tasks/god_object_split_plan.md`)** — duplicate-math deletion, then the `PlaneNetAdapter` extraction; immediately follow with **#14** inside the new module (batch + pack snapshots/inputs, packet metrics). Same code is rewritten either way; doing them back-to-back is cheaper than separately.
 2. **#15 lifecycle** — late-join and disconnect smokes first (they protect everything else), then minimal respawn.
-3. **#5 phases 3–4 / #6 leftovers** — input collector and spawner split per the plan; fold in the weapon-lock cast and trail `configure()` consolidation while touching those files.
+3. **#5 phases 3–4** — input collector and spawner split per the plan.
 4. **#8 doc discipline** — keep the status-header convention on new docs; no standing work.

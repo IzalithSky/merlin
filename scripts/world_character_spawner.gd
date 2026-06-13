@@ -27,6 +27,7 @@ enum CharacterType {
 @export var bot_player_killzone_tolerance := 150.0
 @onready var _characters: Node3D = $characters
 @onready var _projectiles: Node3D = $projectiles
+@onready var _target_registry = $TargetRegistry
 @onready var _projectile_net = $ProjectileNetReplicator
 @onready var _health_net = $HealthNetReplicator
 
@@ -207,6 +208,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 			existing_plane.configure(peer_id, local_player)
 			_set_character_local_binding(existing_plane, local_player)
 			_configure_bot_behavior(existing_plane, peer_id)
+			_register_lockable_target(existing_plane)
 			_health_net.bind_character(existing_plane, peer_id)
 			_apply_display_settings_to_character(existing_plane)
 			_apply_client_aero_tables_to_character(existing_plane)
@@ -231,6 +233,7 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 		var plane := character
 		_set_character_local_binding(plane, local_player)
 		_configure_bot_behavior(plane, peer_id)
+		_register_lockable_target(plane)
 		_health_net.bind_character(plane, peer_id)
 		_apply_display_settings_to_character(plane)
 		_apply_client_aero_tables_to_character(plane)
@@ -251,6 +254,7 @@ func _despawn_character(peer_id: int) -> void:
 
 	var character := _characters.get_node_or_null(_character_name(peer_id))
 	if character != null:
+		_unregister_lockable_target(character)
 		character.queue_free()
 
 	if is_local_character:
@@ -538,6 +542,10 @@ func get_projectile_net():
 	return _projectile_net
 
 
+func get_target_registry():
+	return _target_registry
+
+
 func _set_character_local_binding(character: Node3D, local_player: bool) -> void:
 	var is_mp := multiplayer.multiplayer_peer != null
 	var is_server := is_mp and multiplayer.is_server()
@@ -600,6 +608,22 @@ func _is_peer_world_ready(peer_id: int) -> bool:
 
 func is_peer_world_ready(peer_id: int) -> bool:
 	return _is_peer_world_ready(peer_id)
+
+
+func _register_lockable_target(character: Node3D) -> void:
+	if _target_registry == null or character == null:
+		return
+	var lockable_target = character.get_node_or_null("LockableTarget")
+	if lockable_target != null:
+		_target_registry.register_target(lockable_target)
+
+
+func _unregister_lockable_target(character: Node3D) -> void:
+	if _target_registry == null or character == null:
+		return
+	var lockable_target = character.get_node_or_null("LockableTarget")
+	if lockable_target != null:
+		_target_registry.unregister_target(lockable_target)
 
 
 func _broadcast_character_state(peer_id: int, snapshot: Dictionary) -> void:
