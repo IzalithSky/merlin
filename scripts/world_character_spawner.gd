@@ -260,7 +260,8 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 		bot_active,
 		_bot_follow_target,
 		bot_player_killzone_distance,
-		bot_player_killzone_tolerance
+		bot_player_killzone_tolerance,
+		peer_id
 	)
 
 

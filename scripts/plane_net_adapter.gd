@@ -10,7 +10,7 @@ const REMOTE_MAX_SNAPSHOTS := 16
 const NET_INPUT_QUEUE_MAX := 4
 const NET_INPUT_GAP_RESYNC_TICKS := 2
 const PREDICTION_HISTORY_MAX := 180
-const RECONCILE_VELOCITY_TOLERANCE := 15.0
+const RECONCILE_VELOCITY_TOLERANCE := 2.0
 const RECONCILE_ANGULAR_VELOCITY_TOLERANCE_DEG := 20.0
 const RECONCILE_ROTATION_TOLERANCE_DEG := 10.0
 
@@ -251,8 +251,8 @@ func _probe_interp(mode: String, prev_pos: Vector3, delta: float, target_render_
 	# stable value = smooth, a fluctuating one = jitter. Compare against the
 	# steady ground-truth (the plane's replicated velocity magnitude).
 	var rendered_speed: float = (_plane.global_position - prev_pos).length() / maxf(delta, 0.000001)
-	NetProbe.log_line("INTERP", "peer=%d mode=%s dt=%.4f advance_ticks=%.3f render_tick=%.3f target=%.3f latest=%d clamped=%s buf=%d alpha=%.3f rspeed=%.2f" % [
-		_plane.peer_id, mode, delta, delta * tick_hz, _render_tick_continuous,
+	NetProbe.log_line("INTERP", "peer=%d bot_peer=%s mode=%s dt=%.4f advance_ticks=%.3f render_tick=%.3f target=%.3f latest=%d clamped=%s buf=%d alpha=%.3f rspeed=%.2f" % [
+		_plane.peer_id, str(_plane.is_bot_peer), mode, delta, delta * tick_hz, _render_tick_continuous,
 		target_render_tick, _latest_server_tick, str(clamped),
 		_remote_snapshots.size(), alpha, rendered_speed,
 	])
@@ -368,9 +368,9 @@ func _store_interpolation_snapshot(snapshot: Dictionary) -> void:
 		var heading_delta_deg: float = 0.0
 		if pos_delta.length_squared() > 0.000001 and vel_mag > 0.000001:
 			heading_delta_deg = rad_to_deg(pos_delta.normalized().angle_to(Vector3(stored_snapshot.get("linear_velocity", Vector3.ZERO)).normalized()))
-		NetProbe.log_line("SNAP_ENTITY", "peer=%d bot=%s dt_ticks=%d pos_step=%.3f obs_speed=%.3f vel_mag=%.3f vel_prev_mag=%.3f vel_jump=%.3f heading_delta_deg=%.3f" % [
+		NetProbe.log_line("SNAP_ENTITY", "peer=%d bot_peer=%s dt_ticks=%d pos_step=%.3f obs_speed=%.3f vel_mag=%.3f vel_prev_mag=%.3f vel_jump=%.3f heading_delta_deg=%.3f" % [
 			_plane.peer_id,
-			str(_plane.is_bot_controlled),
+			str(_plane.is_bot_peer),
 			dt_ticks,
 			pos_delta.length(),
 			obs_speed,
@@ -426,14 +426,12 @@ func _reconcile_with_server_state(snapshot: Dictionary) -> void:
 	var server_rotation := Quaternion(snapshot.get("rotation", Quaternion.IDENTITY)).normalized()
 	var server_velocity := Vector3(snapshot.get("linear_velocity", Vector3.ZERO))
 	var server_angular_velocity := Vector3(snapshot.get("angular_velocity", Vector3.ZERO))
-	_probe_reconcile_phase_window(ack_seq, server_position, server_rotation, server_velocity, server_angular_velocity)
+	var best_seq := _probe_reconcile_phase_window(ack_seq, server_position, server_rotation, server_velocity, server_angular_velocity)
 
-	var entry := _take_prediction_entry(ack_seq)
+	var entry := _take_prediction_entry(best_seq)
 	if entry.is_empty():
-		# miss=1: no stored prediction matched the server ack; reconciliation
-		# cannot be applied this snapshot (history too short / seq mismatch).
-		NetProbe.log_line("RECON", "peer=%d ack=%d miss=1 hist=%d" % [
-			_plane.peer_id, ack_seq, _prediction_history.size(),
+		NetProbe.log_line("RECON", "peer=%d ack=%d best=%d miss=1 hist=%d" % [
+			_plane.peer_id, ack_seq, best_seq, _prediction_history.size(),
 		])
 		return
 
@@ -450,8 +448,13 @@ func _reconcile_with_server_state(snapshot: Dictionary) -> void:
 	# at the acked seq. At 0 ping this should sit near 0; large/persistent values
 	# (above reconcile_position_tolerance) mean corrections fire every snapshot
 	# -> local jitter.
-	NetProbe.log_line("RECON", "peer=%d ack=%d miss=0 pos_err=%.3f rot_err_deg=%.3f vel_err=%.3f ang_vel_err_deg=%.3f eff_pitch=%.3f aoa=%.3f pitch_assist=%s stab=%s rel_roll=%s hard_snap=%s corr_set=%s hist=%d" % [
-		_plane.peer_id, ack_seq, probe_pos_err, probe_rot_err_deg, probe_vel_err, probe_ang_vel_err,
+	var probe_vel_err_vec: Vector3 = server_velocity - Vector3(entry["linear_velocity"])
+	var probe_ang_vel_err_vec: Vector3 = server_angular_velocity - Vector3(entry.get("angular_velocity", Vector3.ZERO))
+	NetProbe.log_line("RECON", "peer=%d ack=%d best=%d miss=0 pos_err=%.3f rot_err_deg=%.3f vel_err=%.3f vel_err_vec=(%.3f,%.3f,%.3f) ang_vel_err_deg=%.3f ang_vel_err_vec=(%.3f,%.3f,%.3f) eff_pitch=%.3f aoa=%.3f pitch_assist=%s stab=%s rel_roll=%s hard_snap=%s corr_set=%s hist=%d" % [
+		_plane.peer_id, ack_seq, best_seq, probe_pos_err, probe_rot_err_deg, probe_vel_err,
+		probe_vel_err_vec.x, probe_vel_err_vec.y, probe_vel_err_vec.z,
+		probe_ang_vel_err,
+		probe_ang_vel_err_vec.x, probe_ang_vel_err_vec.y, probe_ang_vel_err_vec.z,
 		float(entry.get("effective_pitch", 0.0)),
 		float(entry.get("aoa_deg", 0.0)),
 		str(bool(entry.get("pitch_assist", false))),
@@ -498,7 +501,7 @@ func _probe_reconcile_phase_window(
 	server_rotation: Quaternion,
 	server_velocity: Vector3,
 	server_angular_velocity: Vector3
-) -> void:
+) -> int:
 	var offsets := PackedInt32Array([-1, 0, 1])
 	var parts: Array[String] = []
 	var best_seq := ack_seq
@@ -524,6 +527,7 @@ func _probe_reconcile_phase_window(
 	NetProbe.log_line("RECON_PHASE", "peer=%d ack=%d best_seq=%d %s" % [
 		_plane.peer_id, ack_seq, best_seq, " ".join(parts),
 	])
+	return best_seq
 
 
 func _take_prediction_entry(ack_seq: int) -> Dictionary:

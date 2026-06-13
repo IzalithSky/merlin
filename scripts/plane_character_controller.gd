@@ -160,6 +160,7 @@ const DEBUG_COLOR_ALIGNMENT_TORQUE := Color(1.0, 0.95, 0.3, 1.0)
 var peer_id := 1
 var is_local_player := false
 var is_bot_controlled := false
+var is_bot_peer := false
 var is_shot_down := false
 
 var roll_input := 0.0
@@ -632,11 +633,16 @@ func set_sustain_turn_limiter_runtime_enabled(enabled: bool) -> void:
 
 
 func _apply_remote_pose(remote_position: Vector3, rotation_quaternion: Quaternion) -> void:
+	var prev_pos := global_position
 	global_position = remote_position
 	global_basis = Basis(rotation_quaternion.normalized())
 	if not _preserve_remote_wreck_velocities:
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
+	var pose_delta := (remote_position - prev_pos).length()
+	NetProbe.log_line("REMOTE_POSE", "peer=%d bot_peer=%s pose_delta=%.3f frozen=%s preserve_wreck=%s" % [
+		peer_id, str(is_bot_peer), pose_delta, str(freeze), str(_preserve_remote_wreck_velocities),
+	])
 
 
 func get_replicated_velocity() -> Vector3:
