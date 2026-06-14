@@ -409,8 +409,8 @@ func _apply_spawn_control_defaults() -> void:
 	roll_input = 0.0
 	pitch_input = 0.0
 	yaw_input = 0.0
-	throttle_input = 0.0
-	throttle_percent = 50.0
+	throttle_input = 1.0
+	throttle_percent = 100.0
 	relative_roll_target_active = false
 	relative_roll_target_up_world = Vector3.UP
 	relative_roll_error = 0.0

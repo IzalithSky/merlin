@@ -3,7 +3,7 @@ extends Node
 
 const MISSILE_SCENE := preload("res://scenes/missile.tscn")
 
-@export var fire_cooldown: float = 1.0
+@export var fire_cooldown: float = 2.5
 @export var launch_lateral_offset: float = 5.0
 @export var launch_vertical_offset: float = 0.0
 @export var launch_forward_offset: float = 0.0

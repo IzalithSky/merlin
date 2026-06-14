@@ -1,3 +1,4 @@
+class_name PlaneWingTrail
 extends Node3D
 
 
@@ -10,6 +11,7 @@ extends Node3D
 
 var _plane: PlaneCharacter
 var _trails: Array[VisualTrail3D] = []
+var _speed_trails: Array[SpeedColorTrail3D] = []
 var _active := false
 
 
@@ -23,11 +25,20 @@ func _physics_process(delta: float) -> void:
 	for trail in _trails:
 		trail.trail_enabled = active
 
+	if _plane != null:
+		var forward_speed := _plane.linear_velocity.dot(_plane.get_frame_forward_axis())
+		for trail in _speed_trails:
+			trail.trail_enabled = true
+			trail.set_current_speed(forward_speed)
+
 
 func _collect_trails() -> void:
 	_trails.clear()
+	_speed_trails.clear()
 	for child in get_children():
-		if child is VisualTrail3D:
+		if child is SpeedColorTrail3D:
+			_speed_trails.append(child as SpeedColorTrail3D)
+		elif child is VisualTrail3D:
 			_trails.append(child as VisualTrail3D)
 
 

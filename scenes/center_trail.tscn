@@ -1,0 +1,24 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/speed_color_trail_3d.gd" id="1_trail"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_center_trail"]
+transparency = 1
+blend_mode = 1
+cull_mode = 2
+shading_mode = 0
+vertex_color_use_as_albedo = true
+
+[sub_resource type="ImmediateMesh" id="ImmediateMesh_center_trail"]
+
+[node name="Trail" type="MeshInstance3D"]
+material_override = SubResource("StandardMaterial3D_center_trail")
+mesh = SubResource("ImmediateMesh_center_trail")
+script = ExtResource("1_trail")
+trail_enabled = false
+from_width = 1.4
+to_width = 0.2
+lifespan = 30.0
+max_points = 1920
+sample_smoothing_rate = 12.0
+max_sample_lag = 1.5

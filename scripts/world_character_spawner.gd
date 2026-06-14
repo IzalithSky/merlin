@@ -24,6 +24,7 @@ enum CharacterType {
 @export var character_type := CharacterType.PLANE
 @export var bot_count := 1
 @export var bot_spawn_radius := 2400.0
+@export var bot_parallel_separation: float = 1000.0
 @export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
 @export var bot_player_killzone_distance := 250.0
 @export var bot_player_killzone_tolerance := 150.0
@@ -66,10 +67,10 @@ func _ready() -> void:
 		if bot_count < 1:
 			bot_count = 1
 
-		var participant_count: int = 1 + maxi(bot_count, 0)
-		var spawn_state := _build_radial_spawn_state(0, participant_count)
+		var spawn_state := _build_radial_spawn_state(0, 1)
+		_peer_spawn_states[1] = spawn_state
 		_spawn_character(1, true, spawn_state["character_position"], spawn_state["yaw"])
-		_spawn_single_player_bots(participant_count)
+		_spawn_single_player_bots(spawn_state)
 		return
 
 	if multiplayer.is_server():
@@ -184,26 +185,25 @@ func _spawn_bots(broadcast_to_clients: bool) -> void:
 			_broadcast_spawn_state(bot_peer_id, -1)
 
 
-func _spawn_single_player_bots(total_participants: int) -> void:
+func _spawn_single_player_bots(player_spawn_state: Dictionary) -> void:
 	if bot_count <= 0:
 		return
 
+	var player_pos: Vector3 = player_spawn_state["character_position"]
+	var player_yaw: float = player_spawn_state["yaw"]
+	var player_right := Vector3(cos(player_yaw), 0.0, -sin(player_yaw))
+
 	var resolved_bot_count: int = maxi(bot_count, 0)
-	var radial_count: int = maxi(total_participants, 1)
 	for bot_index in range(resolved_bot_count):
 		var bot_peer_id := BOT_PEER_ID_BASE + bot_index
 		if _peer_spawn_states.has(bot_peer_id):
 			continue
 
-		var bot_spawn_state := _build_radial_spawn_state(bot_index + 1, radial_count)
+		var bot_position := player_pos + player_right * bot_parallel_separation * float(bot_index + 1)
+		var bot_spawn_state := {"character_position": bot_position, "yaw": player_yaw}
 		_peer_spawn_states[bot_peer_id] = bot_spawn_state
 		_bot_peer_ids[bot_peer_id] = true
-		_spawn_character(
-			bot_peer_id,
-			false,
-			bot_spawn_state["character_position"],
-			bot_spawn_state["yaw"]
-		)
+		_spawn_character(bot_peer_id, false, bot_position, player_yaw)
 
 
 func _resolve_bot_follow_target() -> void:

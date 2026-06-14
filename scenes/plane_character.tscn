@@ -1,7 +1,8 @@
-[gd_scene load_steps=10 format=3 uid="uid://bio3tkswfltrc"]
+[gd_scene load_steps=11 format=3 uid="uid://bio3tkswfltrc"]
 
 [ext_resource type="Script" uid="uid://cga1tya6tia2b" path="res://scripts/plane_character_controller.gd" id="1_plane"]
 [ext_resource type="PackedScene" path="res://scenes/wing_trail.tscn" id="2_wing_trail"]
+[ext_resource type="PackedScene" path="res://scenes/center_trail.tscn" id="11_center_trail"]
 [ext_resource type="Script" uid="uid://d1o81vttixei4" path="res://scripts/plane_wing_trails.gd" id="3_wing_trails"]
 [ext_resource type="Script" path="res://scripts/plane_lockable_target.gd" id="10_lockable_target"]
 [ext_resource type="Script" path="res://scripts/plane_reference_rings.gd" id="9_rings"]
@@ -64,3 +65,6 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 0, 5)
 
 [node name="RightTrail" parent="WingTrails" unique_id=2146163335 instance=ExtResource("2_wing_trail")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 5)
+
+[node name="CenterTrail" parent="WingTrails" instance=ExtResource("11_center_trail")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 5)
