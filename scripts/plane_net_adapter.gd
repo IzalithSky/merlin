@@ -10,7 +10,7 @@ const REMOTE_MAX_SNAPSHOTS := 16
 const NET_INPUT_QUEUE_MAX := 4
 const NET_INPUT_GAP_RESYNC_TICKS := 2
 const PREDICTION_HISTORY_MAX := 180
-const RECONCILE_VELOCITY_TOLERANCE := 2.0
+const RECONCILE_VELOCITY_TOLERANCE := 1.0
 const RECONCILE_ANGULAR_VELOCITY_TOLERANCE_DEG := 20.0
 const RECONCILE_ROTATION_TOLERANCE_DEG := 10.0
 
@@ -25,6 +25,7 @@ var _net_last_applied_input_seq := -1
 var _net_ack_seq := -1
 var _net_gap_ticks := 0
 var _prediction_history: Array[Dictionary] = []
+var _probe_prev_vy := 0.0
 var _correction_position := Vector3.ZERO
 var _latest_server_tick := -1
 var _render_tick_continuous := 0.0
@@ -137,7 +138,11 @@ func record_prediction_state() -> void:
 		"relative_roll_active": _plane.is_relative_roll_active(),
 	})
 	var local_ang_vel: Vector3 = _plane.get_local_angular_velocity()
-	NetProbe.log_line("PRED_STATE", "peer=%d seq=%d pos=(%.3f,%.3f,%.3f) vel=(%.3f,%.3f,%.3f) angvel=(%.3f,%.3f,%.3f) local_ang=(%.3f,%.3f,%.3f) eff_pitch=%.3f aoa=%.3f pitch_assist=%s stab=%s rel_roll=%s" % [
+	var probe_vy: float = _plane.linear_velocity.y
+	var probe_dvy: float = probe_vy - _probe_prev_vy
+	_probe_prev_vy = probe_vy
+	var probe_airspeed: float = _plane.linear_velocity.length()
+	NetProbe.log_line("PRED_STATE", "peer=%d seq=%d pos=(%.3f,%.3f,%.3f) vel=(%.3f,%.3f,%.3f) angvel=(%.3f,%.3f,%.3f) local_ang=(%.3f,%.3f,%.3f) eff_pitch=%.3f aoa=%.3f pitch_assist=%s stab=%s rel_roll=%s airspeed=%.2f dvy=%.4f" % [
 		_plane.peer_id,
 		_net_input_seq,
 		_plane.global_position.x, _plane.global_position.y, _plane.global_position.z,
@@ -149,6 +154,7 @@ func record_prediction_state() -> void:
 		str(_plane.is_pitch_assist_enabled()),
 		str(_plane.is_stabilization_assist_enabled()),
 		str(_plane.is_relative_roll_active()),
+		probe_airspeed, probe_dvy,
 	])
 	while _prediction_history.size() > PREDICTION_HISTORY_MAX:
 		_prediction_history.pop_front()
@@ -318,7 +324,11 @@ func build_state_for_batch(world_tick: int) -> Dictionary:
 	if _plane._is_net_input_driven():
 		snapshot["ack_seq"] = _net_last_applied_input_seq
 		var local_ang_vel: Vector3 = _plane.get_local_angular_velocity()
-		NetProbe.log_line("AUTH_STATE", "peer=%d ack=%d applied=%d pos=(%.3f,%.3f,%.3f) vel=(%.3f,%.3f,%.3f) angvel=(%.3f,%.3f,%.3f) local_ang=(%.3f,%.3f,%.3f) eff_pitch=%.3f aoa=%.3f pitch_assist=%s stab=%s rel_roll=%s" % [
+		var probe_vy: float = _plane.linear_velocity.y
+		var probe_dvy: float = probe_vy - _probe_prev_vy
+		_probe_prev_vy = probe_vy
+		var probe_airspeed: float = _plane.linear_velocity.length()
+		NetProbe.log_line("AUTH_STATE", "peer=%d ack=%d applied=%d pos=(%.3f,%.3f,%.3f) vel=(%.3f,%.3f,%.3f) angvel=(%.3f,%.3f,%.3f) local_ang=(%.3f,%.3f,%.3f) eff_pitch=%.3f aoa=%.3f pitch_assist=%s stab=%s rel_roll=%s airspeed=%.2f dvy=%.4f" % [
 			_plane.peer_id,
 			_net_last_applied_input_seq,
 			_net_last_applied_input_seq,
@@ -331,6 +341,7 @@ func build_state_for_batch(world_tick: int) -> Dictionary:
 			str(_plane.is_pitch_assist_enabled()),
 			str(_plane.is_stabilization_assist_enabled()),
 			str(_plane.is_relative_roll_active()),
+			probe_airspeed, probe_dvy,
 		])
 	return snapshot
 
@@ -450,7 +461,10 @@ func _reconcile_with_server_state(snapshot: Dictionary) -> void:
 	# -> local jitter.
 	var probe_vel_err_vec: Vector3 = server_velocity - Vector3(entry["linear_velocity"])
 	var probe_ang_vel_err_vec: Vector3 = server_angular_velocity - Vector3(entry.get("angular_velocity", Vector3.ZERO))
-	NetProbe.log_line("RECON", "peer=%d ack=%d best=%d miss=0 pos_err=%.3f rot_err_deg=%.3f vel_err=%.3f vel_err_vec=(%.3f,%.3f,%.3f) ang_vel_err_deg=%.3f ang_vel_err_vec=(%.3f,%.3f,%.3f) eff_pitch=%.3f aoa=%.3f pitch_assist=%s stab=%s rel_roll=%s hard_snap=%s corr_set=%s hist=%d" % [
+	var probe_entry_fwd: Vector3 = probe_entry_rotation * Vector3(0.0, 0.0, -1.0)
+	var probe_pitch_deg := rad_to_deg(asin(clampf(probe_entry_fwd.y, -1.0, 1.0)))
+	var probe_entry_airspeed := Vector3(entry["linear_velocity"]).length()
+	NetProbe.log_line("RECON", "peer=%d ack=%d best=%d miss=0 pos_err=%.3f rot_err_deg=%.3f vel_err=%.3f vel_err_vec=(%.3f,%.3f,%.3f) ang_vel_err_deg=%.3f ang_vel_err_vec=(%.3f,%.3f,%.3f) eff_pitch=%.3f aoa=%.3f pitch_assist=%s stab=%s rel_roll=%s hard_snap=%s corr_set=%s hist=%d airspeed=%.2f pitch_deg=%.2f" % [
 		_plane.peer_id, ack_seq, best_seq, probe_pos_err, probe_rot_err_deg, probe_vel_err,
 		probe_vel_err_vec.x, probe_vel_err_vec.y, probe_vel_err_vec.z,
 		probe_ang_vel_err,
@@ -461,6 +475,7 @@ func _reconcile_with_server_state(snapshot: Dictionary) -> void:
 		str(bool(entry.get("stabilization_assist", false))),
 		str(bool(entry.get("relative_roll_active", false))),
 		str(probe_hard), str(probe_corr), _prediction_history.size(),
+		probe_entry_airspeed, probe_pitch_deg,
 	])
 
 	if position_error.length() > _plane.reconcile_hard_snap_distance:
