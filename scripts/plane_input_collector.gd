@@ -19,30 +19,30 @@ func collect_inputs(delta: float) -> void:
 	_collect_roll_input(delta, rotation_rate, rotation_decay)
 
 	var pitch_analog := KeybindingsSettings.get_analog_value("pitch_axis")
+	var pitch_analog_bound := KeybindingsSettings.is_analog_axis_bound("pitch_axis")
 	var keyboard_pitch := 0.0
 	keyboard_pitch += Input.get_action_strength("pitch_up")
 	keyboard_pitch -= Input.get_action_strength("pitch_down")
 
 	var yaw_analog := KeybindingsSettings.get_analog_value("yaw_axis")
+	var yaw_analog_bound := KeybindingsSettings.is_analog_axis_bound("yaw_axis")
 	var keyboard_yaw := 0.0
 	keyboard_yaw += Input.get_action_strength("yaw_left")
 	keyboard_yaw -= Input.get_action_strength("yaw_right")
 
 	var desired_pitch: float = clampf(keyboard_pitch + pitch_analog, -1.0, 1.0)
 	var desired_yaw: float = clampf(keyboard_yaw + yaw_analog, -1.0, 1.0)
-	var pitch_analog_active := absf(pitch_analog) > 0.001
-	var yaw_analog_active := absf(yaw_analog) > 0.001
 	_plane._player_pitch_control_active = absf(desired_pitch) > 0.001
 	_plane._player_yaw_control_active = absf(desired_yaw) > 0.001
 
-	if pitch_analog_active:
+	if pitch_analog_bound:
 		_plane.pitch_input = desired_pitch
 	elif _plane._player_pitch_control_active:
 		_plane.pitch_input = move_toward(_plane.pitch_input, desired_pitch, rotation_rate)
 	elif _plane._input_decay_enabled:
 		_plane.pitch_input = move_toward(_plane.pitch_input, 0.0, rotation_decay)
 
-	if yaw_analog_active:
+	if yaw_analog_bound:
 		_plane.yaw_input = desired_yaw
 	elif _plane._player_yaw_control_active:
 		_plane.yaw_input = move_toward(_plane.yaw_input, desired_yaw, rotation_rate)
@@ -82,6 +82,7 @@ func build_local_input_payload(seq: int) -> PackedByteArray:
 
 func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: float) -> void:
 	var roll_analog := KeybindingsSettings.get_analog_value("roll_axis")
+	var roll_analog_bound := KeybindingsSettings.is_analog_axis_bound("roll_axis")
 	var direct_roll_direction := _get_direct_roll_direction(roll_analog)
 	var relative_roll_direction := _get_relative_roll_direction()
 	_plane._player_direct_roll_control_active = absf(direct_roll_direction) > 0.001
@@ -114,7 +115,10 @@ func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: flo
 
 		return
 
-	if _plane._input_decay_enabled:
+	if roll_analog_bound:
+		_plane.relative_roll_input = 0.0
+		_plane.roll_input = 0.0
+	elif _plane._input_decay_enabled:
 		_plane.relative_roll_input = move_toward(_plane.relative_roll_input, 0.0, rotation_decay)
 		_plane.roll_input = move_toward(_plane.roll_input, 0.0, rotation_decay)
 	_plane.roll_input = clampf(_plane.roll_input, -1.0, 1.0)

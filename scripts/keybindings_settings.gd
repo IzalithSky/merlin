@@ -290,6 +290,15 @@ func _mouse_binding(button_index: MouseButton) -> Dictionary:
 	}
 
 
+func is_analog_axis_bound(action: String) -> bool:
+	if not action in ANALOG_ACTIONS:
+		return false
+	var binding := get_analog_binding(action)
+	if int(binding.get("axis", -1)) < 0:
+		return false
+	return _find_bound_joypad_id(binding) >= 0
+
+
 func get_analog_value(action: String) -> float:
 	if not action in ANALOG_ACTIONS:
 		return 0.0
