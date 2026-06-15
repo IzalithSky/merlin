@@ -2,10 +2,10 @@ class_name SpeedColorTrail3D
 extends VisualTrail3D
 
 
-@export var slow_color := Color(0.0, 0.05, 0.8, 0.75)
-@export var fast_color := Color(1.0, 0.45, 0.0, 0.75)
+@export var slow_color := Color(0.831, 0.0, 0.914, 0.792)
+@export var fast_color := Color(0.764, 0.347, 0.0, 0.933)
 @export var min_speed := 80.0
-@export var max_speed := 180.0
+@export var max_speed := 140.0
 
 var _current_speed := 0.0
 var _point_speeds: Array[float] = []

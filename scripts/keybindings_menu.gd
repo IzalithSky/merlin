@@ -11,6 +11,7 @@ var _listening_slot := -1
 var _row_buttons: Dictionary = {}
 var _listening_analog_action := ""
 var _analog_rows: Dictionary = {}
+var _limiter_mode_toggle: CheckButton = null
 
 @onready var _action_grid: GridContainer = %ActionGrid
 @onready var _back_button: Button = %KeybindingsBackButton
@@ -23,6 +24,12 @@ func _ready() -> void:
 	_reset_button.pressed.connect(_on_reset_pressed)
 	KeybindingsSettings.bindings_changed.connect(_refresh_labels)
 	set_process(true)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED and is_visible_in_tree():
+		set_global_position(Vector2.ZERO)
+		size = get_viewport_rect().size
 
 
 func _input(event: InputEvent) -> void:
@@ -126,8 +133,30 @@ func _build_rows() -> void:
 
 		_row_buttons[action] = [btn1, btn2, clear_btn]
 
+		if action == "limiter_override":
+			_build_limiter_mode_row()
+
 	_build_analog_rows()
 	_refresh_labels()
+
+
+func _build_limiter_mode_row() -> void:
+	var mode_label := Label.new()
+	mode_label.text = "  Mode"
+	mode_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mode_label.add_theme_font_size_override("font_size", 17)
+	_action_grid.add_child(mode_label)
+
+	var toggle := CheckButton.new()
+	toggle.text = "Hold to Disable"
+	toggle.add_theme_font_size_override("font_size", 15)
+	toggle.set_pressed_no_signal(KeybindingsSettings.limiter_override_inverted)
+	toggle.toggled.connect(_on_limiter_mode_toggled)
+	_action_grid.add_child(toggle)
+	_limiter_mode_toggle = toggle
+
+	_action_grid.add_child(Control.new())
+	_action_grid.add_child(Control.new())
 
 
 func _build_analog_rows() -> void:
@@ -199,6 +228,9 @@ func _refresh_labels() -> void:
 		if _listening_action != action:
 			(btns[0] as Button).text = _binding_label(slots[0])
 			(btns[1] as Button).text = _binding_label(slots[1])
+
+	if _limiter_mode_toggle != null:
+		_limiter_mode_toggle.set_pressed_no_signal(KeybindingsSettings.limiter_override_inverted)
 
 	for action in KeybindingsSettings.ANALOG_ACTIONS:
 		if not _analog_rows.has(action):
@@ -272,6 +304,10 @@ func _on_analog_clear_pressed(action: String) -> void:
 		_stop_listening()
 
 	KeybindingsSettings.clear_analog_binding(action)
+
+
+func _on_limiter_mode_toggled(button_pressed: bool) -> void:
+	KeybindingsSettings.set_limiter_override_inverted(button_pressed)
 
 
 func _on_analog_invert_toggled(button_pressed: bool, action: String) -> void:

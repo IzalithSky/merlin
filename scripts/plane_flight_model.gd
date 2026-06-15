@@ -567,7 +567,10 @@ func _should_apply_sustain_turn_limiter() -> bool:
 func _is_limiter_override_active() -> bool:
 	if _plane._is_net_input_driven():
 		return _plane._net_limiter_override_active
-	return _plane.is_local_player and Input.is_action_pressed("limiter_override")
+	if not _plane.is_local_player:
+		return false
+	var pressed := Input.is_action_pressed("limiter_override")
+	return pressed != KeybindingsSettings.limiter_override_inverted
 
 
 func _get_sustainable_aoa_limit(positive_limit: bool) -> float:

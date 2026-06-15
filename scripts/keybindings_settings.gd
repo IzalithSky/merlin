@@ -5,6 +5,7 @@ signal bindings_changed
 const SAVE_PATH := "user://keybindings.cfg"
 const SECTION := "bindings"
 const ANALOG_SECTION := "analog_bindings"
+const MISC_SECTION := "misc"
 const MAX_BINDINGS := 2
 const ANALOG_DEADZONE := 0.08
 
@@ -61,6 +62,7 @@ const ANALOG_LABELS: Dictionary = {
 	"roll_axis": "Roll Axis",
 }
 
+var limiter_override_inverted := false
 var _bindings: Dictionary = {}
 var _analog_bindings: Dictionary = {}
 
@@ -133,6 +135,12 @@ func clear_analog_binding(action: String) -> void:
 	bindings_changed.emit()
 
 
+func set_limiter_override_inverted(value: bool) -> void:
+	limiter_override_inverted = value
+	save_bindings()
+	bindings_changed.emit()
+
+
 func reset_to_defaults() -> void:
 	_load_defaults()
 	_apply_to_input_map()
@@ -161,6 +169,9 @@ func load_bindings() -> void:
 		var saved_analog: Variant = config.get_value(ANALOG_SECTION, action)
 		_analog_bindings[action] = _normalize_analog_binding(saved_analog)
 
+	if config.has_section_key(MISC_SECTION, "limiter_override_inverted"):
+		limiter_override_inverted = bool(config.get_value(MISC_SECTION, "limiter_override_inverted"))
+
 
 func save_bindings() -> void:
 	var config := ConfigFile.new()
@@ -168,6 +179,8 @@ func save_bindings() -> void:
 		config.set_value(SECTION, action, _bindings.get(action, [-1, -1]))
 	for action in ANALOG_ACTIONS:
 		config.set_value(ANALOG_SECTION, action, _analog_bindings.get(action, _make_default_analog_binding()))
+
+	config.set_value(MISC_SECTION, "limiter_override_inverted", limiter_override_inverted)
 
 	var error := config.save(SAVE_PATH)
 	if error != OK:
@@ -177,6 +190,7 @@ func save_bindings() -> void:
 func _load_defaults() -> void:
 	_bindings = _make_defaults()
 	_analog_bindings = _make_analog_defaults()
+	limiter_override_inverted = false
 
 
 func _make_defaults() -> Dictionary:

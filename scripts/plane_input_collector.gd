@@ -76,7 +76,7 @@ func build_local_input_payload(seq: int) -> PackedByteArray:
 		"relative_roll_target_active": _plane.relative_roll_target_active,
 		"pitch_assist_enabled": _plane._pitch_assist_enabled,
 		"stabilization_assist_enabled": _plane._stabilization_assist_enabled,
-		"limiter_override_active": Input.is_action_pressed("limiter_override"),
+		"limiter_override_active": Input.is_action_pressed("limiter_override") != KeybindingsSettings.limiter_override_inverted,
 	})
 
 

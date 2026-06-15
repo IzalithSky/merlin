@@ -286,7 +286,12 @@ custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 text = "Back"
 
-[node name="KeybindingsPanel" parent="ui/MenuRoot/CenterContainer" instance=ExtResource("6_kbmenu")]
+[node name="KeybindingsPanel" parent="ui/MenuRoot" instance=ExtResource("6_kbmenu")]
 unique_name_in_owner = true
 visible = false
-layout_mode = 2
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
