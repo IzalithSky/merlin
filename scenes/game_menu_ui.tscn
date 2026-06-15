@@ -134,6 +134,12 @@ custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 text = "Show nose/velocity markers"
 
+[node name="VisualTrailsCheck" type="CheckButton" parent="MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Show visual trails"
+
 [node name="MouseSensitivityRow" type="HBoxContainer" parent="MenuRoot/CenterContainer/OptionsPanel/Margin/VBox"]
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2

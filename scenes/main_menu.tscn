@@ -227,6 +227,13 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Show nose/velocity markers"
 
+[node name="VisualTrailsCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 46)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Show visual trails"
+
 [node name="MouseSensitivityRow" type="HBoxContainer" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=29562840]
 custom_minimum_size = Vector2(0, 46)
 layout_mode = 2

@@ -18,6 +18,10 @@ static func apply_to_character(character: Node) -> void:
 
 	plane._update_force_debug_renderer_state()
 
+	var wing_trails = plane.get_node_or_null("WingTrails")
+	if wing_trails != null and wing_trails.has_method("set_trails_visible"):
+		wing_trails.set_trails_visible(_resolve_visual_trails_visible())
+
 	var bot_pilot = plane.get_bot_pilot()
 	if bot_pilot == null:
 		return
@@ -28,6 +32,14 @@ static func apply_to_character(character: Node) -> void:
 		bot_pilot._ensure_bot_debug_renderer()
 
 	bot_pilot._update_bot_debug_renderer_state()
+
+
+static func _resolve_visual_trails_visible() -> bool:
+	# In a multiplayer session the host's lobby setting is authoritative for all
+	# peers; otherwise the local personal display setting applies.
+	if Lobby.is_multiplayer_session:
+		return Lobby.trails_enabled
+	return DisplaySettings.visual_trails_enabled
 
 
 static func _has_property(object: Object, property_name: String) -> bool:

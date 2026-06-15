@@ -18,6 +18,7 @@ extends MeshInstance3D
 
 var node_ttl := -1.0
 
+var _trail_visible := true
 var _points: Array[Vector3] = []
 var _widths: Array[Array] = []
 var _life_points: Array[float] = []
@@ -93,6 +94,14 @@ func _process(delta: float) -> void:
 	_build_mesh()
 
 
+func set_trail_visible(is_trail_visible: bool) -> void:
+	_trail_visible = is_trail_visible
+	if _renderer != null and is_instance_valid(_renderer):
+		_renderer.visible = is_trail_visible
+	if not is_trail_visible:
+		clear_trail()
+
+
 func clear_trail() -> void:
 	_points.clear()
 	_widths.clear()
@@ -162,6 +171,7 @@ func _create_world_renderer() -> void:
 	_renderer.global_transform = Transform3D.IDENTITY
 	_renderer.material_override = material_override
 	_renderer.mesh = _immediate_mesh
+	_renderer.visible = _trail_visible
 	get_tree().root.add_child.call_deferred(_renderer)
 	mesh = null
 

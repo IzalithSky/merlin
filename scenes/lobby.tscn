@@ -54,7 +54,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="Panel" type="PanelContainer" parent="CenterContainer"]
-custom_minimum_size = Vector2(540, 530)
+custom_minimum_size = Vector2(540, 590)
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_lobby_panel")
 
@@ -130,6 +130,14 @@ custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 theme_override_font_sizes/font_size = 17
 text = "Allow Join In Progress"
+
+[node name="TrailsEnabledCheck" type="CheckButton" parent="CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+button_pressed = true
+text = "Show Visual Trails"
 
 [node name="BotCountRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
 layout_mode = 2

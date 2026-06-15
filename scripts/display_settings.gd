@@ -13,6 +13,7 @@ const KEY_MOUSE_SENSITIVITY := "mouse_sensitivity"
 const KEY_PITCH_ASSIST := "pitch_assist"
 const KEY_STABILIZATION_ASSIST := "stabilization_assist"
 const KEY_INPUT_DECAY := "input_decay"
+const KEY_VISUAL_TRAILS := "visual_trails"
 
 var debug_force_arrows_enabled := true
 var bot_debug_enabled := true
@@ -23,6 +24,7 @@ var mouse_sensitivity := 0.006
 var pitch_assist_enabled := true
 var stabilization_assist_enabled := true
 var input_decay_enabled := true
+var visual_trails_enabled := true
 
 
 func _ready() -> void:
@@ -42,6 +44,7 @@ func load_settings() -> void:
 		pitch_assist_enabled = true
 		stabilization_assist_enabled = true
 		input_decay_enabled = true
+		visual_trails_enabled = true
 		return
 
 	debug_force_arrows_enabled = bool(config.get_value(SECTION, KEY_DEBUG_FORCE_ARROWS, true))
@@ -53,6 +56,7 @@ func load_settings() -> void:
 	pitch_assist_enabled = bool(config.get_value(SECTION, KEY_PITCH_ASSIST, true))
 	stabilization_assist_enabled = bool(config.get_value(SECTION, KEY_STABILIZATION_ASSIST, true))
 	input_decay_enabled = bool(config.get_value(SECTION, KEY_INPUT_DECAY, true))
+	visual_trails_enabled = bool(config.get_value(SECTION, KEY_VISUAL_TRAILS, true))
 
 
 func save_settings() -> void:
@@ -66,6 +70,7 @@ func save_settings() -> void:
 	config.set_value(SECTION, KEY_PITCH_ASSIST, pitch_assist_enabled)
 	config.set_value(SECTION, KEY_STABILIZATION_ASSIST, stabilization_assist_enabled)
 	config.set_value(SECTION, KEY_INPUT_DECAY, input_decay_enabled)
+	config.set_value(SECTION, KEY_VISUAL_TRAILS, visual_trails_enabled)
 
 	var error := config.save(SAVE_PATH)
 	if error != OK:
@@ -150,5 +155,14 @@ func set_input_decay_enabled(enabled: bool) -> void:
 		return
 
 	input_decay_enabled = enabled
+	save_settings()
+	settings_changed.emit()
+
+
+func set_visual_trails_enabled(enabled: bool) -> void:
+	if visual_trails_enabled == enabled:
+		return
+
+	visual_trails_enabled = enabled
 	save_settings()
 	settings_changed.emit()
