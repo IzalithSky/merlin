@@ -131,6 +131,7 @@ toggle_camera_view={
 [physics]
 
 3d/physics_engine="Jolt Physics"
+common/physics_interpolation=true
 
 [rendering]
 

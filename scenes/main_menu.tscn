@@ -220,35 +220,34 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Show relative roll clock"
 
-[node name="GlobalDirectionMarkersCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox"]
+[node name="GlobalDirectionMarkersCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1985344512]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 46)
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Show nose/velocity markers"
 
-[node name="MouseSensitivityRow" type="HBoxContainer" parent="CenterContainer/OptionsPanel/Margin/VBox"]
+[node name="MouseSensitivityRow" type="HBoxContainer" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=2046115552]
 custom_minimum_size = Vector2(0, 46)
 layout_mode = 2
 alignment = 1
 
-[node name="Label" type="Label" parent="CenterContainer/OptionsPanel/Margin/VBox/MouseSensitivityRow"]
+[node name="Label" type="Label" parent="CenterContainer/OptionsPanel/Margin/VBox/MouseSensitivityRow" unique_id=1725626617]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 18
 text = "Mouse Sensitivity"
 
-[node name="MouseSensitivitySlider" type="HSlider" parent="CenterContainer/OptionsPanel/Margin/VBox/MouseSensitivityRow"]
+[node name="MouseSensitivitySlider" type="HSlider" parent="CenterContainer/OptionsPanel/Margin/VBox/MouseSensitivityRow" unique_id=2099247954]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(130, 0)
 layout_mode = 2
 size_flags_horizontal = 3
 min_value = 1.0
 max_value = 20.0
-step = 1.0
 value = 6.0
 
-[node name="MouseSensitivityEdit" type="LineEdit" parent="CenterContainer/OptionsPanel/Margin/VBox/MouseSensitivityRow"]
+[node name="MouseSensitivityEdit" type="LineEdit" parent="CenterContainer/OptionsPanel/Margin/VBox/MouseSensitivityRow" unique_id=1315716925]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(52, 0)
 layout_mode = 2

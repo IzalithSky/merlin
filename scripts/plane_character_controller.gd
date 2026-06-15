@@ -639,6 +639,9 @@ func _apply_remote_pose(remote_position: Vector3, rotation_quaternion: Quaternio
 	if not _preserve_remote_wreck_velocities:
 		linear_velocity = Vector3.ZERO
 		angular_velocity = Vector3.ZERO
+	# We pose remote planes ourselves every render frame; stop the engine from
+	# also interpolating across these manual sets (would double-smooth / smear).
+	reset_physics_interpolation()
 	var pose_delta := (remote_position - prev_pos).length()
 	NetProbe.log_line("REMOTE_POSE", "peer=%d bot_peer=%s pose_delta=%.3f frozen=%s preserve_wreck=%s" % [
 		peer_id, str(is_bot_peer), pose_delta, str(freeze), str(_preserve_remote_wreck_velocities),
