@@ -315,9 +315,9 @@ func _physics_process(delta: float) -> void:
 	_update_best_climb_speed_vy(delta)
 
 	if is_bot_controlled:
-		_apply_bot_inputs(delta)
+		_input_collector.collect_bot_inputs(delta)
 	elif _is_net_input_driven():
-		_apply_net_inputs()
+		_net.apply_inputs_to_plane()
 	else:
 		_input_collector.collect_inputs(delta)
 		_emit_local_input()
@@ -431,47 +431,8 @@ func _apply_spawn_control_defaults() -> void:
 		_input_decay_enabled = true
 
 
-func _apply_bot_inputs(delta: float) -> void:
-	var rotation_step := maxf(rot_rate * delta, 0.0)
-	var throttle_step := maxf(thr_rate * delta, 0.0)
-
-	roll_input = move_toward(roll_input, _bot_target_roll_input, rotation_step)
-	pitch_input = move_toward(pitch_input, _bot_target_pitch_input, rotation_step)
-	yaw_input = move_toward(yaw_input, _bot_target_yaw_input, rotation_step)
-	throttle_input = move_toward(throttle_input, _bot_target_throttle_input, throttle_step)
-
-	roll_input = clampf(roll_input, -1.0, 1.0)
-	pitch_input = clampf(pitch_input, -1.0, 1.0)
-	yaw_input = clampf(yaw_input, -1.0, 1.0)
-	throttle_input = clampf(throttle_input, -1.0, 1.0)
-	_player_pitch_control_active = false
-	_player_yaw_control_active = false
-	_player_direct_roll_control_active = false
-
-	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
-
-
 func apply_net_control_input(input: Dictionary) -> void:
 	_net.apply_net_control_input(input)
-
-
-func _apply_net_inputs() -> void:
-	var input: Dictionary = _net.consume_pending_input()
-	if not input.is_empty():
-		# The owning client already applied rate/decay smoothing; apply directly.
-		roll_input = clampf(float(input.get("roll", 0.0)), -1.0, 1.0)
-		pitch_input = clampf(float(input.get("pitch", 0.0)), -1.0, 1.0)
-		yaw_input = clampf(float(input.get("yaw", 0.0)), -1.0, 1.0)
-		throttle_input = clampf(float(input.get("throttle", -1.0)), -1.0, 1.0)
-		_player_pitch_control_active = bool(input.get("pitch_control_active", false))
-		_player_yaw_control_active = bool(input.get("yaw_control_active", false))
-		_player_direct_roll_control_active = bool(input.get("direct_roll_control_active", false))
-		relative_roll_target_active = bool(input.get("relative_roll_target_active", false))
-		_pitch_assist_enabled = bool(input.get("pitch_assist_enabled", true))
-		_stabilization_assist_enabled = bool(input.get("stabilization_assist_enabled", true))
-		_net_limiter_override_active = bool(input.get("limiter_override_active", false))
-		_net_effective_pitch_input = clampf(float(input.get("effective_pitch", pitch_input)), -1.0, 1.0)
-	throttle_percent = ((throttle_input + 1.0) * 0.5) * 100.0
 
 
 func _emit_local_input() -> void:

@@ -10,6 +10,20 @@ func _init(plane) -> void:
 	_plane = plane
 
 
+func collect_bot_inputs(delta: float) -> void:
+	var rotation_step := maxf(_plane.rot_rate * delta, 0.0)
+	var throttle_step := maxf(_plane.thr_rate * delta, 0.0)
+
+	_plane.roll_input = clampf(move_toward(_plane.roll_input, _plane._bot_target_roll_input, rotation_step), -1.0, 1.0)
+	_plane.pitch_input = clampf(move_toward(_plane.pitch_input, _plane._bot_target_pitch_input, rotation_step), -1.0, 1.0)
+	_plane.yaw_input = clampf(move_toward(_plane.yaw_input, _plane._bot_target_yaw_input, rotation_step), -1.0, 1.0)
+	_plane.throttle_input = clampf(move_toward(_plane.throttle_input, _plane._bot_target_throttle_input, throttle_step), -1.0, 1.0)
+	_plane._player_pitch_control_active = false
+	_plane._player_yaw_control_active = false
+	_plane._player_direct_roll_control_active = false
+	_plane.throttle_percent = ((_plane.throttle_input + 1.0) * 0.5) * 100.0
+
+
 func collect_inputs(delta: float) -> void:
 	_handle_assist_toggle_inputs()
 

@@ -26,6 +26,25 @@ func _init(plane) -> void:
 	_plane = plane
 
 
+func apply_inputs_to_plane() -> void:
+	var input: Dictionary = consume_pending_input()
+	if not input.is_empty():
+		# The owning client already applied rate/decay smoothing; apply directly.
+		_plane.roll_input = clampf(float(input.get("roll", 0.0)), -1.0, 1.0)
+		_plane.pitch_input = clampf(float(input.get("pitch", 0.0)), -1.0, 1.0)
+		_plane.yaw_input = clampf(float(input.get("yaw", 0.0)), -1.0, 1.0)
+		_plane.throttle_input = clampf(float(input.get("throttle", -1.0)), -1.0, 1.0)
+		_plane._player_pitch_control_active = bool(input.get("pitch_control_active", false))
+		_plane._player_yaw_control_active = bool(input.get("yaw_control_active", false))
+		_plane._player_direct_roll_control_active = bool(input.get("direct_roll_control_active", false))
+		_plane.relative_roll_target_active = bool(input.get("relative_roll_target_active", false))
+		_plane._pitch_assist_enabled = bool(input.get("pitch_assist_enabled", true))
+		_plane._stabilization_assist_enabled = bool(input.get("stabilization_assist_enabled", true))
+		_plane._net_limiter_override_active = bool(input.get("limiter_override_active", false))
+		_plane._net_effective_pitch_input = clampf(float(input.get("effective_pitch", _plane.pitch_input)), -1.0, 1.0)
+	_plane.throttle_percent = ((_plane.throttle_input + 1.0) * 0.5) * 100.0
+
+
 func apply_net_control_input(input: Dictionary) -> void:
 	var input_seq := int(input.get("seq", -1))
 	var newest_known := maxi(int(_net_pending_input.get("seq", -1)), _net_last_applied_input_seq)
