@@ -8,6 +8,7 @@ const TARGET_KIND_PLANE := 1
 @export var target_id: int = -1
 @export var team_id: int = 0
 @export var aim_offset: Vector3 = Vector3.ZERO
+var velocity: Vector3 = Vector3.ZERO
 
 
 func is_lockable() -> bool:

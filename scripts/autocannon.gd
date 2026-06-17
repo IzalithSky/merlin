@@ -199,6 +199,9 @@ static func _get_replication_aware_velocity(body: Node3D) -> Vector3:
 		return body.get_replicated_velocity()
 	if body is RigidBody3D:
 		return (body as RigidBody3D).linear_velocity
+	var lockable := body.get_node_or_null("LockableTarget") as LockableTarget
+	if lockable != null:
+		return lockable.velocity
 	return Vector3.ZERO
 
 

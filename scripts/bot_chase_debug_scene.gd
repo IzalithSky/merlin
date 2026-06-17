@@ -174,6 +174,9 @@ func _configure_dummy_target() -> void:
 func _move_dummy_target(delta: float) -> void:
 	_dummy_target.global_position += _target_direction * maxf(dummy_speed, 0.0) * delta
 	_orient_node_forward(_dummy_target, _target_direction)
+	var lockable := _dummy_target.get_node_or_null("LockableTarget") as LockableTarget
+	if lockable != null:
+		lockable.velocity = _target_direction * maxf(dummy_speed, 0.0)
 
 
 func _get_bot_spawn_position() -> Vector3:

@@ -393,8 +393,18 @@ func _should_fire_autocannon(target: Node3D) -> bool:
 
 	var cone_half_angle_deg: float = autocannon.lead_cone_half_angle_deg
 	var forward_axis: Vector3 = _pilot._frame_forward_axis.normalized()
-	var direction_to_target: Vector3 = to_target / distance
-	var angle: float = acos(clampf(forward_axis.dot(direction_to_target), -1.0, 1.0))
+	var target_velocity := _get_node_velocity(target)
+	var plane_velocity := _pilot._frame_velocity
+	var relative_position := target.global_position - _pilot._frame_position
+	var relative_velocity := target_velocity - plane_velocity
+	var raw_direction: Vector3 = Autocannon._compute_intercept_direction(
+		_pilot._frame_position,
+		target.global_position,
+		relative_position,
+		relative_velocity,
+		autocannon.bullet_speed
+	)
+	var angle: float = acos(clampf(forward_axis.dot(raw_direction), -1.0, 1.0))
 	return angle <= deg_to_rad(cone_half_angle_deg)
 
 
