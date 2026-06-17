@@ -23,6 +23,7 @@ enum CharacterType {
 @export var late_join_spawn_max_radius := 600.0
 @export var character_type := CharacterType.PLANE
 @export var bot_count := 1
+@export var bot_team_ids: PackedInt32Array = []
 @export var bot_spawn_radius := 2400.0
 @export var bot_parallel_separation: float = 1000.0
 @export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
@@ -235,6 +236,9 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 
 	if bot_peer and character.has_method("apply_default_aero_tables"):
 		character.call("apply_default_aero_tables")
+	var bot_index := peer_id - BOT_PEER_ID_BASE
+	if bot_peer and bot_index >= 0 and bot_index < bot_team_ids.size():
+		character.team_id = bot_team_ids[bot_index]
 
 
 func _is_bot_peer(peer_id: int) -> bool:

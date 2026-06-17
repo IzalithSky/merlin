@@ -341,7 +341,9 @@ func _find_player_target() -> Node3D:
 			continue
 		if candidate_node == _pilot._plane:
 			continue
-		if _is_bot_character(candidate_node):
+		if not _pilot._plane.is_hostile_to(candidate_node):
+			continue
+		if bool(candidate_node.get("is_shot_down")):
 			continue
 
 		var distance_squared := _pilot._frame_position.distance_squared_to(candidate_node.global_position)

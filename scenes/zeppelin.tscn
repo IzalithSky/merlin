@@ -1,0 +1,57 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/zeppelin.gd" id="1_zep"]
+[ext_resource type="Script" path="res://scripts/zeppelin_lockable_target.gd" id="2_zlt"]
+[ext_resource type="PackedScene" path="res://scenes/health.tscn" id="3_health"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 8.0
+height = 50.0
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
+radius = 8.0
+height = 50.0
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_gondola"]
+size = Vector3(4, 3, 8)
+
+[sub_resource type="BoxMesh" id="BoxMesh_gondola"]
+size = Vector3(4, 3, 8)
+
+[sub_resource type="StandardMaterial3D" id="Mat_envelope"]
+albedo_color = Color(0.72, 0.72, 0.68, 1)
+roughness = 0.85
+
+[sub_resource type="StandardMaterial3D" id="Mat_gondola"]
+albedo_color = Color(0.35, 0.3, 0.25, 1)
+roughness = 0.9
+
+[node name="Zeppelin" type="RigidBody3D"]
+script = ExtResource("1_zep")
+speed = 30.0
+team_id = 1
+
+[node name="EnvelopeCollision" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 0, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="Envelope" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, 0, 0, 0)
+mesh = SubResource("CapsuleMesh_body")
+material_override = SubResource("Mat_envelope")
+
+[node name="GondolaCollision" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -10, 0)
+shape = SubResource("BoxShape3D_gondola")
+
+[node name="Gondola" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -10, 0)
+mesh = SubResource("BoxMesh_gondola")
+material_override = SubResource("Mat_gondola")
+
+[node name="LockableTarget" type="Node" parent="."]
+script = ExtResource("2_zlt")
+aim_offset = Vector3(0, 8, 0)
+
+[node name="Health" parent="." instance=ExtResource("3_health")]
+max_hp = 200.0

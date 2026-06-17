@@ -15,7 +15,7 @@ var last_error := ""
 var is_multiplayer_session := false
 var is_game_in_progress := false
 var allow_join_in_progress := false
-var bot_count := 1
+var bot_count := 3
 var trails_enabled := true
 var players: Dictionary = {}
 var _received_join_rejection := false
@@ -88,7 +88,7 @@ func disconnect_session() -> void:
 	is_multiplayer_session = false
 	is_game_in_progress = false
 	allow_join_in_progress = false
-	bot_count = 1
+	bot_count = 3
 	trails_enabled = true
 	players.clear()
 	_emit_lobby_state()

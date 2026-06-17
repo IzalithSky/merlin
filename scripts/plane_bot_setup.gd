@@ -10,7 +10,7 @@ static func configure_plane(
 	killzone_distance: float,
 	killzone_tolerance: float
 ) -> void:
-	plane.team_id = 1 if bot_peer else 0
+	plane.team_id = 1 if bot_peer else 2
 	plane.set_bot_controlled(bot_active)
 
 	if not bot_active:
