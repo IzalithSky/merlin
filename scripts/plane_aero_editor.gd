@@ -10,10 +10,25 @@ const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 @onready var _thrust_graph: Node = %ThrustGraph
 @onready var _status_label: Label = %StatusLabel
 @onready var _back_button: Button = %BackButton
+@onready var _params_grid: GridContainer = %ParamsGrid
+@onready var _preset_option: OptionButton = %PresetOption
+@onready var _overwrite_button: Button = %OverwriteButton
+@onready var _save_as_button: Button = %SaveAsButton
+@onready var _delete_button: Button = %DeleteButton
 
 var _model_plane: Node3D
 var _suspend_graph_updates := false
+var _suspend_param_updates := false
 var _save_queued := false
+var _dirty := false
+var _param_spins: Dictionary = {}
+var _current_preset: Dictionary = {
+	"source": AERO_TABLES_STORE.SOURCE_BUILTIN,
+	"id": AERO_TABLES_STORE.DEFAULT_PRESET_ID,
+	"name": "default",
+}
+var _save_as_dialog: ConfirmationDialog
+var _save_as_edit: LineEdit
 
 
 func _ready() -> void:
@@ -23,12 +38,28 @@ func _ready() -> void:
 	_drag_graph.points_changed.connect(_on_drag_points_changed)
 	_control_authority_graph.points_changed.connect(_on_control_authority_points_changed)
 	_thrust_graph.points_changed.connect(_on_thrust_points_changed)
+	_preset_option.item_selected.connect(_on_preset_selected)
+	_overwrite_button.pressed.connect(_on_overwrite_pressed)
+	_save_as_button.pressed.connect(_on_save_as_pressed)
+	_delete_button.pressed.connect(_on_delete_pressed)
+	_build_save_as_dialog()
 
 	_create_model_plane()
-	_apply_saved_tables_to_model()
+	var active: Dictionary = AERO_TABLES_STORE.load_payload()
+	_current_preset = {
+		"source": String(active.get("source", AERO_TABLES_STORE.SOURCE_BUILTIN)),
+		"id": String(active.get("id", AERO_TABLES_STORE.DEFAULT_PRESET_ID)),
+		"name": String(active.get("name", "default")),
+	}
+	_dirty = bool(active.get("dirty", false))
+	if _model_plane.has_method("apply_aero_tables_payload"):
+		_model_plane.call("apply_aero_tables_payload", active)
 	_refresh_graphs_from_model()
+	_build_param_fields()
 
-	_status_label.text = "Saved in user://plane_aero_tables.json"
+	_populate_preset_dropdown()
+	_update_preset_buttons()
+	_update_status()
 	_back_button.grab_focus()
 
 
@@ -36,33 +67,54 @@ func _create_model_plane() -> void:
 	_model_plane = PLANE_CHARACTER_SCENE.instantiate() as Node3D
 
 
-func _apply_saved_tables_to_model() -> void:
+func _load_payload_into_model(payload: Dictionary) -> void:
+	if _model_plane != null and _model_plane.has_method("apply_aero_tables_payload"):
+		_model_plane.call("apply_aero_tables_payload", payload)
+	_refresh_graphs_from_model()
+	_refresh_param_fields()
+
+
+func _build_param_fields() -> void:
+	for spec: Dictionary in AERO_TABLES_STORE.PARAM_SPECS:
+		var key: String = spec["key"]
+
+		var label := Label.new()
+		label.text = spec["label"]
+		label.custom_minimum_size = Vector2(150, 0)
+		label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+
+		var spin := SpinBox.new()
+		spin.min_value = spec["min"]
+		spin.max_value = spec["max"]
+		spin.step = spec["step"]
+		spin.allow_greater = true
+		spin.custom_minimum_size = Vector2(108, 0)
+		if _model_plane != null:
+			spin.value = _model_plane.get(key)
+		spin.value_changed.connect(_on_param_changed.bind(key))
+
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		row.add_child(label)
+		row.add_child(spin)
+		_params_grid.add_child(row)
+		_param_spins[key] = spin
+
+
+func _refresh_param_fields() -> void:
 	if _model_plane == null:
 		return
+	_suspend_param_updates = true
+	for key: String in _param_spins:
+		_param_spins[key].value = _model_plane.get(key)
+	_suspend_param_updates = false
 
-	var payload: Dictionary = AERO_TABLES_STORE.load_payload()
-	if payload.is_empty():
+
+func _on_param_changed(value: float, key: String) -> void:
+	if _suspend_param_updates or _model_plane == null:
 		return
-
-	if _model_plane.has_method("set_lift_table"):
-		var lift_points := AERO_TABLES_STORE.decode_points(payload.get("lift_table", []))
-		if not lift_points.is_empty():
-			_model_plane.call("set_lift_table", lift_points)
-
-	if _model_plane.has_method("set_drag_table"):
-		var drag_points := AERO_TABLES_STORE.decode_points(payload.get("drag_table", []))
-		if not drag_points.is_empty():
-			_model_plane.call("set_drag_table", drag_points)
-
-	if _model_plane.has_method("set_control_authority_table"):
-		var control_authority_points := AERO_TABLES_STORE.decode_points(payload.get("control_authority_table", []))
-		if not control_authority_points.is_empty():
-			_model_plane.call("set_control_authority_table", control_authority_points)
-
-	if _model_plane.has_method("set_thrust_table"):
-		var thrust_points := AERO_TABLES_STORE.decode_points(payload.get("thrust_table", []))
-		if not thrust_points.is_empty():
-			_model_plane.call("set_thrust_table", thrust_points)
+	_model_plane.set(key, value)
+	_mark_dirty()
 
 
 func _refresh_graphs_from_model() -> void:
@@ -93,7 +145,7 @@ func _on_lift_points_changed(points: Array[Vector2]) -> void:
 		return
 	if _model_plane.has_method("set_lift_table"):
 		_model_plane.call("set_lift_table", points)
-	_queue_save()
+	_mark_dirty()
 
 
 func _on_drag_points_changed(points: Array[Vector2]) -> void:
@@ -101,7 +153,7 @@ func _on_drag_points_changed(points: Array[Vector2]) -> void:
 		return
 	if _model_plane.has_method("set_drag_table"):
 		_model_plane.call("set_drag_table", points)
-	_queue_save()
+	_mark_dirty()
 
 
 func _on_control_authority_points_changed(points: Array[Vector2]) -> void:
@@ -109,7 +161,7 @@ func _on_control_authority_points_changed(points: Array[Vector2]) -> void:
 		return
 	if _model_plane.has_method("set_control_authority_table"):
 		_model_plane.call("set_control_authority_table", points)
-	_queue_save()
+	_mark_dirty()
 
 
 func _on_thrust_points_changed(points: Array[Vector2]) -> void:
@@ -117,7 +169,7 @@ func _on_thrust_points_changed(points: Array[Vector2]) -> void:
 		return
 	if _model_plane.has_method("set_thrust_table"):
 		_model_plane.call("set_thrust_table", points)
-	_queue_save()
+	_mark_dirty()
 
 
 func _queue_save() -> void:
@@ -129,29 +181,207 @@ func _queue_save() -> void:
 
 func _save_tables() -> void:
 	_save_queued = false
-	if _model_plane == null:
+	if _model_plane == null or not _model_plane.has_method("get_aero_tables_payload"):
 		return
 
-	var lift_points: Array[Vector2] = []
-	var drag_points: Array[Vector2] = []
-	var control_authority_points: Array[Vector2] = []
-	var thrust_points: Array[Vector2] = []
-	if _model_plane.has_method("get_lift_table"):
-		lift_points = _model_plane.call("get_lift_table")
-	if _model_plane.has_method("get_drag_table"):
-		drag_points = _model_plane.call("get_drag_table")
-	if _model_plane.has_method("get_control_authority_table"):
-		control_authority_points = _model_plane.call("get_control_authority_table")
-	if _model_plane.has_method("get_thrust_table"):
-		thrust_points = _model_plane.call("get_thrust_table")
+	var payload: Dictionary = _model_plane.call("get_aero_tables_payload")
+	payload["name"] = _current_preset["name"]
+	payload["source"] = _current_preset["source"]
+	payload["id"] = _current_preset["id"]
+	payload["dirty"] = _dirty
 
-	var save_error: Error = AERO_TABLES_STORE.save_payload(
-		lift_points, drag_points, control_authority_points, thrust_points
-	)
+	var save_error: Error = AERO_TABLES_STORE.save_payload(payload)
 	if save_error == OK:
-		_status_label.text = "Saved in user://plane_aero_tables.json"
+		_update_status()
 	else:
-		_status_label.text = "Save failed: %s" % error_string(save_error)
+		_set_status("Save failed: %s" % error_string(save_error))
+
+
+func _model_payload() -> Dictionary:
+	if _model_plane == null or not _model_plane.has_method("get_aero_tables_payload"):
+		return {}
+	return _model_plane.call("get_aero_tables_payload")
+
+
+func _mark_dirty() -> void:
+	if not _dirty:
+		_dirty = true
+		if _current_preset.get("source", "") == AERO_TABLES_STORE.SOURCE_BUILTIN:
+			# Built-ins are immutable; the first edit detaches to an unsaved copy.
+			_current_preset = {"source": "", "id": "", "name": "Custom"}
+			_populate_preset_dropdown()
+			_update_preset_buttons()
+		_update_status()
+	_queue_save()
+
+
+func _build_save_as_dialog() -> void:
+	_save_as_dialog = ConfirmationDialog.new()
+	_save_as_dialog.title = "Save Preset As"
+	_save_as_dialog.ok_button_text = "Save"
+
+	var vbox := VBoxContainer.new()
+	var label := Label.new()
+	label.text = "Preset name:"
+	_save_as_edit = LineEdit.new()
+	_save_as_edit.custom_minimum_size = Vector2(300, 0)
+	vbox.add_child(label)
+	vbox.add_child(_save_as_edit)
+	_save_as_dialog.add_child(vbox)
+
+	add_child(_save_as_dialog)
+	_save_as_dialog.register_text_enter(_save_as_edit)
+	_save_as_dialog.confirmed.connect(_on_save_as_confirmed)
+
+
+func _populate_preset_dropdown() -> void:
+	_preset_option.clear()
+	var is_custom: bool = String(_current_preset.get("source", "")) == ""
+	var select_index := 0
+	var next_index := 0
+
+	if is_custom:
+		var custom_entry := {"source": "", "id": "", "name": String(_current_preset.get("name", "Custom"))}
+		_preset_option.add_item("%s  (unsaved)" % custom_entry["name"])
+		_preset_option.set_item_metadata(0, custom_entry)
+		next_index = 1
+
+	for entry: Dictionary in AERO_TABLES_STORE.list_presets():
+		var label: String = entry["name"]
+		if entry["source"] == AERO_TABLES_STORE.SOURCE_BUILTIN:
+			label += "  (built-in)"
+		_preset_option.add_item(label)
+		_preset_option.set_item_metadata(next_index, entry)
+		if not is_custom and entry["source"] == _current_preset["source"] and entry["id"] == _current_preset["id"]:
+			select_index = next_index
+		next_index += 1
+
+	if _preset_option.item_count > 0:
+		_preset_option.select(select_index)
+
+
+func _selected_entry() -> Dictionary:
+	var index := _preset_option.selected
+	if index < 0:
+		return {}
+	var meta: Variant = _preset_option.get_item_metadata(index)
+	return meta if meta is Dictionary else {}
+
+
+func _update_preset_buttons() -> void:
+	var entry := _selected_entry()
+	var source := String(entry.get("source", ""))
+	var is_user := source == AERO_TABLES_STORE.SOURCE_USER
+	_overwrite_button.disabled = entry.is_empty()
+	_delete_button.disabled = not is_user
+	if is_user:
+		_overwrite_button.tooltip_text = "Overwrite this user preset with the current values."
+	else:
+		_overwrite_button.tooltip_text = "Read-only/unsaved — this saves a new user preset."
+
+
+func _on_preset_selected(_index: int) -> void:
+	var entry := _selected_entry()
+	if entry.is_empty() or String(entry.get("source", "")) == "":
+		_update_preset_buttons()
+		return
+	var payload: Dictionary = AERO_TABLES_STORE.load_preset(entry["source"], entry["id"])
+	if payload.is_empty():
+		_set_status("Load failed: %s" % entry["id"])
+		_update_preset_buttons()
+		return
+	_current_preset = {
+		"source": entry["source"],
+		"id": entry["id"],
+		"name": String(payload.get("name", entry["name"])),
+	}
+	_dirty = false
+	_load_payload_into_model(payload)
+	_queue_save()
+	_populate_preset_dropdown()
+	_update_preset_buttons()
+	_set_status("Loaded preset: %s" % _current_preset["name"])
+
+
+func _on_overwrite_pressed() -> void:
+	var entry := _selected_entry()
+	if entry.is_empty():
+		return
+	if entry["source"] != AERO_TABLES_STORE.SOURCE_USER:
+		# Built-in or unsaved custom: can't overwrite — prompt to save a user copy.
+		_open_save_as_dialog(String(_current_preset.get("name", "")))
+		return
+	var result: Dictionary = AERO_TABLES_STORE.save_user_preset(entry["name"], _model_payload())
+	if result.is_empty():
+		_set_status("Overwrite failed")
+		return
+	_current_preset = result
+	_dirty = false
+	_queue_save()
+	_populate_preset_dropdown()
+	_update_preset_buttons()
+	_set_status("Overwrote preset: %s" % result["name"])
+
+
+func _on_save_as_pressed() -> void:
+	_open_save_as_dialog(String(_current_preset.get("name", "")))
+
+
+func _open_save_as_dialog(suggested_name: String) -> void:
+	_save_as_edit.text = suggested_name
+	_save_as_dialog.popup_centered()
+	_save_as_edit.grab_focus()
+	_save_as_edit.select_all()
+
+
+func _on_save_as_confirmed() -> void:
+	var display_name := _save_as_edit.text.strip_edges()
+	if display_name.is_empty():
+		_set_status("Preset name required")
+		return
+	var result: Dictionary = AERO_TABLES_STORE.save_user_preset(display_name, _model_payload())
+	if result.is_empty():
+		_set_status("Save failed")
+		return
+	_current_preset = result
+	_dirty = false
+	_queue_save()
+	_populate_preset_dropdown()
+	_update_preset_buttons()
+	_set_status("Saved preset: %s" % result["name"])
+
+
+func _on_delete_pressed() -> void:
+	var entry := _selected_entry()
+	if entry.is_empty() or entry["source"] != AERO_TABLES_STORE.SOURCE_USER:
+		return
+	var delete_error: Error = AERO_TABLES_STORE.delete_user_preset(entry["id"])
+	if delete_error != OK:
+		_set_status("Delete failed: %s" % error_string(delete_error))
+		return
+	if _current_preset["source"] == entry["source"] and _current_preset["id"] == entry["id"]:
+		# Keep the current values, but they no longer belong to a saved preset.
+		_current_preset = {"source": "", "id": "", "name": "Custom"}
+		_dirty = true
+		_queue_save()
+	_populate_preset_dropdown()
+	_update_preset_buttons()
+	_set_status("Deleted preset: %s" % entry["name"])
+
+
+func _update_status() -> void:
+	var source := String(_current_preset.get("source", ""))
+	var label := String(_current_preset.get("name", "Custom"))
+	if source == "":
+		_set_status("Editing: %s (unsaved) — autosaved to user://plane_aero_tables.json" % label)
+		return
+	var source_label := "built-in" if source == AERO_TABLES_STORE.SOURCE_BUILTIN else "user"
+	var modified := " · modified" if _dirty else ""
+	_set_status("Editing: %s (%s%s) — autosaved to user://plane_aero_tables.json" % [label, source_label, modified])
+
+
+func _set_status(text: String) -> void:
+	_status_label.text = text
 
 
 func _on_back_pressed() -> void:

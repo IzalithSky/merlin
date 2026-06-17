@@ -54,7 +54,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="Panel" type="PanelContainer" parent="CenterContainer"]
-custom_minimum_size = Vector2(540, 590)
+custom_minimum_size = Vector2(540, 650)
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_lobby_panel")
 
@@ -158,6 +158,21 @@ min_value = 0.0
 max_value = 16.0
 step = 1.0
 value = 1.0
+
+[node name="PresetRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="PresetLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox/PresetRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "Plane Preset"
+
+[node name="PresetOption" type="OptionButton" parent="CenterContainer/Panel/Margin/VBox/PresetRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 0)
+layout_mode = 2
 
 [node name="StartButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
 unique_name_in_owner = true

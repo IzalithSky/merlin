@@ -56,7 +56,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="Panel" type="PanelContainer" parent="CenterContainer" unique_id=110436948]
-custom_minimum_size = Vector2(460, 500)
+custom_minimum_size = Vector2(460, 560)
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
 
@@ -87,6 +87,22 @@ horizontal_alignment = 1
 
 [node name="Spacer" type="Control" parent="CenterContainer/Panel/Margin/VBox" unique_id=1767295276]
 custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+
+[node name="PresetRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PresetLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox/PresetRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 17
+text = "Plane Preset"
+
+[node name="PresetOption" type="OptionButton" parent="CenterContainer/Panel/Margin/VBox/PresetRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 0)
 layout_mode = 2
 
 [node name="NewGameButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=639683331]
@@ -227,7 +243,7 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Show nose/velocity markers"
 
-[node name="VisualTrailsCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox"]
+[node name="VisualTrailsCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=957764634]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 46)
 layout_mode = 2
@@ -279,9 +295,3 @@ text = "Back"
 [node name="KeybindingsPanel" parent="." unique_id=1972562999 instance=ExtResource("3_kbmenu")]
 unique_name_in_owner = true
 visible = false
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2

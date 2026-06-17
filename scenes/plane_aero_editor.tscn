@@ -71,6 +71,51 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 14
 text = ""
 
+[node name="PresetBar" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="PresetLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox/PresetBar"]
+layout_mode = 2
+size_flags_vertical = 4
+text = "Preset:"
+
+[node name="PresetOption" type="OptionButton" parent="CenterContainer/Panel/Margin/VBox/PresetBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 2
+
+[node name="OverwriteButton" type="Button" parent="CenterContainer/Panel/Margin/VBox/PresetBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Overwrite"
+
+[node name="SaveAsButton" type="Button" parent="CenterContainer/Panel/Margin/VBox/PresetBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Save As..."
+
+[node name="DeleteButton" type="Button" parent="CenterContainer/Panel/Margin/VBox/PresetBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Delete"
+
+[node name="ParamsSection" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ParamsTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/ParamsSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Parameters"
+
+[node name="ParamsGrid" type="GridContainer" parent="CenterContainer/Panel/Margin/VBox/ParamsSection"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/h_separation = 18
+theme_override_constants/v_separation = 8
+columns = 4
+
 [node name="GraphTabs" type="TabContainer" parent="CenterContainer/Panel/Margin/VBox"]
 layout_mode = 2
 size_flags_vertical = 3
@@ -88,7 +133,7 @@ text = "Lift Coefficient (CL) vs AoA (deg)"
 
 [node name="LiftGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Lift"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(1040, 600)
+custom_minimum_size = Vector2(1040, 450)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -118,7 +163,7 @@ text = "Drag Coefficient (CD) vs AoA (deg)"
 
 [node name="DragGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Drag"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(1040, 600)
+custom_minimum_size = Vector2(1040, 450)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -148,7 +193,7 @@ text = "Control Authority Coefficient vs Airspeed (m/s)"
 
 [node name="ControlAuthorityGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Control"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(1040, 600)
+custom_minimum_size = Vector2(1040, 450)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -178,7 +223,7 @@ text = "Engine Thrust Multiplier vs Forward Speed (m/s)"
 
 [node name="ThrustGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Thrust"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(1040, 600)
+custom_minimum_size = Vector2(1040, 450)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3

@@ -1,6 +1,7 @@
 extends Control
 
 const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
+const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 
 @onready var _lobby: Node = get_node("/root/Lobby")
 @onready var _players_label: Label = %PlayersLabel
@@ -9,6 +10,7 @@ const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 @onready var _join_in_progress_check: CheckButton = %JoinInProgressCheck
 @onready var _trails_enabled_check: CheckButton = %TrailsEnabledCheck
 @onready var _bot_count_spin_box: SpinBox = %BotCountSpinBox
+@onready var _preset_option: OptionButton = %PresetOption
 @onready var _start_button: Button = %StartButton
 @onready var _main_menu_button: Button = %MainMenuButton
 
@@ -22,6 +24,8 @@ func _ready() -> void:
 	_join_in_progress_check.toggled.connect(_on_join_in_progress_toggled)
 	_trails_enabled_check.toggled.connect(_on_trails_enabled_toggled)
 	_bot_count_spin_box.value_changed.connect(_on_bot_count_changed)
+	_populate_preset_option()
+	_preset_option.item_selected.connect(_on_preset_selected)
 	_start_button.pressed.connect(_on_start_pressed)
 	_main_menu_button.pressed.connect(_on_main_menu_pressed)
 	_update_players(_lobby.players)
@@ -87,6 +91,37 @@ func _on_join_in_progress_toggled(button_pressed: bool) -> void:
 
 func _on_trails_enabled_toggled(button_pressed: bool) -> void:
 	_lobby.set_trails_enabled(button_pressed)
+
+
+func _populate_preset_option() -> void:
+	_preset_option.clear()
+	var active: Dictionary = AERO_TABLES_STORE.load_payload()
+	var active_source := String(active.get("source", ""))
+	var active_id := String(active.get("id", ""))
+	var select_index := 0
+	var index := 0
+	for entry: Dictionary in AERO_TABLES_STORE.list_presets():
+		var label: String = entry["name"]
+		if entry["source"] == AERO_TABLES_STORE.SOURCE_BUILTIN:
+			label += "  (built-in)"
+		_preset_option.add_item(label)
+		_preset_option.set_item_metadata(index, entry)
+		if entry["source"] == active_source and entry["id"] == active_id:
+			select_index = index
+		index += 1
+	if _preset_option.item_count > 0:
+		_preset_option.select(select_index)
+
+
+func _on_preset_selected(index: int) -> void:
+	var meta: Variant = _preset_option.get_item_metadata(index)
+	if not meta is Dictionary:
+		return
+	var entry: Dictionary = meta
+	var payload: Dictionary = AERO_TABLES_STORE.load_preset(entry["source"], entry["id"])
+	if payload.is_empty():
+		return
+	AERO_TABLES_STORE.save_payload(payload)
 
 
 func _on_bot_count_changed(value: float) -> void:

@@ -1,9 +1,11 @@
 extends Control
 
 const PLANE_AERO_EDITOR_SCENE := "res://scenes/plane_aero_editor.tscn"
+const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 const BOT_DUEL_SCENE := "res://scenes/bot_duel.tscn"
 const BOT_CHASE_DEBUG_SCENE := "res://scenes/bot_chase_debug.tscn"
 
+@onready var _preset_option: OptionButton = %PresetOption
 @onready var _new_game_button: Button = %NewGameButton
 @onready var _bot_duel_button: Button = %BotDuelButton
 @onready var _bot_chase_debug_button: Button = %BotChaseDebugButton
@@ -22,6 +24,8 @@ const BOT_CHASE_DEBUG_SCENE := "res://scenes/bot_chase_debug.tscn"
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	_populate_preset_option(_preset_option)
+	_preset_option.item_selected.connect(_on_preset_selected)
 	_new_game_button.pressed.connect(_on_new_game_pressed)
 	_bot_duel_button.pressed.connect(_on_bot_duel_pressed)
 	_bot_chase_debug_button.pressed.connect(_on_bot_chase_debug_pressed)
@@ -37,6 +41,37 @@ func _ready() -> void:
 	_status_label.text = _lobby.last_error
 	_set_options_open(false)
 	_new_game_button.grab_focus()
+
+
+func _populate_preset_option(option: OptionButton) -> void:
+	option.clear()
+	var active: Dictionary = AERO_TABLES_STORE.load_payload()
+	var active_source := String(active.get("source", ""))
+	var active_id := String(active.get("id", ""))
+	var select_index := 0
+	var index := 0
+	for entry: Dictionary in AERO_TABLES_STORE.list_presets():
+		var label: String = entry["name"]
+		if entry["source"] == AERO_TABLES_STORE.SOURCE_BUILTIN:
+			label += "  (built-in)"
+		option.add_item(label)
+		option.set_item_metadata(index, entry)
+		if entry["source"] == active_source and entry["id"] == active_id:
+			select_index = index
+		index += 1
+	if option.item_count > 0:
+		option.select(select_index)
+
+
+func _on_preset_selected(index: int) -> void:
+	var meta: Variant = _preset_option.get_item_metadata(index)
+	if not meta is Dictionary:
+		return
+	var entry: Dictionary = meta
+	var payload: Dictionary = AERO_TABLES_STORE.load_preset(entry["source"], entry["id"])
+	if payload.is_empty():
+		return
+	AERO_TABLES_STORE.save_payload(payload)
 
 
 func _on_new_game_pressed() -> void:

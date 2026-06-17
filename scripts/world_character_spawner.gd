@@ -233,6 +233,9 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 		bot_player_killzone_tolerance
 	)
 
+	if bot_peer and character.has_method("apply_default_aero_tables"):
+		character.call("apply_default_aero_tables")
+
 
 func _is_bot_peer(peer_id: int) -> bool:
 	return _bot_peer_ids.has(peer_id)

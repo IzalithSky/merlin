@@ -1015,12 +1015,21 @@ func _apply_persisted_aero_tables() -> void:
 	apply_aero_tables_payload(AERO_TABLES_STORE.load_payload())
 
 
+func apply_default_aero_tables() -> void:
+	apply_aero_tables_payload(AERO_TABLES_STORE.load_preset(AERO_TABLES_STORE.SOURCE_BUILTIN, AERO_TABLES_STORE.DEFAULT_PRESET_ID))
+
+
 func get_aero_tables_payload() -> Dictionary:
+	var params := {}
+	for spec in AERO_TABLES_STORE.PARAM_SPECS:
+		var key: String = spec["key"]
+		params[key] = get(key)
 	return {
 		"lift_table": AERO_TABLES_STORE.encode_points(lift_coefficient_table),
 		"drag_table": AERO_TABLES_STORE.encode_points(drag_coefficient_table),
 		"control_authority_table": AERO_TABLES_STORE.encode_points(control_authority_coefficient_table),
 		"thrust_table": AERO_TABLES_STORE.encode_points(thrust_coefficient_table),
+		"params": params,
 	}
 
 
@@ -1043,6 +1052,24 @@ func apply_aero_tables_payload(payload: Dictionary) -> void:
 	var thrust_points := AERO_TABLES_STORE.decode_points(payload.get("thrust_table", []))
 	if not thrust_points.is_empty():
 		set_thrust_table(thrust_points)
+
+	var params: Variant = payload.get("params", {})
+	if params is Dictionary:
+		_apply_params(params)
+
+
+func _apply_params(params: Dictionary) -> void:
+	for spec in AERO_TABLES_STORE.PARAM_SPECS:
+		var key: String = spec["key"]
+		if not params.has(key):
+			continue
+		var raw: Variant = params[key]
+		if not (raw is float or raw is int):
+			continue
+		var value := float(raw)
+		if not is_finite(value):
+			continue
+		set(key, maxf(value, float(spec["min"])))
 
 
 func _refresh_max_lift_aoa_limits() -> void:
