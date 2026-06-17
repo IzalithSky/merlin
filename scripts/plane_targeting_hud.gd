@@ -173,6 +173,15 @@ func _get_candidates() -> Array[Node3D]:
 			continue
 		if node == _owner_plane:
 			continue
+		if bool(node.get("is_shot_down")):
+			continue
+		result.append(node as Node3D)
+	for node in get_tree().get_nodes_in_group("ground_unit"):
+		if not is_instance_valid(node):
+			continue
+		var unit := node as GroundUnit
+		if unit != null and unit.is_shot_down:
+			continue
 		result.append(node as Node3D)
 	return result
 

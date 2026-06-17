@@ -1,0 +1,49 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/ground_unit.gd" id="1_gu"]
+[ext_resource type="Script" path="res://scripts/ground_lockable_target.gd" id="2_glt"]
+[ext_resource type="PackedScene" path="res://scenes/health.tscn" id="3_health"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_sam"]
+size = Vector3(6, 5, 6)
+
+[sub_resource type="BoxMesh" id="BoxMesh_body"]
+size = Vector3(6, 4, 6)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_tube"]
+top_radius = 0.4
+bottom_radius = 0.4
+height = 5.0
+
+[sub_resource type="StandardMaterial3D" id="Mat_sam"]
+albedo_color = Color(0.22, 0.28, 0.18, 1)
+roughness = 0.9
+
+[node name="GroundSAMUnit" type="StaticBody3D"]
+script = ExtResource("1_gu")
+unit_type = 1
+team_id = 1
+fire_range = 1000.0
+sam_lock_time = 2.5
+sam_fire_cooldown = 6.0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, 0)
+shape = SubResource("BoxShape3D_sam")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+mesh = SubResource("BoxMesh_body")
+material_override = SubResource("Mat_sam")
+
+[node name="Tube" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 5, 2.5)
+mesh = SubResource("CylinderMesh_tube")
+material_override = SubResource("Mat_sam")
+
+[node name="LockableTarget" type="Node" parent="."]
+script = ExtResource("2_glt")
+aim_offset = Vector3(0, 5, 0)
+
+[node name="Health" parent="." instance=ExtResource("3_health")]
+max_hp = 50.0

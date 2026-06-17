@@ -1,5 +1,5 @@
 class_name PlaneLockableTarget
-extends "res://scripts/lockable_target.gd"
+extends LockableTarget
 
 
 func is_lockable() -> bool:

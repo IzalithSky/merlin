@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=4 uid="uid://dj47wc5nnm06h"]
+[gd_scene load_steps=20 format=4 uid="uid://dj47wc5nnm06h"]
 
 [ext_resource type="Texture2D" uid="uid://c8iuitgcercyk" path="res://textures/256x256/Grass/Grass_03-256x256.png" id="1_fhkym"]
 
@@ -11,6 +11,8 @@
 [ext_resource type="Script" path="res://scripts/projectile_net_replicator.gd" id="7_projectile_net"]
 [ext_resource type="Script" path="res://scripts/health_net_replicator.gd" id="8_health_net"]
 [ext_resource type="Script" path="res://scripts/target_registry.gd" id="9_target_registry"]
+[ext_resource type="PackedScene" path="res://scenes/ground_aa_unit.tscn" id="10_aa"]
+[ext_resource type="PackedScene" path="res://scenes/ground_sam_unit.tscn" id="11_sam"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dihnr"]
 albedo_texture = ExtResource("1_fhkym")
@@ -301,3 +303,20 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="ground_units" type="Node3D" parent="."]
+
+[node name="AA_1" parent="ground_units" instance=ExtResource("10_aa")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1500, 0, 1500)
+
+[node name="AA_2" parent="ground_units" instance=ExtResource("10_aa")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2000, 0, 800)
+
+[node name="AA_3" parent="ground_units" instance=ExtResource("10_aa")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 400, 0, -2200)
+
+[node name="SAM_1" parent="ground_units" instance=ExtResource("11_sam")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -800, 0, -1800)
+
+[node name="SAM_2" parent="ground_units" instance=ExtResource("11_sam")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2800, 0, -400)

@@ -2,7 +2,7 @@ class_name PlaneWeaponLock
 extends Node
 
 @export var lock_cone_half_angle_deg: float = 15.0
-@export var lock_max_range: float = 4000.0
+@export var lock_max_range: float = 1000.0
 @export var lock_time_sec: float = 0.5
 
 signal lock_acquired(target: Node3D)
