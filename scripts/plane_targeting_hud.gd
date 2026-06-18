@@ -23,14 +23,19 @@ var _markers: Dictionary = {}
 var _tex_foe: Texture2D = null
 var _tex_friend: Texture2D = null
 var _tex_lock: Texture2D = null
-
 @onready var _overlay: Control = $Overlay
+@onready var _locking_snd: AudioStreamPlayer = $LockingSound
+@onready var _locked_snd: AudioStreamPlayer = $LockedSound
 
 
 func _ready() -> void:
 	_tex_foe = load("res://textures/targeting/marker_a.png")
 	_tex_friend = load("res://textures/targeting/marker_v.png")
 	_tex_lock = load("res://textures/targeting/lock_sprite.png")
+
+	var beam_stream := (_locking_snd.stream as AudioStreamOggVorbis).duplicate() as AudioStreamOggVorbis
+	beam_stream.loop = true
+	_locking_snd.stream = beam_stream
 
 
 func set_target(owner_plane: Node3D) -> void:
@@ -86,6 +91,7 @@ func _process(_delta: float) -> void:
 	_push_selection_to_lock()
 	_update_markers()
 	_purge_dead_markers()
+	_update_lock_sounds()
 
 
 func _handle_input() -> void:
@@ -360,9 +366,25 @@ func _is_game_menu_open() -> bool:
 	return false
 
 
+func _update_lock_sounds() -> void:
+	if _locking_snd == null:
+		return
+	var progress := get_lock_progress()
+	var locked: bool = _weapon_lock != null and is_instance_valid(_weapon_lock) and _weapon_lock.is_locked()
+	var is_locking := progress > 0.0 and not locked
+	if is_locking and not _locking_snd.playing:
+		_locking_snd.play()
+	elif not is_locking and _locking_snd.playing:
+		_locking_snd.stop()
+
+
 func _on_lock_acquired(target: Node3D) -> void:
 	lock_acquired.emit(target)
+	if _locked_snd != null:
+		_locked_snd.play()
 
 
 func _on_lock_lost() -> void:
 	lock_lost.emit()
+	if _locking_snd != null:
+		_locking_snd.stop()

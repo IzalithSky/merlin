@@ -14,6 +14,7 @@ const KEY_PITCH_ASSIST := "pitch_assist"
 const KEY_STABILIZATION_ASSIST := "stabilization_assist"
 const KEY_INPUT_DECAY := "input_decay"
 const KEY_VISUAL_TRAILS := "visual_trails"
+const KEY_MASTER_VOLUME := "master_volume"
 
 var debug_force_arrows_enabled := true
 var bot_debug_enabled := true
@@ -25,6 +26,7 @@ var pitch_assist_enabled := true
 var stabilization_assist_enabled := true
 var input_decay_enabled := true
 var visual_trails_enabled := true
+var master_volume := 1.0
 
 
 func _ready() -> void:
@@ -57,6 +59,8 @@ func load_settings() -> void:
 	stabilization_assist_enabled = bool(config.get_value(SECTION, KEY_STABILIZATION_ASSIST, true))
 	input_decay_enabled = bool(config.get_value(SECTION, KEY_INPUT_DECAY, true))
 	visual_trails_enabled = bool(config.get_value(SECTION, KEY_VISUAL_TRAILS, true))
+	master_volume = clampf(float(config.get_value(SECTION, KEY_MASTER_VOLUME, 1.0)), 0.0, 1.0)
+	_apply_master_volume()
 
 
 func save_settings() -> void:
@@ -71,6 +75,7 @@ func save_settings() -> void:
 	config.set_value(SECTION, KEY_STABILIZATION_ASSIST, stabilization_assist_enabled)
 	config.set_value(SECTION, KEY_INPUT_DECAY, input_decay_enabled)
 	config.set_value(SECTION, KEY_VISUAL_TRAILS, visual_trails_enabled)
+	config.set_value(SECTION, KEY_MASTER_VOLUME, master_volume)
 
 	var error := config.save(SAVE_PATH)
 	if error != OK:
@@ -166,3 +171,19 @@ func set_visual_trails_enabled(enabled: bool) -> void:
 	visual_trails_enabled = enabled
 	save_settings()
 	settings_changed.emit()
+
+
+func set_master_volume(value: float) -> void:
+	var clamped := clampf(value, 0.0, 1.0)
+	if is_equal_approx(master_volume, clamped):
+		return
+
+	master_volume = clamped
+	_apply_master_volume()
+	save_settings()
+	settings_changed.emit()
+
+
+func _apply_master_volume() -> void:
+	var bus := AudioServer.get_bus_index("Master")
+	AudioServer.set_bus_volume_db(bus, linear_to_db(master_volume))

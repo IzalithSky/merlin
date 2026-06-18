@@ -1,16 +1,18 @@
-[gd_scene load_steps=11 format=3 uid="uid://bio3tkswfltrc"]
+[gd_scene format=3 uid="uid://bio3tkswfltrc"]
 
 [ext_resource type="Script" uid="uid://cga1tya6tia2b" path="res://scripts/plane_character_controller.gd" id="1_plane"]
 [ext_resource type="PackedScene" path="res://scenes/wing_trail.tscn" id="2_wing_trail"]
-[ext_resource type="PackedScene" path="res://scenes/center_trail.tscn" id="11_center_trail"]
 [ext_resource type="Script" uid="uid://d1o81vttixei4" path="res://scripts/plane_wing_trails.gd" id="3_wing_trails"]
-[ext_resource type="Script" path="res://scripts/plane_lockable_target.gd" id="10_lockable_target"]
-[ext_resource type="Script" path="res://scripts/plane_reference_rings.gd" id="9_rings"]
-[ext_resource type="Script" path="res://scripts/plane_weapon_lock.gd" id="4_weapon_lock"]
-[ext_resource type="Script" path="res://scripts/missile_launcher.gd" id="5_launcher"]
-[ext_resource type="Script" path="res://scripts/autocannon.gd" id="8_gun"]
+[ext_resource type="Script" uid="uid://ctba1d53w3dxv" path="res://scripts/plane_weapon_lock.gd" id="4_weapon_lock"]
+[ext_resource type="Script" uid="uid://5cyq38bojrir" path="res://scripts/missile_launcher.gd" id="5_launcher"]
 [ext_resource type="PackedScene" path="res://scenes/health.tscn" id="6_health"]
 [ext_resource type="PackedScene" path="res://scenes/flame_trail.tscn" id="7_flame_trail"]
+[ext_resource type="Script" uid="uid://ddh8xph0oeu86" path="res://scripts/autocannon.gd" id="8_gun"]
+[ext_resource type="Script" uid="uid://2vu21er2vh7x" path="res://scripts/plane_reference_rings.gd" id="9_rings"]
+[ext_resource type="Script" uid="uid://5p2fm5x6bkxu" path="res://scripts/plane_lockable_target.gd" id="10_lockable_target"]
+[ext_resource type="PackedScene" path="res://scenes/center_trail.tscn" id="11_center_trail"]
+[ext_resource type="Script" uid="uid://b4glvq2rce234" path="res://scripts/plane_sound.gd" id="12_plane_sound"]
+[ext_resource type="AudioStream" path="res://sounds/underwater_or_space_engine.ogg" id="13_engine_sound"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_plane_collision"]
 size = Vector3(10, 1, 10)
@@ -40,21 +42,21 @@ shape = SubResource("BoxShape3D_plane_collision")
 transform = Transform3D(-1, -8.742278e-08, 3.821371e-15, 0, -4.371139e-08, -1, 8.742278e-08, -1, 4.371139e-08, 0, 0, 0)
 mesh = SubResource("PrismMesh_plane_body")
 
-[node name="ReferenceRings" type="MeshInstance3D" parent="."]
+[node name="ReferenceRings" type="MeshInstance3D" parent="." unique_id=1420746615]
 script = ExtResource("9_rings")
 
-[node name="Health" parent="." instance=ExtResource("6_health")]
+[node name="Health" parent="." unique_id=46476148 instance=ExtResource("6_health")]
 
-[node name="LockableTarget" type="Node" parent="."]
+[node name="LockableTarget" type="Node" parent="." unique_id=1424321601]
 script = ExtResource("10_lockable_target")
 
-[node name="PlaneWeaponLock" type="Node" parent="."]
+[node name="PlaneWeaponLock" type="Node" parent="." unique_id=2034950542]
 script = ExtResource("4_weapon_lock")
 
-[node name="MissileLauncher" type="Node" parent="."]
+[node name="MissileLauncher" type="Node" parent="." unique_id=1713003291]
 script = ExtResource("5_launcher")
 
-[node name="Autocannon" type="Node" parent="."]
+[node name="Autocannon" type="Node" parent="." unique_id=1708733325]
 script = ExtResource("8_gun")
 
 [node name="WingTrails" type="Node3D" parent="." unique_id=1860878340]
@@ -66,5 +68,14 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 0, 5)
 [node name="RightTrail" parent="WingTrails" unique_id=2146163335 instance=ExtResource("2_wing_trail")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 0, 5)
 
-[node name="CenterTrail" parent="WingTrails" instance=ExtResource("11_center_trail")]
+[node name="CenterTrail" parent="WingTrails" unique_id=876910167 instance=ExtResource("11_center_trail")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 5)
+
+[node name="PlaneSound" type="Node" parent="." unique_id=929270008]
+script = ExtResource("12_plane_sound")
+
+[node name="EngineSound" type="AudioStreamPlayer3D" parent="PlaneSound"]
+stream = ExtResource("13_engine_sound")
+volume_db = -55.0
+max_distance = 2000.0
+doppler_tracking = 2

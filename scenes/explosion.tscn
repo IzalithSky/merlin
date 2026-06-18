@@ -1,6 +1,7 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://scripts/explosion.gd" id="1_explosion"]
+[ext_resource type="AudioStream" path="res://sounds/DeathFlash.ogg" id="2_death_sound"]
 
 [sub_resource type="Curve" id="Curve_sparks_scale"]
 _data = [Vector2(0, 0.36), 0.0, 0.0, 0, 0, Vector2(0.74, 1), 0.0, 0.0, 0, 0, Vector2(1, 0.09), 0.0, 0.0, 0, 0]
@@ -142,3 +143,8 @@ explosiveness = 1.0
 fixed_fps = 60
 process_material = SubResource("ParticleProcessMaterial_fire")
 draw_pass_1 = SubResource("SphereMesh_fire")
+
+[node name="ExplosionSound" type="AudioStreamPlayer3D" parent="."]
+stream = ExtResource("2_death_sound")
+max_distance = 3000.0
+doppler_tracking = 2

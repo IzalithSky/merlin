@@ -1,6 +1,8 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/plane_targeting_hud.gd" id="1_targeting"]
+[ext_resource type="AudioStream" path="res://sounds/Beam.ogg" id="2_locking_sound"]
+[ext_resource type="AudioStream" path="res://sounds/beep.ogg" id="3_locked_sound"]
 
 [node name="PlaneTargetingHud" type="CanvasLayer"]
 layer = 2
@@ -12,3 +14,11 @@ anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
+
+[node name="LockingSound" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("2_locking_sound")
+volume_db = -30.0
+
+[node name="LockedSound" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("3_locked_sound")
+volume_db = -30.0

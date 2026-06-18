@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://p0pj6cjj84u"]
 
 [ext_resource type="Script" uid="uid://0b7sliokqqvq" path="res://scripts/main_menu.gd" id="1_7wdu1"]
-[ext_resource type="Script" uid="uid://dfpveiu83s8lr" path="res://scripts/options_menu.gd" id="2_options"]
+[ext_resource type="PackedScene" path="res://scenes/options_panel.tscn" id="2_options_panel"]
 [ext_resource type="PackedScene" path="res://scenes/keybindings_menu.tscn" id="3_kbmenu"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_menu_panel"]
@@ -182,115 +182,11 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Exit"
 
-[node name="OptionsPanel" type="PanelContainer" parent="CenterContainer" unique_id=179548900]
+[node name="OptionsPanel" parent="CenterContainer" instance=ExtResource("2_options_panel")]
 unique_name_in_owner = true
 visible = false
-custom_minimum_size = Vector2(460, 390)
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
-script = ExtResource("2_options")
-
-[node name="Margin" type="MarginContainer" parent="CenterContainer/OptionsPanel" unique_id=1221858489]
-layout_mode = 2
-theme_override_constants/margin_left = 40
-theme_override_constants/margin_top = 34
-theme_override_constants/margin_right = 40
-theme_override_constants/margin_bottom = 34
-
-[node name="VBox" type="VBoxContainer" parent="CenterContainer/OptionsPanel/Margin" unique_id=1130190663]
-layout_mode = 2
-theme_override_constants/separation = 16
-
-[node name="Title" type="Label" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1256410509]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.835294, 0.968627, 1, 1)
-theme_override_font_sizes/font_size = 36
-text = "Options"
-horizontal_alignment = 1
-
-[node name="DebugForceArrowsCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1672399516]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 46)
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Show force debug arrows"
-
-[node name="BotDebugCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1894812682]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 46)
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Show bot debug visuals"
-
-[node name="AdvancedHudCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1280907308]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 46)
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Show advanced HUD (AoA and below)"
-
-[node name="RelativeRollClockCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1240372711]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 46)
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Show relative roll clock"
-
-[node name="GlobalDirectionMarkersCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1795806789]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 46)
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Show nose/velocity markers"
-
-[node name="VisualTrailsCheck" type="CheckButton" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=957764634]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 46)
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Show visual trails"
-
-[node name="MouseSensitivityRow" type="HBoxContainer" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=29562840]
-custom_minimum_size = Vector2(0, 46)
-layout_mode = 2
-alignment = 1
-
-[node name="Label" type="Label" parent="CenterContainer/OptionsPanel/Margin/VBox/MouseSensitivityRow" unique_id=1065891014]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 18
-text = "Mouse Sensitivity"
-
-[node name="MouseSensitivitySlider" type="HSlider" parent="CenterContainer/OptionsPanel/Margin/VBox/MouseSensitivityRow" unique_id=388739428]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(130, 0)
-layout_mode = 2
-size_flags_horizontal = 3
-min_value = 1.0
-max_value = 20.0
-value = 6.0
-
-[node name="MouseSensitivityEdit" type="LineEdit" parent="CenterContainer/OptionsPanel/Margin/VBox/MouseSensitivityRow" unique_id=1615797938]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(52, 0)
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "6"
-max_length = 2
-
-[node name="KeyBindingsButton" type="Button" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1678234512]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 46)
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Key Bindings"
-
-[node name="OptionsBackButton" type="Button" parent="CenterContainer/OptionsPanel/Margin/VBox" unique_id=1579601306]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 52)
-layout_mode = 2
-theme_override_font_sizes/font_size = 20
-text = "Back"
 
 [node name="KeybindingsPanel" parent="." unique_id=1972562999 instance=ExtResource("3_kbmenu")]
 unique_name_in_owner = true

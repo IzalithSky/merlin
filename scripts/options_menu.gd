@@ -11,6 +11,7 @@ signal keybindings_requested
 @onready var _visual_trails_check: CheckButton = %VisualTrailsCheck
 @onready var _mouse_sensitivity_slider: HSlider = %MouseSensitivitySlider
 @onready var _mouse_sensitivity_edit: LineEdit = %MouseSensitivityEdit
+@onready var _master_volume_slider: HSlider = %MasterVolumeSlider
 @onready var _keybindings_button: Button = %KeyBindingsButton
 @onready var _back_button: Button = %OptionsBackButton
 
@@ -25,6 +26,7 @@ func _ready() -> void:
 	_mouse_sensitivity_slider.value_changed.connect(_on_mouse_sensitivity_slider_changed)
 	_mouse_sensitivity_edit.text_submitted.connect(_on_mouse_sensitivity_edit_submitted)
 	_mouse_sensitivity_edit.focus_exited.connect(_on_mouse_sensitivity_edit_focus_exited)
+	_master_volume_slider.value_changed.connect(_on_master_volume_slider_changed)
 	_keybindings_button.pressed.connect(_on_keybindings_pressed)
 	_back_button.pressed.connect(_on_back_pressed)
 	DisplaySettings.settings_changed.connect(_sync_from_settings)
@@ -45,6 +47,7 @@ func _sync_from_settings() -> void:
 	var display_val := int(round(DisplaySettings.mouse_sensitivity * 1000.0))
 	_mouse_sensitivity_slider.set_value_no_signal(float(display_val))
 	_mouse_sensitivity_edit.text = str(display_val)
+	_master_volume_slider.set_value_no_signal(DisplaySettings.master_volume * 100.0)
 
 
 func _on_debug_force_arrows_toggled(button_pressed: bool) -> void:
@@ -91,6 +94,10 @@ func _apply_sensitivity_from_edit() -> void:
 	_mouse_sensitivity_slider.set_value_no_signal(float(v))
 	_mouse_sensitivity_edit.text = str(v)
 	DisplaySettings.set_mouse_sensitivity(float(v) / 1000.0)
+
+
+func _on_master_volume_slider_changed(value: float) -> void:
+	DisplaySettings.set_master_volume(value / 100.0)
 
 
 func _on_keybindings_pressed() -> void:
