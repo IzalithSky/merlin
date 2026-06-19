@@ -52,6 +52,65 @@ mouse_filter = 2
 expand_mode = 1
 stretch_mode = 5
 
+[node name="FpsLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -200.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = 28.0
+grow_horizontal = 0
+horizontal_alignment = 2
+text = "-- FPS"
+
+[node name="FrameTimeLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -200.0
+offset_top = 28.0
+offset_right = -8.0
+offset_bottom = 48.0
+grow_horizontal = 0
+horizontal_alignment = 2
+theme_override_font_sizes/font_size = 12
+text = "CPU -- ms"
+
+[node name="PositionLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -200.0
+offset_top = 48.0
+offset_right = -8.0
+offset_bottom = 68.0
+grow_horizontal = 0
+horizontal_alignment = 2
+theme_override_font_sizes/font_size = 12
+text = "XYZ --"
+
+[node name="OriginDistanceLabel" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -200.0
+offset_top = 68.0
+offset_right = -8.0
+offset_bottom = 88.0
+grow_horizontal = 0
+horizontal_alignment = 2
+theme_override_font_sizes/font_size = 12
+text = "Dist --"
+
 [node name="Root" type="Control" parent="."]
 layout_mode = 3
 anchors_preset = 0

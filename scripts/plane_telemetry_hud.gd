@@ -28,6 +28,10 @@ const VELOCITY_DIRECTION_TEXTURE_PATH := "res://textures/hud/heading_sprite.png"
 @onready var _hp_value: Label = %HpValue
 @onready var _nose_direction_indicator: TextureRect = %NoseDirectionIndicator
 @onready var _velocity_direction_indicator: TextureRect = %VelocityDirectionIndicator
+@onready var _fps_label: Label = %FpsLabel
+@onready var _frame_time_label: Label = %FrameTimeLabel
+@onready var _position_label: Label = %PositionLabel
+@onready var _origin_distance_label: Label = %OriginDistanceLabel
 
 var _target
 var _camera: Camera3D
@@ -45,6 +49,7 @@ const MIN_DIRECTION_SPEED_SQUARED := 0.01
 
 
 func _ready() -> void:
+	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	_base_root_size = $Root.size
 	_indicator_half_size = _nose_direction_indicator.size * 0.5
 	_create_net_metrics_label()
@@ -70,6 +75,15 @@ func set_camera(cam: Camera3D) -> void:
 
 
 func _process(_delta: float) -> void:
+	_fps_label.text = "%d FPS" % Engine.get_frames_per_second()
+	var cpu_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+	var viewport_rid := get_viewport().get_viewport_rid()
+	var gpu_ms := RenderingServer.viewport_get_measured_render_time_gpu(viewport_rid)
+	if gpu_ms > 0.0:
+		_frame_time_label.text = "CPU %.1f ms / GPU %.1f ms" % [cpu_ms, gpu_ms]
+	else:
+		_frame_time_label.text = "CPU %.1f ms" % cpu_ms
+
 	if _target == null:
 		_reset_global_direction_indicators()
 		return
@@ -107,6 +121,9 @@ func _process(_delta: float) -> void:
 	_airspeed_value.text = "%.1f m/s" % airspeed_forward
 	_vertical_speed_value.text = "%.1f m/s" % vertical_speed
 	_altitude_value.text = "%.1f m" % altitude
+	var global_pos: Vector3 = _target.global_position
+	_position_label.text = "XYZ %d, %d, %d" % [roundi(global_pos.x), roundi(global_pos.y), roundi(global_pos.z)]
+	_origin_distance_label.text = "Dist %d m" % roundi(global_pos.length())
 	_throttle_value.text = "%.0f %%" % throttle_percent
 	_pitch_assist_value.text = "ON" if pitch_assist_enabled else "OFF"
 	_stabilization_assist_value.text = "ON" if stabilization_assist_enabled else "OFF"
@@ -138,6 +155,8 @@ func _reset_labels() -> void:
 	_airspeed_value.text = "--"
 	_vertical_speed_value.text = "--"
 	_altitude_value.text = "--"
+	_position_label.text = "XYZ --"
+	_origin_distance_label.text = "Dist --"
 	_throttle_value.text = "--"
 	_hp_value.text = "--"
 	_aoa_value.text = "--"
