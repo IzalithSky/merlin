@@ -15,6 +15,7 @@ extends MeshInstance3D
 @export var end_color := Color(1.0, 1.0, 1.0, 0.0)
 @export var sample_smoothing_rate := 0.0
 @export var max_sample_lag := 0.0
+@export var mesh_rebuild_hz := 30.0
 
 var node_ttl := -1.0
 
@@ -26,6 +27,8 @@ var _last_position := Vector3.ZERO
 var _sample_position := Vector3.ZERO
 var _immediate_mesh: ImmediateMesh
 var _renderer: MeshInstance3D
+var _mesh_dirty := false
+var _time_since_build := 0.0
 
 
 func configure(
@@ -80,6 +83,7 @@ func _process(delta: float) -> void:
 	if trail_enabled and moved:
 		_append_point(emitter_position)
 		_last_position = emitter_position
+		_mesh_dirty = true
 	elif not trail_enabled:
 		_last_position = emitter_position
 
@@ -88,10 +92,16 @@ func _process(delta: float) -> void:
 		_life_points[point_index] += delta
 		if _life_points[point_index] > maxf(lifespan, 0.001):
 			_remove_point(point_index)
+			_mesh_dirty = true
 			continue
 		point_index += 1
 
-	_build_mesh()
+	_time_since_build += delta
+	var rebuild_interval := 1.0 / maxf(mesh_rebuild_hz, 1.0)
+	if _mesh_dirty and _time_since_build >= rebuild_interval:
+		_time_since_build = 0.0
+		_mesh_dirty = false
+		_build_mesh()
 
 
 func set_trail_visible(is_trail_visible: bool) -> void:
