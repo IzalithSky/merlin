@@ -373,3 +373,13 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "--"
 horizontal_alignment = 2
+
+[node name="CornerSpeedLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Corner Speed"
+
+[node name="CornerSpeedValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2

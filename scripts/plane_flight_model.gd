@@ -230,6 +230,18 @@ func update_best_climb_speed_vy(delta: float) -> void:
 	_update_best_climb_speed_vy(delta)
 
 
+func get_corner_speed() -> float:
+	return _plane.get_cached_corner_speed()
+
+
+func is_corner_speed_valid() -> bool:
+	return _plane.is_cached_corner_speed_valid()
+
+
+func update_corner_speed(delta: float) -> void:
+	_update_corner_speed(delta)
+
+
 func get_effective_pitch_input() -> float:
 	return _get_effective_pitch_input()
 
@@ -681,6 +693,63 @@ func _get_weight_force_magnitude() -> float:
 	var default_gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity"))
 	var gravity_magnitude := default_gravity * _plane.gravity_scale
 	return _plane.mass * gravity_magnitude
+
+
+func _update_corner_speed(delta: float) -> void:
+	var update_timer := _plane.get_corner_speed_update_timer() - delta
+	_plane.set_corner_speed_update_timer(update_timer)
+	if update_timer > 0.0:
+		return
+	_plane.set_corner_speed_update_timer(maxf(_plane.corner_speed_update_interval, 0.01))
+	var corner_speed := _calculate_corner_speed()
+	_plane.set_cached_corner_speed(corner_speed, corner_speed > 0.0)
+
+
+# Highest airspeed at which available pitch torque can still sustain the body pitch
+# rate required to hold CL_max AoA in a turn. Above it the control-authority curve
+# compresses below what the turn demands, so the jet is control-limited, not
+# lift-limited. Deterministic monotone sweep: τ_avail collapses with speed while the
+# required rate (hence angular-drag torque) rises, so they cross once.
+func _calculate_corner_speed() -> float:
+	if not _plane.corner_speed_enabled:
+		return 0.0
+	if _plane.control_authority_coefficient_table.is_empty():
+		return 0.0
+
+	var cl_max := _sample_aero_table(_plane.lift_coefficient_table, _plane._positive_max_lift_aoa_deg)
+	if cl_max <= 0.0:
+		return 0.0
+	var weight := _get_weight_force_magnitude()
+	if weight <= 0.0:
+		return 0.0
+
+	var gravity := weight / maxf(_plane.mass, 0.0001)
+	var pitch_linear_drag := maxf(_plane.extra_angular_drag_linear_coefficients.x, 0.0)
+	var pitch_quadratic_drag := maxf(_plane.extra_angular_drag_quadratic_coefficients.x, 0.0)
+	# n = q·S·CL_max / W = (½·ρ·S·CL_max)·V² / W
+	var load_factor_scale := 0.5 * _plane.air_density * _plane.reference_area * cl_max
+
+	var sample_count := maxi(_plane.corner_speed_sample_count, 1)
+	var min_speed := maxf(_plane.corner_speed_sample_min_speed, 0.1)
+	var max_speed := maxf(_plane.corner_speed_sample_max_speed, min_speed)
+
+	var corner_speed := 0.0
+	for sample_index in range(sample_count + 1):
+		var sample_ratio := float(sample_index) / float(sample_count)
+		var speed := lerpf(min_speed, max_speed, sample_ratio)
+		var load_factor := (load_factor_scale * speed * speed) / weight
+		# Pitch rate the nose must sustain to hold AoA as lift curves the flightpath.
+		var required_pitch_rate := load_factor * gravity / speed
+		var required_torque := (
+			pitch_linear_drag * required_pitch_rate
+			+ pitch_quadratic_drag * required_pitch_rate * required_pitch_rate
+		)
+		var control_coefficient := maxf(_sample_aero_table(_plane.control_authority_coefficient_table, speed), 0.0)
+		var available_torque := _plane.base_control_torque * control_coefficient * _plane.max_pitch
+		if available_torque >= required_torque:
+			corner_speed = speed
+
+	return corner_speed
 
 
 func _get_current_bank_load_factor() -> float:

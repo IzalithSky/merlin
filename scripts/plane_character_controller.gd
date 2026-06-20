@@ -51,6 +51,15 @@ const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 # entry before altitude has started rising.
 @export var sustain_turn_vy_min_vertical_pull_intent: float = 0.1
 
+# Corner speed: the highest airspeed at which control authority can still drive the
+# pitch rate needed to hold CL_max AoA in a turn (above it the controls compress and
+# the jet becomes control-limited rather than lift-limited).
+@export var corner_speed_enabled: bool = true
+@export var corner_speed_update_interval: float = 0.25
+@export var corner_speed_sample_min_speed: float = 20.0
+@export var corner_speed_sample_max_speed: float = 400.0
+@export var corner_speed_sample_count: int = 64
+
 @export var air_density: float = 1.225
 @export var reference_area: float = 12.0
 @export var ambient_wind_velocity_world: Vector3 = Vector3.ZERO
@@ -211,6 +220,9 @@ var _sustain_turn_limiter_runtime_enabled := true
 var _best_climb_speed_vy := 0.0
 var _best_climb_speed_vy_valid := false
 var _sustain_turn_vy_update_timer := 0.0
+var _corner_speed := 0.0
+var _corner_speed_valid := false
+var _corner_speed_update_timer := 0.0
 var _sustain_turn_using_vy := false
 var _altitude_rising := false
 var _flame_trail: Node3D
@@ -313,6 +325,7 @@ func _physics_process(delta: float) -> void:
 	_update_physics_frame_cache()
 	_update_altitude_rising_state()
 	_update_best_climb_speed_vy(delta)
+	_update_corner_speed(delta)
 
 	if is_bot_controlled:
 		_input_collector.collect_bot_inputs(delta)
@@ -800,6 +813,35 @@ func set_sustain_turn_vy_update_timer(value: float) -> void:
 	_sustain_turn_vy_update_timer = value
 
 
+func get_corner_speed() -> float:
+	return _flight_model.get_corner_speed()
+
+
+func is_corner_speed_valid() -> bool:
+	return _flight_model.is_corner_speed_valid()
+
+
+func get_cached_corner_speed() -> float:
+	return _corner_speed
+
+
+func is_cached_corner_speed_valid() -> bool:
+	return _corner_speed_valid
+
+
+func set_cached_corner_speed(value: float, valid: bool) -> void:
+	_corner_speed = value
+	_corner_speed_valid = valid
+
+
+func get_corner_speed_update_timer() -> float:
+	return _corner_speed_update_timer
+
+
+func set_corner_speed_update_timer(value: float) -> void:
+	_corner_speed_update_timer = value
+
+
 func set_sustain_turn_using_vy(value: bool) -> void:
 	_sustain_turn_using_vy = value
 
@@ -943,6 +985,10 @@ func is_input_decay_enabled() -> bool:
 
 func _update_best_climb_speed_vy(delta: float) -> void:
 	_flight_model.update_best_climb_speed_vy(delta)
+
+
+func _update_corner_speed(delta: float) -> void:
+	_flight_model.update_corner_speed(delta)
 
 
 func _sanitize_aero_tables() -> void:

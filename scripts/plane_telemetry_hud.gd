@@ -25,6 +25,7 @@ const VELOCITY_DIRECTION_TEXTURE_PATH := "res://textures/hud/heading_sprite.png"
 @onready var _relative_roll_clock: Control = %RelativeRollClock
 @onready var _vy_speed_value: Label = %VySpeedValue
 @onready var _vy_active_value: Label = %VyActiveValue
+@onready var _corner_speed_value: Label = %CornerSpeedValue
 @onready var _hp_value: Label = %HpValue
 @onready var _nose_direction_indicator: TextureRect = %NoseDirectionIndicator
 @onready var _velocity_direction_indicator: TextureRect = %VelocityDirectionIndicator
@@ -185,6 +186,7 @@ func _reset_advanced_labels() -> void:
 	_net_along_value.text = "--"
 	_vy_speed_value.text = "--"
 	_vy_active_value.text = "--"
+	_corner_speed_value.text = "--"
 
 
 func _update_force_balance_debug() -> void:
@@ -205,6 +207,7 @@ func _update_vy_debug() -> void:
 	if _target == null:
 		_vy_speed_value.text = "--"
 		_vy_active_value.text = "--"
+		_corner_speed_value.text = "--"
 		return
 
 	var vy: float = _target.get_best_climb_speed_vy()
@@ -212,6 +215,10 @@ func _update_vy_debug() -> void:
 	var using_vy: bool = _target.is_sustain_turn_using_vy()
 	_vy_speed_value.text = ("%.1f m/s" % vy) if valid else "---"
 	_vy_active_value.text = "YES" if using_vy else "no"
+
+	var corner_speed: float = _target.get_corner_speed()
+	var corner_valid: bool = _target.is_corner_speed_valid()
+	_corner_speed_value.text = ("%.1f m/s" % corner_speed) if corner_valid else "---"
 
 
 func _update_relative_roll_clock() -> void:
@@ -343,6 +350,8 @@ func _collect_advanced_hud_nodes() -> void:
 		"VySpeedValue",
 		"VyActiveLabel",
 		"VyActiveValue",
+		"CornerSpeedLabel",
+		"CornerSpeedValue",
 	]
 
 	for node_name in node_names:

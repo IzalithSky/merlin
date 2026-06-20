@@ -1,5 +1,5 @@
 class_name PlaneSound
-extends Node
+extends Node3D
 
 const _BASE_PITCH := 0.6
 
