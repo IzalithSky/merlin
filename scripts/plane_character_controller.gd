@@ -32,24 +32,19 @@ const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 @export var max_lift_turn_limiter_min_airspeed: float = 5.0
 @export var max_lift_turn_limiter_fade_deg: float = 10.0
 @export var sustain_turn_limiter_enabled: bool = true
-@export var sustain_turn_limiter_min_target_airspeed: float = 100.0
 @export var sustain_turn_limiter_fade_deg: float = 10.0
-@export var sustain_turn_limiter_samples: int = 48
-@export var sustain_turn_limiter_drag_margin: float = 1.05
+# Sustain turn mode governs the jet to corner (max-rate) speed: full max-lift pull is
+# allowed at/above corner; below corner the allowed AoA fades to zero over this band
+# (m/s) so drag drops and the jet recovers speed back up to corner.
+@export var sustain_turn_corner_margin_speed: float = 20.0
+# Vy (best climb speed) is computed for the telemetry readout only — the sustain turn
+# limiter no longer uses it.
 @export var sustain_turn_vy_enabled: bool = true
 @export var sustain_turn_vy_update_interval: float = 0.25
 @export var sustain_turn_vy_sample_min_speed: float = 10.0
 @export var sustain_turn_vy_sample_max_speed: float = 250.0
 @export var sustain_turn_vy_sample_count: int = 64
 @export var sustain_turn_vy_max_load_factor: float = 4.0
-# Vy speed-margin limiter: when altitude is rising, pitch authority fades to zero
-# over this speed band as airspeed drops from (Vy + margin) down to Vy.
-@export var sustain_turn_vy_margin_speed: float = 20.0
-# Hysteresis dead-band (m/s) around zero world-vertical-speed for the climb switch.
-@export var sustain_turn_vy_climb_speed_threshold: float = 0.5
-# Min world-vertical pull intent (-pitch * up.y) to engage the Vy gate on a climb
-# entry before altitude has started rising.
-@export var sustain_turn_vy_min_vertical_pull_intent: float = 0.1
 
 # Corner speed: the highest airspeed at which control authority can still drive the
 # pitch rate needed to hold CL_max AoA in a turn (above it the controls compress and
@@ -223,8 +218,6 @@ var _sustain_turn_vy_update_timer := 0.0
 var _corner_speed := 0.0
 var _corner_speed_valid := false
 var _corner_speed_update_timer := 0.0
-var _sustain_turn_using_vy := false
-var _altitude_rising := false
 var _flame_trail: Node3D
 var _net_limiter_override_active := false
 var _net_effective_pitch_input := 0.0
@@ -323,7 +316,6 @@ func _physics_process(delta: float) -> void:
 
 	_begin_force_debug_frame()
 	_update_physics_frame_cache()
-	_update_altitude_rising_state()
 	_update_best_climb_speed_vy(delta)
 	_update_corner_speed(delta)
 
@@ -402,20 +394,6 @@ func _update_physics_frame_cache() -> void:
 
 	_frame_air_velocity_local = _frame_body_basis.transposed() * _frame_air_velocity_world
 	_frame_dynamic_pressure = 0.5 * air_density * _frame_air_speed_squared
-
-
-func _update_altitude_rising_state() -> void:
-	var climb_speed_threshold := maxf(sustain_turn_vy_climb_speed_threshold, 0.0)
-	var world_vertical_speed := linear_velocity.y
-
-	if climb_speed_threshold <= 0.0001:
-		_altitude_rising = world_vertical_speed > 0.0
-		return
-
-	if world_vertical_speed > climb_speed_threshold:
-		_altitude_rising = true
-	elif world_vertical_speed < -climb_speed_threshold:
-		_altitude_rising = false
 
 
 func _apply_spawn_control_defaults() -> void:
@@ -784,20 +762,12 @@ func is_best_climb_speed_vy_valid() -> bool:
 	return _flight_model.is_best_climb_speed_vy_valid()
 
 
-func is_sustain_turn_using_vy() -> bool:
-	return _flight_model.is_sustain_turn_using_vy()
-
-
 func get_cached_best_climb_speed_vy() -> float:
 	return _best_climb_speed_vy
 
 
 func is_cached_best_climb_speed_vy_valid() -> bool:
 	return _best_climb_speed_vy_valid
-
-
-func is_using_sustain_turn_vy() -> bool:
-	return _sustain_turn_using_vy
 
 
 func set_cached_best_climb_speed_vy(value: float, valid: bool) -> void:
@@ -840,10 +810,6 @@ func get_corner_speed_update_timer() -> float:
 
 func set_corner_speed_update_timer(value: float) -> void:
 	_corner_speed_update_timer = value
-
-
-func set_sustain_turn_using_vy(value: bool) -> void:
-	_sustain_turn_using_vy = value
 
 
 func get_last_ground_impact_time() -> float:

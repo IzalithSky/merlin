@@ -222,10 +222,6 @@ func is_best_climb_speed_vy_valid() -> bool:
 	return _plane.is_cached_best_climb_speed_vy_valid()
 
 
-func is_sustain_turn_using_vy() -> bool:
-	return _plane.is_using_sustain_turn_vy()
-
-
 func update_best_climb_speed_vy(delta: float) -> void:
 	_update_best_climb_speed_vy(delta)
 
@@ -585,66 +581,19 @@ func _is_limiter_override_active() -> bool:
 	return pressed != KeybindingsSettings.limiter_override_inverted
 
 
+# Corner-speed governor: hold the jet at its max-rate (corner) speed. At or above
+# corner, full max-lift pull is allowed (max instantaneous rate; bleeds energy back
+# down toward corner). Below corner the allowed AoA fades to zero over a margin band
+# so drag drops and the jet recovers speed back up to corner. Energy- and Vy-agnostic.
 func _get_sustainable_aoa_limit(positive_limit: bool) -> float:
 	var bound := _plane._positive_max_lift_aoa_deg if positive_limit else _plane._negative_max_lift_aoa_deg
-	if positive_limit and _should_use_vy_speed_margin_limit():
-		_plane.set_sustain_turn_using_vy(true)
-		return _get_vy_speed_margin_aoa_limit(bound)
-	_plane.set_sustain_turn_using_vy(false)
+	if not _plane.is_cached_corner_speed_valid():
+		return bound
 
-	var sample_count := maxi(_plane.sustain_turn_limiter_samples, 1)
-	var available_force := _get_sustain_available_forward_force()
-	if available_force <= 0.0:
-		return 0.0
-
-	var target_speed := _get_sustain_turn_target_speed()
-	var target_speed_squared := target_speed * target_speed
-	var dynamic_pressure := 0.5 * _plane.air_density * target_speed_squared
-	var aero_drag_scale := dynamic_pressure * _plane.reference_area
-	var extra_linear_drag := maxf(_plane.extra_linear_drag_linear_coefficient, 0.0) * target_speed
-	var extra_quadratic_drag := maxf(_plane.extra_linear_drag_quadratic_coefficient, 0.0) * target_speed_squared
-	var engine_damping_drag := maxf(_plane._last_total_linear_damp, 0.0) * _plane.mass * target_speed
-	var non_aoa_drag := extra_linear_drag + extra_quadratic_drag + engine_damping_drag
-	var drag_margin := maxf(_plane.sustain_turn_limiter_drag_margin, 0.0)
-	var drag_segment_index := _find_aero_table_segment_index(_plane.drag_coefficient_table, 0.0)
-	var allowed_aoa := 0.0
-
-	for index in range(sample_count + 1):
-		var weight := float(index) / float(sample_count)
-		var candidate_aoa := lerpf(0.0, bound, weight)
-		drag_segment_index = _advance_aero_table_segment_index(_plane.drag_coefficient_table, candidate_aoa, drag_segment_index)
-		var drag_coefficient := maxf(_sample_aero_table_segment(_plane.drag_coefficient_table, candidate_aoa, drag_segment_index), 0.0)
-		var required_force := (aero_drag_scale * drag_coefficient + non_aoa_drag) * drag_margin
-		if required_force <= available_force:
-			allowed_aoa = candidate_aoa
-
-	return allowed_aoa
-
-
-func _get_sustain_available_forward_force() -> float:
-	var thrust_force := _get_thrust_force_world()
-	var gravity_force := _get_gravity_force_world()
-	return thrust_force.dot(_plane._frame_airflow_direction) + gravity_force.dot(_plane._frame_airflow_direction)
-
-
-func _should_use_vy_speed_margin_limit() -> bool:
-	if not _plane.sustain_turn_vy_enabled:
-		return false
-	if not _plane.is_cached_best_climb_speed_vy_valid():
-		return false
-	return _plane._altitude_rising or _has_sustain_turn_climb_intent()
-
-
-func _get_vy_speed_margin_aoa_limit(bound: float) -> float:
-	var vy_speed := maxf(_plane.get_cached_best_climb_speed_vy(), 0.1)
-	var margin_speed := maxf(_plane.sustain_turn_vy_margin_speed, 0.0)
-	var speed_above_vy := _plane._frame_air_speed - vy_speed
-	if margin_speed <= 0.0001:
-		if speed_above_vy > 0.0:
-			return bound
-		return 0.0
-	var speed_margin_authority := clampf(speed_above_vy / margin_speed, 0.0, 1.0)
-	return lerpf(0.0, bound, speed_margin_authority)
+	var corner_speed := _plane.get_cached_corner_speed()
+	var margin := maxf(_plane.sustain_turn_corner_margin_speed, 0.001)
+	var authority := clampf((_plane._frame_air_speed - (corner_speed - margin)) / margin, 0.0, 1.0)
+	return bound * authority
 
 
 func _update_best_climb_speed_vy(delta: float) -> void:
@@ -829,19 +778,6 @@ func _find_aoa_for_lift_coefficient(target_lift_coefficient: float) -> float:
 			best_abs_aoa = candidate_abs_aoa
 			best_aoa = candidate_aoa
 	return best_aoa
-
-
-func _get_vertical_pull_intent() -> float:
-	var pull_strength := -_plane.pitch_input
-	return pull_strength * _plane._frame_up_axis.y
-
-
-func _has_sustain_turn_climb_intent() -> bool:
-	return _get_vertical_pull_intent() > _plane.sustain_turn_vy_min_vertical_pull_intent
-
-
-func _get_sustain_turn_target_speed() -> float:
-	return maxf(_plane._frame_air_speed, _plane.sustain_turn_limiter_min_target_airspeed)
 
 
 func _limit_pitch_input_below_upper_aoa_limit(raw_pitch_input: float, upper_limit_deg: float, fade_degrees: float) -> float:

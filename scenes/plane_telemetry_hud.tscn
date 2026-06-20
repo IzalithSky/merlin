@@ -348,7 +348,7 @@ horizontal_alignment = 2
 [node name="VySectionLabel" type="Label" parent="Root/Panel/Margin/Grid"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.7, 1, 0.7, 1)
-text = "-- Vy Sustain Turn --"
+text = "-- Turn Performance --"
 
 [node name="VySectionValueSpacer" type="Label" parent="Root/Panel/Margin/Grid"]
 layout_mode = 2
@@ -359,16 +359,6 @@ layout_mode = 2
 text = "Vy"
 
 [node name="VySpeedValue" type="Label" parent="Root/Panel/Margin/Grid"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "--"
-horizontal_alignment = 2
-
-[node name="VyActiveLabel" type="Label" parent="Root/Panel/Margin/Grid"]
-layout_mode = 2
-text = "Vy active"
-
-[node name="VyActiveValue" type="Label" parent="Root/Panel/Margin/Grid"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "--"
