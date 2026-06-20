@@ -6,6 +6,7 @@ const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 
 @onready var _lift_graph: Node = %LiftGraph
 @onready var _drag_graph: Node = %DragGraph
+@onready var _induced_drag_graph: Node = %InducedDragGraph
 @onready var _control_authority_graph: Node = %ControlAuthorityGraph
 @onready var _thrust_graph: Node = %ThrustGraph
 @onready var _status_label: Label = %StatusLabel
@@ -36,6 +37,7 @@ func _ready() -> void:
 	_back_button.pressed.connect(_on_back_pressed)
 	_lift_graph.points_changed.connect(_on_lift_points_changed)
 	_drag_graph.points_changed.connect(_on_drag_points_changed)
+	_induced_drag_graph.points_changed.connect(_on_induced_drag_points_changed)
 	_control_authority_graph.points_changed.connect(_on_control_authority_points_changed)
 	_thrust_graph.points_changed.connect(_on_thrust_points_changed)
 	_preset_option.item_selected.connect(_on_preset_selected)
@@ -123,6 +125,7 @@ func _refresh_graphs_from_model() -> void:
 	if _model_plane == null:
 		_lift_graph.set_points([])
 		_drag_graph.set_points([])
+		_induced_drag_graph.set_points([])
 		_control_authority_graph.set_points([])
 		_thrust_graph.set_points([])
 		_suspend_graph_updates = false
@@ -132,6 +135,8 @@ func _refresh_graphs_from_model() -> void:
 		_lift_graph.set_points(_model_plane.call("get_lift_table"))
 	if _model_plane.has_method("get_drag_table"):
 		_drag_graph.set_points(_model_plane.call("get_drag_table"))
+	if _model_plane.has_method("get_induced_drag_table"):
+		_induced_drag_graph.set_points(_model_plane.call("get_induced_drag_table"))
 	if _model_plane.has_method("get_control_authority_table"):
 		_control_authority_graph.set_points(_model_plane.call("get_control_authority_table"))
 	if _model_plane.has_method("get_thrust_table"):
@@ -153,6 +158,14 @@ func _on_drag_points_changed(points: Array[Vector2]) -> void:
 		return
 	if _model_plane.has_method("set_drag_table"):
 		_model_plane.call("set_drag_table", points)
+	_mark_dirty()
+
+
+func _on_induced_drag_points_changed(points: Array[Vector2]) -> void:
+	if _suspend_graph_updates or _model_plane == null:
+		return
+	if _model_plane.has_method("set_induced_drag_table"):
+		_model_plane.call("set_induced_drag_table", points)
 	_mark_dirty()
 
 

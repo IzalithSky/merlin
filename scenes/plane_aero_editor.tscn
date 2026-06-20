@@ -180,6 +180,36 @@ x_axis_label = "AoA (deg)"
 y_axis_label = "CD"
 tick_decimals = 3
 
+[node name="InducedDrag" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/GraphTabs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="InducedDragTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/InducedDrag"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Induced Drag Coefficient (CDi) vs |CL|"
+
+[node name="InducedDragGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/InducedDrag"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(1040, 450)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("2_graph")
+x_min = 0.0
+x_max = 2.0
+y_min = 0.0
+y_max = 0.25
+edit_x_min = 0.0
+edit_x_max = 4.0
+edit_y_min = 0.0
+edit_y_max = 2.0
+x_axis_label = "|CL|"
+y_axis_label = "CDi"
+tick_decimals = 3
+
 [node name="Control" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/GraphTabs"]
 layout_mode = 2
 size_flags_horizontal = 3

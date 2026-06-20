@@ -58,7 +58,7 @@ func apply_aerodynamic_forces() -> void:
 	var dynamic_pressure := _plane._frame_dynamic_pressure
 
 	var lift_coefficient := _sample_aero_table(_plane.lift_coefficient_table, _plane.aoa_deg)
-	var drag_coefficient := maxf(_sample_aero_table(_plane.drag_coefficient_table, _plane.aoa_deg), 0.0)
+	var drag_coefficient := _get_total_drag_coefficient_for_aoa_and_lift(_plane.aoa_deg, lift_coefficient)
 	var side_force_coefficient := _sample_aero_table(_plane.side_force_coefficient_table, _plane.sideslip_deg)
 
 	var drag_force_magnitude := dynamic_pressure * _plane.reference_area * drag_coefficient
@@ -238,12 +238,32 @@ func update_corner_speed(delta: float) -> void:
 	_update_corner_speed(delta)
 
 
+func get_min_sustained_turn_speed() -> float:
+	return _plane.get_cached_min_sustained_turn_speed()
+
+
+func is_min_sustained_turn_speed_valid() -> bool:
+	return _plane.is_cached_min_sustained_turn_speed_valid()
+
+
+func update_min_sustained_turn_speed(delta: float) -> void:
+	_update_min_sustained_turn_speed(delta)
+
+
 func get_effective_pitch_input() -> float:
 	return _get_effective_pitch_input()
 
 
 func get_turn_limited_pitch_input(raw_pitch_input: float) -> float:
 	return _get_turn_limited_pitch_input(raw_pitch_input)
+
+
+func sample_aero_table(points: Array[Vector2], x_value: float) -> float:
+	return _sample_aero_table(points, x_value)
+
+
+func get_induced_drag_coefficient_for_lift(lift_coefficient: float) -> float:
+	return _get_induced_drag_coefficient_for_lift(lift_coefficient)
 
 
 func _get_signed_direction_error_about_axis(
@@ -701,6 +721,51 @@ func _calculate_corner_speed() -> float:
 	return corner_speed
 
 
+func _update_min_sustained_turn_speed(delta: float) -> void:
+	var update_timer := _plane.get_min_sustained_turn_speed_update_timer() - delta
+	_plane.set_min_sustained_turn_speed_update_timer(update_timer)
+	if update_timer > 0.0:
+		return
+	_plane.set_min_sustained_turn_speed_update_timer(maxf(_plane.min_sustained_turn_speed_update_interval, 0.01))
+	var min_sustained_turn_speed := _calculate_min_sustained_turn_speed()
+	_plane.set_cached_min_sustained_turn_speed(min_sustained_turn_speed, min_sustained_turn_speed > 0.0)
+
+
+func _calculate_min_sustained_turn_speed() -> float:
+	if not _plane.min_sustained_turn_speed_enabled:
+		return 0.0
+	if _plane.drag_coefficient_table.is_empty():
+		return 0.0
+
+	var max_lift_aoa_deg := _plane._positive_max_lift_aoa_deg
+	var max_lift_aoa_rad := deg_to_rad(max_lift_aoa_deg)
+	var thrust_projection := cos(max_lift_aoa_rad)
+	if thrust_projection <= 0.0:
+		return 0.0
+	var throttle_fraction := clampf((_plane.throttle_input + 1.0) * 0.5, 0.0, 1.0)
+	if throttle_fraction <= 0.0:
+		return 0.0
+
+	var velocity_direction := _get_current_path_direction_world()
+	if velocity_direction.length_squared() <= _plane.MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		return 0.0
+	var gravity_along_path := _get_gravity_force_world().dot(velocity_direction)
+
+	var sample_count := maxi(_plane.min_sustained_turn_speed_sample_count, 1)
+	var min_speed := maxf(_plane.min_sustained_turn_speed_sample_min_speed, 0.1)
+	var max_speed := maxf(_plane.min_sustained_turn_speed_sample_max_speed, min_speed)
+
+	for sample_index in range(sample_count + 1):
+		var sample_ratio := float(sample_index) / float(sample_count)
+		var speed := lerpf(min_speed, max_speed, sample_ratio)
+		var thrust_along_path := _get_available_thrust_along_path_at_max_lift(speed, thrust_projection, throttle_fraction)
+		var drag_required := _get_drag_required_at_max_lift_aoa(speed, max_lift_aoa_deg)
+		if thrust_along_path + gravity_along_path >= drag_required:
+			return speed
+
+	return 0.0
+
+
 func _get_current_bank_load_factor() -> float:
 	var local_world_up := _plane._frame_body_basis.transposed() * Vector3.UP
 	var bank_angle := atan2(local_world_up.x, local_world_up.y)
@@ -713,6 +778,41 @@ func _get_current_bank_load_factor() -> float:
 func _get_available_thrust_at_speed(speed: float) -> float:
 	var thrust_coefficient := maxf(_sample_aero_table(_plane.thrust_coefficient_table, speed), 0.0)
 	return _plane.max_thrust * thrust_coefficient
+
+
+func _get_available_thrust_along_path_at_max_lift(
+	speed: float,
+	thrust_projection: float,
+	throttle_fraction: float
+) -> float:
+	var forward_speed := speed * thrust_projection
+	var thrust_coefficient := maxf(_sample_aero_table(_plane.thrust_coefficient_table, forward_speed), 0.0)
+	return _plane.max_thrust * throttle_fraction * thrust_coefficient * thrust_projection
+
+
+func _get_drag_required_at_max_lift_aoa(speed: float, max_lift_aoa_deg: float) -> float:
+	var speed_squared := speed * speed
+	if speed_squared <= 0.001:
+		return INF
+	var dynamic_pressure := 0.5 * _plane.air_density * speed_squared
+	var lift_coefficient := _sample_aero_table(_plane.lift_coefficient_table, max_lift_aoa_deg)
+	var drag_coefficient := _get_total_drag_coefficient_for_aoa_and_lift(max_lift_aoa_deg, lift_coefficient)
+	var aerodynamic_drag := dynamic_pressure * _plane.reference_area * drag_coefficient
+	var extra_drag := (
+		maxf(_plane.extra_linear_drag_linear_coefficient, 0.0) * speed +
+		maxf(_plane.extra_linear_drag_quadratic_coefficient, 0.0) * speed_squared +
+		maxf(_plane._last_total_linear_damp, 0.0) * _plane.mass * speed
+	)
+	return aerodynamic_drag + extra_drag
+
+
+func _get_current_path_direction_world() -> Vector3:
+	var path_velocity := _plane.linear_velocity
+	if path_velocity.length_squared() > _plane.MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		return path_velocity.normalized()
+	if _plane._frame_air_speed_squared > _plane.MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		return _plane._frame_airflow_direction
+	return _plane._frame_forward_axis
 
 
 func _get_drag_required_for_lift_at_speed(required_lift: float, speed: float) -> float:
@@ -732,7 +832,7 @@ func _get_drag_required_for_lift_at_speed(required_lift: float, speed: float) ->
 	if not is_finite(required_aoa):
 		return -1.0
 
-	var drag_coefficient := maxf(_sample_aero_table(_plane.drag_coefficient_table, required_aoa), 0.0)
+	var drag_coefficient := _get_total_drag_coefficient_for_aoa_and_lift(required_aoa, required_lift_coefficient)
 	var aerodynamic_drag := dynamic_pressure * _plane.reference_area * drag_coefficient
 	var extra_drag := (
 		maxf(_plane.extra_linear_drag_linear_coefficient, 0.0) * speed +
@@ -740,6 +840,16 @@ func _get_drag_required_for_lift_at_speed(required_lift: float, speed: float) ->
 		maxf(_plane._last_total_linear_damp, 0.0) * _plane.mass * speed
 	)
 	return aerodynamic_drag + extra_drag
+
+
+func _get_total_drag_coefficient_for_aoa_and_lift(aoa_deg: float, lift_coefficient: float) -> float:
+	var profile_drag := maxf(_sample_aero_table(_plane.drag_coefficient_table, aoa_deg), 0.0)
+	var induced_drag := _get_induced_drag_coefficient_for_lift(lift_coefficient)
+	return profile_drag + induced_drag
+
+
+func _get_induced_drag_coefficient_for_lift(lift_coefficient: float) -> float:
+	return maxf(_sample_aero_table(_plane.induced_drag_coefficient_table, absf(lift_coefficient)), 0.0)
 
 
 func _can_reach_lift_coefficient(target_lift_coefficient: float) -> bool:

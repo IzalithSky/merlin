@@ -279,7 +279,8 @@ Bot policy:
 Aerodynamic behavior comes from editable tables:
 
 - `lift_coefficient_table` sampled by angle of attack
-- `drag_coefficient_table` sampled by angle of attack
+- `drag_coefficient_table` sampled by angle of attack for profile / non-induced drag
+- `induced_drag_coefficient_table` sampled by `|CL|` for drag due to lift
 - `side_force_coefficient_table` sampled by sideslip
 - `control_authority_coefficient_table` sampled by air-relative speed magnitude
 - `thrust_coefficient_table` sampled by air-relative forward speed (`|v_air · forward_axis|`)
@@ -310,6 +311,12 @@ Force magnitudes use the standard coefficient form:
 F_drag = q * reference_area * CD(angle_of_attack)
 F_lift = q * reference_area * CL(angle_of_attack)
 F_side = q * reference_area * CY(sideslip)
+```
+
+The drag coefficient is split into two editable parts:
+
+```text
+CD_total = CD_profile(angle_of_attack) + CD_induced(|CL|)
 ```
 
 The total aerodynamic force is:

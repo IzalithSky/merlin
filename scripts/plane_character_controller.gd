@@ -54,6 +54,13 @@ const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 @export var corner_speed_sample_min_speed: float = 20.0
 @export var corner_speed_sample_max_speed: float = 400.0
 @export var corner_speed_sample_count: int = 64
+# Minimum airspeed at which a full-CL_max pull is still energy-sustainable for the
+# current flight-path condition, ignoring control-authority limits.
+@export var min_sustained_turn_speed_enabled: bool = true
+@export var min_sustained_turn_speed_update_interval: float = 0.25
+@export var min_sustained_turn_speed_sample_min_speed: float = 0.1
+@export var min_sustained_turn_speed_sample_max_speed: float = 400.0
+@export var min_sustained_turn_speed_sample_count: int = 64
 
 @export var air_density: float = 1.225
 @export var reference_area: float = 12.0
@@ -72,19 +79,31 @@ const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 	Vector2(29.73, 0.1696),
 ]
 @export var drag_coefficient_table: Array[Vector2] = [
-	Vector2(-29.83, 0.5989),
-	Vector2(-25.42, 0.3963),
-	Vector2(-21.38, 0.2701),
-	Vector2(-15.0, 0.1171),
-	Vector2(-10.04, 0.0495),
-	Vector2(-5.13, 0.0212),
+	Vector2(-29.83, 0.5973),
+	Vector2(-25.42, 0.3855),
+	Vector2(-21.38, 0.2208),
+	Vector2(-15.0, 0.0628),
+	Vector2(-10.04, 0.0073),
+	Vector2(-5.13, 0.0100),
 	Vector2(0.17, 0.0027),
-	Vector2(4.96, 0.0207),
-	Vector2(10.03, 0.0500),
-	Vector2(14.99, 0.1171),
-	Vector2(20.22, 0.2487),
-	Vector2(25.01, 0.3989),
-	Vector2(29.91, 0.6010),
+	Vector2(4.96, 0.0102),
+	Vector2(10.03, 0.0058),
+	Vector2(14.99, 0.0189),
+	Vector2(20.22, 0.0773),
+	Vector2(25.01, 0.3041),
+	Vector2(29.91, 0.5990),
+]
+@export var induced_drag_coefficient_table: Array[Vector2] = [
+	Vector2(0.0, 0.0),
+	Vector2(0.2, 0.0027),
+	Vector2(0.4, 0.0109),
+	Vector2(0.6, 0.0246),
+	Vector2(0.8, 0.0437),
+	Vector2(1.0, 0.0682),
+	Vector2(1.2, 0.0983),
+	Vector2(1.4, 0.1338),
+	Vector2(1.6, 0.1747),
+	Vector2(1.8, 0.2211),
 ]
 @export var side_force_coefficient_table: Array[Vector2] = [
 	Vector2(-40.0, 0.0),
@@ -218,6 +237,9 @@ var _sustain_turn_vy_update_timer := 0.0
 var _corner_speed := 0.0
 var _corner_speed_valid := false
 var _corner_speed_update_timer := 0.0
+var _min_sustained_turn_speed := 0.0
+var _min_sustained_turn_speed_valid := false
+var _min_sustained_turn_speed_update_timer := 0.0
 var _flame_trail: Node3D
 var _net_limiter_override_active := false
 var _net_effective_pitch_input := 0.0
@@ -318,6 +340,7 @@ func _physics_process(delta: float) -> void:
 	_update_physics_frame_cache()
 	_update_best_climb_speed_vy(delta)
 	_update_corner_speed(delta)
+	_update_min_sustained_turn_speed(delta)
 
 	if is_bot_controlled:
 		_input_collector.collect_bot_inputs(delta)
@@ -791,6 +814,14 @@ func is_corner_speed_valid() -> bool:
 	return _flight_model.is_corner_speed_valid()
 
 
+func get_min_sustained_turn_speed() -> float:
+	return _flight_model.get_min_sustained_turn_speed()
+
+
+func is_min_sustained_turn_speed_valid() -> bool:
+	return _flight_model.is_min_sustained_turn_speed_valid()
+
+
 func get_cached_corner_speed() -> float:
 	return _corner_speed
 
@@ -810,6 +841,27 @@ func get_corner_speed_update_timer() -> float:
 
 func set_corner_speed_update_timer(value: float) -> void:
 	_corner_speed_update_timer = value
+
+
+func get_cached_min_sustained_turn_speed() -> float:
+	return _min_sustained_turn_speed
+
+
+func is_cached_min_sustained_turn_speed_valid() -> bool:
+	return _min_sustained_turn_speed_valid
+
+
+func set_cached_min_sustained_turn_speed(value: float, valid: bool) -> void:
+	_min_sustained_turn_speed = value
+	_min_sustained_turn_speed_valid = valid
+
+
+func get_min_sustained_turn_speed_update_timer() -> float:
+	return _min_sustained_turn_speed_update_timer
+
+
+func set_min_sustained_turn_speed_update_timer(value: float) -> void:
+	_min_sustained_turn_speed_update_timer = value
 
 
 func get_last_ground_impact_time() -> float:
@@ -888,6 +940,10 @@ func get_drag_table() -> Array[Vector2]:
 	return drag_coefficient_table.duplicate()
 
 
+func get_induced_drag_table() -> Array[Vector2]:
+	return induced_drag_coefficient_table.duplicate()
+
+
 func get_side_force_table() -> Array[Vector2]:
 	return side_force_coefficient_table.duplicate()
 
@@ -903,6 +959,10 @@ func set_lift_table(points: Array[Vector2]) -> void:
 
 func set_drag_table(points: Array[Vector2]) -> void:
 	drag_coefficient_table = _normalize_table(points)
+
+
+func set_induced_drag_table(points: Array[Vector2]) -> void:
+	induced_drag_coefficient_table = _normalize_table(points)
 
 
 func set_side_force_table(points: Array[Vector2]) -> void:
@@ -957,9 +1017,14 @@ func _update_corner_speed(delta: float) -> void:
 	_flight_model.update_corner_speed(delta)
 
 
+func _update_min_sustained_turn_speed(delta: float) -> void:
+	_flight_model.update_min_sustained_turn_speed(delta)
+
+
 func _sanitize_aero_tables() -> void:
 	lift_coefficient_table = _normalize_table(lift_coefficient_table)
 	drag_coefficient_table = _normalize_table(drag_coefficient_table)
+	induced_drag_coefficient_table = _normalize_table(induced_drag_coefficient_table)
 	side_force_coefficient_table = _normalize_table(side_force_coefficient_table)
 	control_authority_coefficient_table = _normalize_table(control_authority_coefficient_table)
 	thrust_coefficient_table = _normalize_table(thrust_coefficient_table)
@@ -1000,6 +1065,7 @@ func get_aero_tables_payload() -> Dictionary:
 	return {
 		"lift_table": AERO_TABLES_STORE.encode_points(lift_coefficient_table),
 		"drag_table": AERO_TABLES_STORE.encode_points(drag_coefficient_table),
+		"induced_drag_table": AERO_TABLES_STORE.encode_points(induced_drag_coefficient_table),
 		"control_authority_table": AERO_TABLES_STORE.encode_points(control_authority_coefficient_table),
 		"thrust_table": AERO_TABLES_STORE.encode_points(thrust_coefficient_table),
 		"params": params,
@@ -1015,8 +1081,14 @@ func apply_aero_tables_payload(payload: Dictionary) -> void:
 		set_lift_table(lift_points)
 
 	var drag_points := AERO_TABLES_STORE.decode_points(payload.get("drag_table", []))
+	var induced_drag_points := AERO_TABLES_STORE.decode_points(payload.get("induced_drag_table", []))
+	if induced_drag_points.is_empty() and not drag_points.is_empty():
+		drag_points = _convert_legacy_total_drag_table_to_profile_drag(drag_points)
 	if not drag_points.is_empty():
 		set_drag_table(drag_points)
+
+	if not induced_drag_points.is_empty():
+		set_induced_drag_table(induced_drag_points)
 
 	var control_authority_points := AERO_TABLES_STORE.decode_points(payload.get("control_authority_table", []))
 	if not control_authority_points.is_empty():
@@ -1039,10 +1111,44 @@ func _apply_params(params: Dictionary) -> void:
 		var raw: Variant = params[key]
 		if not (raw is float or raw is int):
 			continue
-		var value := float(raw)
-		if not is_finite(value):
+			var value := float(raw)
+			if not is_finite(value):
+				continue
+			set(key, maxf(value, float(spec["min"])))
+
+
+func _convert_legacy_total_drag_table_to_profile_drag(points: Array[Vector2]) -> Array[Vector2]:
+	var converted: Array[Vector2] = []
+	for point: Vector2 in points:
+		var lift_coefficient: float = _sample_local_aero_table(lift_coefficient_table, point.x)
+		var induced_drag: float = _sample_local_aero_table(induced_drag_coefficient_table, absf(lift_coefficient))
+		converted.append(Vector2(point.x, maxf(point.y - induced_drag, 0.0)))
+	return converted
+
+
+func _sample_local_aero_table(points: Array[Vector2], x_value: float) -> float:
+	if points.is_empty():
+		return 0.0
+	if points.size() == 1:
+		return points[0].y
+	if x_value <= points[0].x:
+		return points[0].y
+
+	var last_index := points.size() - 1
+	if x_value >= points[last_index].x:
+		return points[last_index].y
+
+	for index in range(last_index):
+		var left: Vector2 = points[index]
+		var right: Vector2 = points[index + 1]
+		if x_value > right.x:
 			continue
-		set(key, maxf(value, float(spec["min"])))
+		var span := right.x - left.x
+		if absf(span) <= TABLE_SORT_EPSILON:
+			return right.y
+		var t := (x_value - left.x) / span
+		return lerpf(left.y, right.y, t)
+	return points[last_index].y
 
 
 func _refresh_max_lift_aoa_limits() -> void:

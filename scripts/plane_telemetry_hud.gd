@@ -25,6 +25,7 @@ const VELOCITY_DIRECTION_TEXTURE_PATH := "res://textures/hud/heading_sprite.png"
 @onready var _relative_roll_clock: Control = %RelativeRollClock
 @onready var _vy_speed_value: Label = %VySpeedValue
 @onready var _corner_speed_value: Label = %CornerSpeedValue
+@onready var _min_sustained_turn_speed_value: Label = %MinSustainedTurnSpeedValue
 @onready var _hp_value: Label = %HpValue
 @onready var _nose_direction_indicator: TextureRect = %NoseDirectionIndicator
 @onready var _velocity_direction_indicator: TextureRect = %VelocityDirectionIndicator
@@ -168,6 +169,7 @@ func _reset_labels() -> void:
 	_roll_input_bar.value = 0.0
 	_throttle_input_bar.value = -100.0
 	_reset_force_balance_debug()
+	_reset_advanced_labels()
 	_update_net_metrics_overlay()
 
 
@@ -185,6 +187,7 @@ func _reset_advanced_labels() -> void:
 	_net_along_value.text = "--"
 	_vy_speed_value.text = "--"
 	_corner_speed_value.text = "--"
+	_min_sustained_turn_speed_value.text = "--"
 
 
 func _update_force_balance_debug() -> void:
@@ -205,6 +208,7 @@ func _update_vy_debug() -> void:
 	if _target == null:
 		_vy_speed_value.text = "--"
 		_corner_speed_value.text = "--"
+		_min_sustained_turn_speed_value.text = "--"
 		return
 
 	var vy: float = _target.get_best_climb_speed_vy()
@@ -214,6 +218,10 @@ func _update_vy_debug() -> void:
 	var corner_speed: float = _target.get_corner_speed()
 	var corner_valid: bool = _target.is_corner_speed_valid()
 	_corner_speed_value.text = ("%.1f m/s" % corner_speed) if corner_valid else "---"
+
+	var min_sustained_turn_speed: float = _target.get_min_sustained_turn_speed()
+	var min_sustained_turn_valid: bool = _target.is_min_sustained_turn_speed_valid()
+	_min_sustained_turn_speed_value.text = ("%.1f m/s" % min_sustained_turn_speed) if min_sustained_turn_valid else "---"
 
 
 func _update_relative_roll_clock() -> void:
@@ -345,6 +353,8 @@ func _collect_advanced_hud_nodes() -> void:
 		"VySpeedValue",
 		"CornerSpeedLabel",
 		"CornerSpeedValue",
+		"MinSustainedTurnSpeedLabel",
+		"MinSustainedTurnSpeedValue",
 	]
 
 	for node_name in node_names:

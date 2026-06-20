@@ -1,7 +1,7 @@
 extends RefCounted
 
 const SAVE_PATH := "user://plane_aero_tables.json"
-const SAVE_VERSION := 4
+const SAVE_VERSION := 5
 
 # Named presets. Built-ins ship in the project (read-only); user presets are
 # saved snapshots. The active config above (SAVE_PATH) is what the game flies.
