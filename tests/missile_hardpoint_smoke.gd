@@ -28,24 +28,11 @@ func _ready() -> void:
 	_assert(second_local.x > 0.0, "second missile did not spawn on right side")
 
 	print("missile_hardpoint_smoke_ok first_x=%.2f second_x=%.2f" % [first_local.x, second_local.x])
-	_finish(0)
+	get_tree().quit(0)
 
 
 func _assert(condition: bool, message: String) -> void:
 	if condition:
 		return
 	push_error(message)
-	_finish(1)
-
-
-func _finish(exit_code: int) -> void:
-	call_deferred("_deferred_finish", exit_code)
-
-
-func _deferred_finish(exit_code: int) -> void:
-	var tree := get_tree()
-	await tree.process_frame
-	var scene := tree.current_scene
-	if scene != null and is_instance_valid(scene):
-		scene.free()
-	tree.quit(exit_code)
+	get_tree().quit(1)

@@ -131,12 +131,4 @@ func _finish(exit_code: int) -> void:
 	if _finishing:
 		return
 	_finishing = true
-	call_deferred("_deferred_finish", exit_code)
-
-
-func _deferred_finish(exit_code: int) -> void:
-	await process_frame
-	var scene := current_scene
-	if scene != null and is_instance_valid(scene):
-		scene.free()
 	quit(exit_code)
