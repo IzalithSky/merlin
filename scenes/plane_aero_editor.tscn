@@ -261,8 +261,25 @@ text = "Energy-Maneuverability"
 
 [node name="EMHint" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM"]
 layout_mode = 2
-text = "Instantaneous and sustained level-turn performance, recomputed from current plane parameters."
+text = "Instantaneous and sustained turn performance, recomputed from current plane parameters. Set the flight-path angle for climbing (+) or diving (-) turns."
 autowrap_mode = 3
+
+[node name="GammaRow" type="HBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="GammaLabel" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM/GammaRow"]
+layout_mode = 2
+size_flags_vertical = 1
+text = "Flight-path angle γ (deg)"
+
+[node name="GammaSpin" type="SpinBox" parent="Panel/Margin/VBox/GraphTabs/EM/GammaRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = -85.0
+max_value = 85.0
+step = 1.0
+tooltip_text = "Climb (+) or dive (-) angle relative to the horizon. 0 = level turn."
 
 [node name="EMSummaryLabel" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM"]
 unique_name_in_owner = true

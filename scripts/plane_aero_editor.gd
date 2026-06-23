@@ -14,6 +14,7 @@ const TURN_PERFORMANCE_GRAPH_SCRIPT := preload("res://scripts/turn_performance_g
 @onready var _em_summary_label: Label = %EMSummaryLabel
 @onready var _em_legend_rate: RichTextLabel = %EMLegendRate
 @onready var _em_legend_radius: RichTextLabel = %EMLegendRadius
+@onready var _em_gamma_spin: SpinBox = %GammaSpin
 @onready var _status_label: Label = %StatusLabel
 @onready var _back_button: Button = %BackButton
 @onready var _params_grid: GridContainer = %ParamsGrid
@@ -28,6 +29,7 @@ var _suspend_param_updates := false
 var _save_queued := false
 var _dirty := false
 var _navigating := false
+var _em_gamma_deg := 0.0
 var _param_spins: Dictionary = {}
 var _current_preset: Dictionary = {
 	"source": AERO_TABLES_STORE.SOURCE_BUILTIN,
@@ -49,6 +51,7 @@ func _ready() -> void:
 	_overwrite_button.pressed.connect(_on_overwrite_pressed)
 	_save_as_button.pressed.connect(_on_save_as_pressed)
 	_delete_button.pressed.connect(_on_delete_pressed)
+	_em_gamma_spin.value_changed.connect(_on_em_gamma_changed)
 	_build_save_as_dialog()
 
 	_create_model_plane()
@@ -134,6 +137,13 @@ func _on_param_changed(value: float, key: String) -> void:
 	_mark_dirty()
 
 
+# Flight-path angle is an EM analysis input only (climb/dive turns); it is not a
+# saved plane parameter, so it just re-runs the diagram without marking dirty.
+func _on_em_gamma_changed(value: float) -> void:
+	_em_gamma_deg = value
+	_refresh_em_diagrams()
+
+
 func _refresh_graphs_from_model() -> void:
 	_suspend_graph_updates = true
 
@@ -199,7 +209,7 @@ func _refresh_em_diagrams() -> void:
 		_em_radius_graph.call("set_series", [])
 		_em_summary_label.text = ""
 		return
-	var performance: Variant = _model_plane.call("get_turn_performance", 0.0)
+	var performance: Variant = _model_plane.call("get_turn_performance", _em_gamma_deg)
 	if not (performance is Dictionary):
 		_em_rate_graph.call("set_series", [])
 		_em_radius_graph.call("set_series", [])
@@ -209,7 +219,7 @@ func _refresh_em_diagrams() -> void:
 	if performance_dict.is_empty():
 		_em_rate_graph.call("set_series", [])
 		_em_radius_graph.call("set_series", [])
-		_em_summary_label.text = "No valid turn-performance solution."
+		_em_summary_label.text = "No valid turn-performance solution at γ = %.0f°." % _em_gamma_deg
 		return
 
 	var rate_series: Array[Dictionary] = [
@@ -247,8 +257,9 @@ func _refresh_em_diagrams() -> void:
 	_em_rate_graph.call("set_series", rate_series)
 	_em_radius_graph.call("set_series", radius_series)
 	_em_summary_label.text = (
-		"Level-turn EM: corner %.0f m/s · inst %.1f °/s @ %.0f m/s · sus %.1f °/s @ %.0f m/s · inst R %.0f m @ %.0f m/s · sus R %.0f m @ %.0f m/s"
+		"EM @ γ=%.0f°: corner %.0f m/s · inst %.1f °/s @ %.0f m/s · sus %.1f °/s @ %.0f m/s · inst R %.0f m @ %.0f m/s · sus R %.0f m @ %.0f m/s"
 		% [
+			_em_gamma_deg,
 			float(performance_dict.get("corner_speed", 0.0)),
 			float(performance_dict.get("max_instantaneous_rate_deg_s", 0.0)),
 			float(performance_dict.get("max_instantaneous_rate_speed", 0.0)),
