@@ -89,6 +89,16 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	if not visible:
+		return
+	if not _listening_action.is_empty() or not _listening_analog_action.is_empty():
+		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		_on_back_pressed()
+		get_viewport().set_input_as_handled()
+
+
 func _process(_delta: float) -> void:
 	for action in KeybindingsSettings.ANALOG_ACTIONS:
 		if not _analog_rows.has(action):

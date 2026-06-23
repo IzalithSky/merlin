@@ -245,7 +245,7 @@ func _ready() -> void:
 	_crash_damage = PLANE_CRASH_DAMAGE_MODEL_SCRIPT.new(self)
 	_force_debug = PLANE_FORCE_DEBUG_ADAPTER_SCRIPT.new(self)
 	_net = PLANE_NET_ADAPTER_SCRIPT.new(self)
-	_flight_model = PLANE_FLIGHT_MODEL_SCRIPT.new(self)
+	_ensure_flight_model()
 	_shot_down_random.randomize()
 	_apply_spawn_control_defaults()
 	_sanitize_aero_tables()
@@ -255,6 +255,12 @@ func _ready() -> void:
 	_apply_local_player_mode()
 	if _health != null:
 		_health.shot_down.connect(_on_shot_down)
+
+
+func _ensure_flight_model() -> void:
+	if _flight_model != null:
+		return
+	_flight_model = PLANE_FLIGHT_MODEL_SCRIPT.new(self)
 
 
 func configure(new_peer_id: int, local_player: bool) -> void:
@@ -819,6 +825,11 @@ func get_corner_speed() -> float:
 
 func is_corner_speed_valid() -> bool:
 	return _flight_model.is_corner_speed_valid()
+
+
+func get_turn_performance(gamma_deg := 0.0) -> Dictionary:
+	_ensure_flight_model()
+	return _flight_model.get_turn_performance(gamma_deg)
 
 
 func get_cached_corner_speed() -> float:

@@ -12,10 +12,13 @@ var _failed := false
 var _last_debug_second := -1
 var _hp_synced := false
 var _hp_synced_time := 0.0
+var _finishing := false
 
 
 func _process(delta: float) -> bool:
 	if _failed:
+		return false
+	if _finishing:
 		return false
 
 	if not _booted:
@@ -35,7 +38,7 @@ func _process(delta: float) -> bool:
 		var world_gone := current_scene == null or current_scene.name != "world"
 		if world_gone or _elapsed - _hp_synced_time >= POST_SUCCESS_LINGER_SEC:
 			print("mp_client_smoke_ok hp=90.0")
-			quit(0)
+			_finish(0)
 		return false
 
 	var world := current_scene
@@ -121,4 +124,19 @@ func _fail(message: String) -> void:
 		return
 	_failed = true
 	push_error(message)
-	quit(1)
+	_finish(1)
+
+
+func _finish(exit_code: int) -> void:
+	if _finishing:
+		return
+	_finishing = true
+	call_deferred("_deferred_finish", exit_code)
+
+
+func _deferred_finish(exit_code: int) -> void:
+	await process_frame
+	var scene := current_scene
+	if scene != null and is_instance_valid(scene):
+		scene.free()
+	quit(exit_code)

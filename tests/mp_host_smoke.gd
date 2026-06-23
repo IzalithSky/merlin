@@ -17,12 +17,15 @@ var _validated_local_authority := false
 var _client_plane_first_position := Vector3.ZERO
 var _client_plane_moved := false
 var _net_metrics_enabled := false
+var _finishing := false
 
 const CLIENT_PLANE_MIN_DISPLACEMENT := 50.0
 
 
 func _process(delta: float) -> bool:
 	if _failed:
+		return false
+	if _finishing:
 		return false
 
 	if not _booted:
@@ -65,7 +68,7 @@ func _process(delta: float) -> bool:
 		and _elapsed - _damage_time >= POST_DAMAGE_SETTLE_SEC
 	):
 		print("mp_host_smoke_ok players=%d" % lobby.players.size())
-		quit(0)
+		_finish(0)
 		return false
 
 	var local_peer_id := int(lobby.get_local_peer_id())
@@ -156,4 +159,19 @@ func _fail(message: String) -> void:
 		return
 	_failed = true
 	push_error(message)
-	quit(1)
+	_finish(1)
+
+
+func _finish(exit_code: int) -> void:
+	if _finishing:
+		return
+	_finishing = true
+	call_deferred("_deferred_finish", exit_code)
+
+
+func _deferred_finish(exit_code: int) -> void:
+	await process_frame
+	var scene := current_scene
+	if scene != null and is_instance_valid(scene):
+		scene.free()
+	quit(exit_code)

@@ -3,11 +3,17 @@ extends Control
 const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
+const TURN_PERFORMANCE_GRAPH_SCRIPT := preload("res://scripts/turn_performance_graph.gd")
 
 @onready var _lift_graph: Node = %LiftGraph
 @onready var _drag_graph: Node = %DragGraph
 @onready var _control_authority_graph: Node = %ControlAuthorityGraph
 @onready var _thrust_graph: Node = %ThrustGraph
+@onready var _em_rate_graph: Control = %EMRateGraph
+@onready var _em_radius_graph: Control = %EMRadiusGraph
+@onready var _em_summary_label: Label = %EMSummaryLabel
+@onready var _em_legend_rate: RichTextLabel = %EMLegendRate
+@onready var _em_legend_radius: RichTextLabel = %EMLegendRadius
 @onready var _status_label: Label = %StatusLabel
 @onready var _back_button: Button = %BackButton
 @onready var _params_grid: GridContainer = %ParamsGrid
@@ -56,11 +62,19 @@ func _ready() -> void:
 		_model_plane.call("apply_aero_tables_payload", active)
 	_refresh_graphs_from_model()
 	_build_param_fields()
+	_configure_em_legends()
+	_refresh_em_diagrams()
 
 	_populate_preset_dropdown()
 	_update_preset_buttons()
 	_update_status()
 	_back_button.grab_focus()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		_on_back_pressed()
+		get_viewport().set_input_as_handled()
 
 
 func _create_model_plane() -> void:
@@ -70,8 +84,9 @@ func _create_model_plane() -> void:
 func _load_payload_into_model(payload: Dictionary) -> void:
 	if _model_plane != null and _model_plane.has_method("apply_aero_tables_payload"):
 		_model_plane.call("apply_aero_tables_payload", payload)
-	_refresh_graphs_from_model()
-	_refresh_param_fields()
+		_refresh_graphs_from_model()
+		_refresh_param_fields()
+		_refresh_em_diagrams()
 
 
 func _build_param_fields() -> void:
@@ -114,6 +129,7 @@ func _on_param_changed(value: float, key: String) -> void:
 	if _suspend_param_updates or _model_plane == null:
 		return
 	_model_plane.set(key, value)
+	_refresh_em_diagrams()
 	_mark_dirty()
 
 
@@ -145,6 +161,7 @@ func _on_lift_points_changed(points: Array[Vector2]) -> void:
 		return
 	if _model_plane.has_method("set_lift_table"):
 		_model_plane.call("set_lift_table", points)
+	_refresh_em_diagrams()
 	_mark_dirty()
 
 
@@ -153,6 +170,7 @@ func _on_drag_points_changed(points: Array[Vector2]) -> void:
 		return
 	if _model_plane.has_method("set_drag_table"):
 		_model_plane.call("set_drag_table", points)
+	_refresh_em_diagrams()
 	_mark_dirty()
 
 
@@ -161,6 +179,7 @@ func _on_control_authority_points_changed(points: Array[Vector2]) -> void:
 		return
 	if _model_plane.has_method("set_control_authority_table"):
 		_model_plane.call("set_control_authority_table", points)
+	_refresh_em_diagrams()
 	_mark_dirty()
 
 
@@ -169,7 +188,93 @@ func _on_thrust_points_changed(points: Array[Vector2]) -> void:
 		return
 	if _model_plane.has_method("set_thrust_table"):
 		_model_plane.call("set_thrust_table", points)
+	_refresh_em_diagrams()
 	_mark_dirty()
+
+
+func _refresh_em_diagrams() -> void:
+	if _model_plane == null or not _model_plane.has_method("get_turn_performance"):
+		_em_rate_graph.call("set_series", [])
+		_em_radius_graph.call("set_series", [])
+		_em_summary_label.text = ""
+		return
+	var performance: Variant = _model_plane.call("get_turn_performance", 0.0)
+	if not (performance is Dictionary):
+		_em_rate_graph.call("set_series", [])
+		_em_radius_graph.call("set_series", [])
+		_em_summary_label.text = "No valid turn-performance solution."
+		return
+	var performance_dict: Dictionary = performance
+	if performance_dict.is_empty():
+		_em_rate_graph.call("set_series", [])
+		_em_radius_graph.call("set_series", [])
+		_em_summary_label.text = "No valid turn-performance solution."
+		return
+
+	var rate_series: Array[Dictionary] = [
+		{
+			"points": performance_dict.get("instantaneous_rate_curve", []),
+			"marker": Vector2(
+				float(performance_dict.get("max_instantaneous_rate_speed", 0.0)),
+				float(performance_dict.get("max_instantaneous_rate_deg_s", 0.0))
+			),
+		},
+		{
+			"points": performance_dict.get("sustained_rate_curve", []),
+			"marker": Vector2(
+				float(performance_dict.get("max_sustained_rate_speed", 0.0)),
+				float(performance_dict.get("max_sustained_rate_deg_s", 0.0))
+			),
+		},
+	]
+	var radius_series: Array[Dictionary] = [
+		{
+			"points": performance_dict.get("instantaneous_radius_curve", []),
+			"marker": Vector2(
+				float(performance_dict.get("min_instantaneous_radius_speed", 0.0)),
+				float(performance_dict.get("min_instantaneous_radius_m", 0.0))
+			),
+		},
+		{
+			"points": performance_dict.get("sustained_radius_curve", []),
+			"marker": Vector2(
+				float(performance_dict.get("min_sustained_radius_speed", 0.0)),
+				float(performance_dict.get("min_sustained_radius_m", 0.0))
+			),
+		},
+	]
+	_em_rate_graph.call("set_series", rate_series)
+	_em_radius_graph.call("set_series", radius_series)
+	_em_summary_label.text = (
+		"Level-turn EM: corner %.0f m/s · inst %.1f °/s @ %.0f m/s · sus %.1f °/s @ %.0f m/s · inst R %.0f m @ %.0f m/s · sus R %.0f m @ %.0f m/s"
+		% [
+			float(performance_dict.get("corner_speed", 0.0)),
+			float(performance_dict.get("max_instantaneous_rate_deg_s", 0.0)),
+			float(performance_dict.get("max_instantaneous_rate_speed", 0.0)),
+			float(performance_dict.get("max_sustained_rate_deg_s", 0.0)),
+			float(performance_dict.get("max_sustained_rate_speed", 0.0)),
+			float(performance_dict.get("min_instantaneous_radius_m", 0.0)),
+			float(performance_dict.get("min_instantaneous_radius_speed", 0.0)),
+			float(performance_dict.get("min_sustained_radius_m", 0.0)),
+			float(performance_dict.get("min_sustained_radius_speed", 0.0)),
+		]
+	)
+
+
+func _configure_em_legends() -> void:
+	_em_legend_rate.bbcode_enabled = true
+	_em_legend_radius.bbcode_enabled = true
+	var inst_color := TURN_PERFORMANCE_GRAPH_SCRIPT.get_series_a_color().to_html()
+	var sus_color := TURN_PERFORMANCE_GRAPH_SCRIPT.get_series_b_color().to_html()
+	var marker_color := TURN_PERFORMANCE_GRAPH_SCRIPT.get_marker_color().to_html()
+	_em_legend_rate.text = (
+		"[color=#%s]*[/color] instantaneous  [color=#%s]*[/color] sustained  [color=#%s]*[/color] optimum"
+		% [inst_color, sus_color, marker_color]
+	)
+	_em_legend_radius.text = (
+		"[color=#%s]*[/color] instantaneous  [color=#%s]*[/color] sustained  [color=#%s]*[/color] minima"
+		% [inst_color, sus_color, marker_color]
+	)
 
 
 func _queue_save() -> void:

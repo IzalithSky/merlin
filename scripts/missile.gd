@@ -26,6 +26,7 @@ signal died(exploded: bool, hit_position: Vector3)
 
 var target: Node3D = null
 var host: RigidBody3D = null
+@onready var _engine_sound: AudioStreamPlayer3D = $EngineSound
 var _is_replica := false
 
 var _time_since_launch: float = 0.0
@@ -164,6 +165,13 @@ func _die() -> void:
 	_finish_trail()
 	died.emit(_exploded, death_pos)
 	queue_free()
+
+
+func _exit_tree() -> void:
+	if _engine_sound == null:
+		return
+	_engine_sound.stop()
+	_engine_sound.stream = null
 
 
 func _spawn_explosion() -> void:

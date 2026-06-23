@@ -43,6 +43,17 @@ func _ready() -> void:
 	_new_game_button.grab_focus()
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		if _keybindings_panel.visible:
+			_on_keybindings_back_requested()
+			get_viewport().set_input_as_handled()
+			return
+		if _options_panel.visible:
+			_on_options_back_requested()
+			get_viewport().set_input_as_handled()
+
+
 func _populate_preset_option(option: OptionButton) -> void:
 	option.clear()
 	var active: Dictionary = AERO_TABLES_STORE.load_payload()

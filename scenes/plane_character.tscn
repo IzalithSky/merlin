@@ -76,6 +76,5 @@ script = ExtResource("12_plane_sound")
 
 [node name="EngineSound" type="AudioStreamPlayer3D" parent="PlaneSound" unique_id=788904196]
 stream = ExtResource("13_engine_sound")
-autoplay = true
 max_distance = 2000.0
 doppler_tracking = 2

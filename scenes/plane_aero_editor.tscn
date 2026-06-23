@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=4]
+[gd_scene load_steps=4 format=4]
 
 [ext_resource type="Script" path="res://scripts/plane_aero_editor.gd" id="1_editor"]
 [ext_resource type="Script" path="res://scripts/curve_graph_editor.gd" id="2_graph"]
+[ext_resource type="Script" path="res://scripts/turn_performance_graph.gd" id="3_turn_graph"]
 
 [node name="PlaneAeroEditor" type="Control"]
 layout_mode = 3
@@ -31,7 +32,7 @@ grow_horizontal = 2
 grow_vertical = 0
 color = Color(0.118, 0.302, 0.353, 0.38)
 
-[node name="CenterContainer" type="CenterContainer" parent="."]
+[node name="Panel" type="PanelContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -39,101 +40,108 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="Panel" type="PanelContainer" parent="CenterContainer"]
-custom_minimum_size = Vector2(1180, 820)
-layout_mode = 2
-
-[node name="Margin" type="MarginContainer" parent="CenterContainer/Panel"]
+[node name="Margin" type="MarginContainer" parent="Panel"]
 layout_mode = 2
 theme_override_constants/margin_left = 24
 theme_override_constants/margin_top = 20
 theme_override_constants/margin_right = 24
 theme_override_constants/margin_bottom = 20
 
-[node name="VBox" type="VBoxContainer" parent="CenterContainer/Panel/Margin"]
+[node name="VBox" type="VBoxContainer" parent="Panel/Margin"]
 layout_mode = 2
+size_flags_vertical = 3
 theme_override_constants/separation = 12
 
-[node name="TitleLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="HeaderRow" type="HBoxContainer" parent="Panel/Margin/VBox"]
 layout_mode = 2
+
+[node name="TitleLabel" type="Label" parent="Panel/Margin/VBox/HeaderRow"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 32
 text = "Plane Aerodynamics Editor"
 
-[node name="HintLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="BackButton" type="Button" parent="Panel/Margin/VBox/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(170, 46)
+layout_mode = 2
+text = "Back To Main Menu"
+
+[node name="HintLabel" type="Label" parent="Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
 text = "Double-click add, drag point to move, right-click remove. Drag empty graph space (left or middle) to pan. Wheel zoom, Shift+Wheel X-only, Alt+Wheel Y-only, middle-double-click reset."
 autowrap_mode = 3
 
-[node name="StatusLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="StatusLabel" type="Label" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
 text = ""
 
-[node name="PresetBar" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="PresetBar" type="HBoxContainer" parent="Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="PresetLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox/PresetBar"]
+[node name="PresetLabel" type="Label" parent="Panel/Margin/VBox/PresetBar"]
 layout_mode = 2
 size_flags_vertical = 4
 text = "Preset:"
 
-[node name="PresetOption" type="OptionButton" parent="CenterContainer/Panel/Margin/VBox/PresetBar"]
+[node name="PresetOption" type="OptionButton" parent="Panel/Margin/VBox/PresetBar"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(300, 0)
 layout_mode = 2
 
-[node name="OverwriteButton" type="Button" parent="CenterContainer/Panel/Margin/VBox/PresetBar"]
+[node name="OverwriteButton" type="Button" parent="Panel/Margin/VBox/PresetBar"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Overwrite"
 
-[node name="SaveAsButton" type="Button" parent="CenterContainer/Panel/Margin/VBox/PresetBar"]
+[node name="SaveAsButton" type="Button" parent="Panel/Margin/VBox/PresetBar"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Save As..."
 
-[node name="DeleteButton" type="Button" parent="CenterContainer/Panel/Margin/VBox/PresetBar"]
+[node name="DeleteButton" type="Button" parent="Panel/Margin/VBox/PresetBar"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Delete"
 
-[node name="ParamsSection" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="ParamsSection" type="VBoxContainer" parent="Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="ParamsTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/ParamsSection"]
+[node name="ParamsTitle" type="Label" parent="Panel/Margin/VBox/ParamsSection"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Parameters"
 
-[node name="ParamsGrid" type="GridContainer" parent="CenterContainer/Panel/Margin/VBox/ParamsSection"]
+[node name="ParamsGrid" type="GridContainer" parent="Panel/Margin/VBox/ParamsSection"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/h_separation = 18
 theme_override_constants/v_separation = 8
 columns = 4
 
-[node name="GraphTabs" type="TabContainer" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="GraphTabs" type="TabContainer" parent="Panel/Margin/VBox"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="Lift" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/GraphTabs"]
+[node name="Lift" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="LiftTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Lift"]
+[node name="LiftTitle" type="Label" parent="Panel/Margin/VBox/GraphTabs/Lift"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Lift Coefficient (CL) vs AoA (deg)"
 
-[node name="LiftGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Lift"]
+[node name="LiftGraph" type="Control" parent="Panel/Margin/VBox/GraphTabs/Lift"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(1040, 450)
+custom_minimum_size = Vector2(0, 0)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -150,20 +158,20 @@ x_axis_label = "AoA (deg)"
 y_axis_label = "CL"
 tick_decimals = 2
 
-[node name="Drag" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/GraphTabs"]
+[node name="Drag" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="DragTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Drag"]
+[node name="DragTitle" type="Label" parent="Panel/Margin/VBox/GraphTabs/Drag"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Drag Coefficient (CD) vs AoA (deg)"
 
-[node name="DragGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Drag"]
+[node name="DragGraph" type="Control" parent="Panel/Margin/VBox/GraphTabs/Drag"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(1040, 450)
+custom_minimum_size = Vector2(0, 0)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -180,20 +188,20 @@ x_axis_label = "AoA (deg)"
 y_axis_label = "CD"
 tick_decimals = 3
 
-[node name="Control" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/GraphTabs"]
+[node name="Control" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="ControlTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Control"]
+[node name="ControlTitle" type="Label" parent="Panel/Margin/VBox/GraphTabs/Control"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Control Authority Coefficient vs Airspeed (m/s)"
 
-[node name="ControlAuthorityGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Control"]
+[node name="ControlAuthorityGraph" type="Control" parent="Panel/Margin/VBox/GraphTabs/Control"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(1040, 450)
+custom_minimum_size = Vector2(0, 0)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -210,20 +218,20 @@ x_axis_label = "Airspeed (m/s)"
 y_axis_label = "Control coef"
 tick_decimals = 2
 
-[node name="Thrust" type="VBoxContainer" parent="CenterContainer/Panel/Margin/VBox/GraphTabs"]
+[node name="Thrust" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="ThrustTitle" type="Label" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Thrust"]
+[node name="ThrustTitle" type="Label" parent="Panel/Margin/VBox/GraphTabs/Thrust"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Engine Thrust Multiplier vs Forward Speed (m/s)"
 
-[node name="ThrustGraph" type="Control" parent="CenterContainer/Panel/Margin/VBox/GraphTabs/Thrust"]
+[node name="ThrustGraph" type="Control" parent="Panel/Margin/VBox/GraphTabs/Thrust"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(1040, 450)
+custom_minimum_size = Vector2(0, 0)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -240,15 +248,79 @@ x_axis_label = "Forward speed (m/s)"
 y_axis_label = "Thrust ×"
 tick_decimals = 2
 
-[node name="Footer" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
-layout_mode = 2
-
-[node name="Spacer" type="Control" parent="CenterContainer/Panel/Margin/VBox/Footer"]
+[node name="EM" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs"]
 layout_mode = 2
 size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
 
-[node name="BackButton" type="Button" parent="CenterContainer/Panel/Margin/VBox/Footer"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(170, 46)
+[node name="EMTitle" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM"]
 layout_mode = 2
-text = "Back To Main Menu"
+theme_override_font_sizes/font_size = 18
+text = "Energy-Maneuverability"
+
+[node name="EMHint" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM"]
+layout_mode = 2
+text = "Instantaneous and sustained level-turn performance, recomputed from current plane parameters."
+autowrap_mode = 3
+
+[node name="EMSummaryLabel" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="EMGraphs" type="HBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="EMRateColumn" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="EMRateGraph" type="Control" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRateColumn"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("3_turn_graph")
+x_axis_label = "Speed (m/s)"
+y_axis_label = "Turn rate (deg/s)"
+y_decimals = 1
+x_decimals = 0
+
+[node name="EMLegendRate" type="RichTextLabel" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRateColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+bbcode_enabled = true
+fit_content = true
+autowrap_mode = 3
+
+[node name="EMRadiusColumn" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="EMRadiusGraph" type="Control" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRadiusColumn"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("3_turn_graph")
+x_axis_label = "Speed (m/s)"
+y_axis_label = "Turn radius (m)"
+y_decimals = 0
+x_decimals = 0
+
+[node name="EMLegendRadius" type="RichTextLabel" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRadiusColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+bbcode_enabled = true
+fit_content = true
+autowrap_mode = 3

@@ -242,6 +242,10 @@ func update_corner_speed(delta: float) -> void:
 	_update_corner_speed(delta)
 
 
+func get_turn_performance(gamma_deg := 0.0) -> Dictionary:
+	return _get_turn_performance(gamma_deg)
+
+
 func get_effective_pitch_input() -> float:
 	return _get_effective_pitch_input()
 
@@ -750,6 +754,187 @@ func _calculate_corner_speed() -> float:
 			corner_speed = speed
 
 	return corner_speed
+
+
+func _get_turn_performance(gamma_deg := 0.0) -> Dictionary:
+	var gamma_rad := deg_to_rad(gamma_deg)
+	var cos_gamma := cos(gamma_rad)
+	if absf(cos_gamma) <= 0.0001:
+		return {}
+
+	var weight := _get_weight_force_magnitude()
+	if weight <= 0.0:
+		return {}
+
+	var gravity := weight / maxf(_plane.mass, 0.0001)
+	var cl_max_aoa := maxf(_plane._positive_max_lift_aoa_deg, 0.0)
+	var cl_max := maxf(_sample_aero_table(_plane.lift_coefficient_table, cl_max_aoa), 0.0)
+	if cl_max <= 0.0:
+		return {}
+
+	var speed_range := _get_turn_performance_speed_range()
+	var min_speed := speed_range.x
+	var max_speed := speed_range.y
+	var sample_count := maxi(maxi(_plane.corner_speed_sample_count, _plane.sustain_turn_vy_sample_count), 64) * 5
+	var aoa_sample_count := maxi(_plane.sustain_turn_limiter_samples, 48)
+	var aoa_step := cl_max_aoa / float(aoa_sample_count)
+
+	var instantaneous_rate_curve: Array[Vector2] = []
+	var instantaneous_radius_curve: Array[Vector2] = []
+	var sustained_rate_curve: Array[Vector2] = []
+	var sustained_radius_curve: Array[Vector2] = []
+
+	var max_instantaneous_rate := -INF
+	var max_instantaneous_rate_speed := 0.0
+	var min_instantaneous_radius := INF
+	var min_instantaneous_radius_speed := 0.0
+	var max_sustained_rate := -INF
+	var max_sustained_rate_speed := 0.0
+	var min_sustained_radius := INF
+	var min_sustained_radius_speed := 0.0
+
+	for sample_index in range(sample_count + 1):
+		var sample_ratio := float(sample_index) / float(sample_count)
+		var speed := lerpf(min_speed, max_speed, sample_ratio)
+		if speed <= 0.0:
+			continue
+
+		var instantaneous_load_factor := _get_instantaneous_load_factor(speed, weight, gravity, cl_max)
+		var instantaneous_solution := _get_turn_solution(speed, instantaneous_load_factor, gamma_rad, cos_gamma, gravity)
+		if not instantaneous_solution.is_empty():
+			var rate_deg := float(instantaneous_solution["rate_deg_s"])
+			var radius_m := float(instantaneous_solution["radius_m"])
+			instantaneous_rate_curve.append(Vector2(speed, rate_deg))
+			instantaneous_radius_curve.append(Vector2(speed, radius_m))
+			if rate_deg > max_instantaneous_rate:
+				max_instantaneous_rate = rate_deg
+				max_instantaneous_rate_speed = speed
+			if radius_m < min_instantaneous_radius:
+				min_instantaneous_radius = radius_m
+				min_instantaneous_radius_speed = speed
+		else:
+			instantaneous_rate_curve.append(Vector2(speed, 0.0))
+
+		var sustained_load_factor := _get_sustained_load_factor(speed, gamma_rad, weight, cl_max_aoa, aoa_step, aoa_sample_count)
+		var sustained_solution := _get_turn_solution(speed, sustained_load_factor, gamma_rad, cos_gamma, gravity)
+		if not sustained_solution.is_empty():
+			var sustained_rate_deg := float(sustained_solution["rate_deg_s"])
+			var sustained_radius_m := float(sustained_solution["radius_m"])
+			sustained_rate_curve.append(Vector2(speed, sustained_rate_deg))
+			sustained_radius_curve.append(Vector2(speed, sustained_radius_m))
+			if sustained_rate_deg > max_sustained_rate:
+				max_sustained_rate = sustained_rate_deg
+				max_sustained_rate_speed = speed
+			if sustained_radius_m < min_sustained_radius:
+				min_sustained_radius = sustained_radius_m
+				min_sustained_radius_speed = speed
+		else:
+			sustained_rate_curve.append(Vector2(speed, 0.0))
+
+	var corner_speed := _calculate_corner_speed()
+	return {
+		"gamma_deg": gamma_deg,
+		"corner_speed": corner_speed,
+		"instantaneous_rate_curve": instantaneous_rate_curve,
+		"instantaneous_radius_curve": instantaneous_radius_curve,
+		"sustained_rate_curve": sustained_rate_curve,
+		"sustained_radius_curve": sustained_radius_curve,
+		"max_instantaneous_rate_deg_s": max_instantaneous_rate if is_finite(max_instantaneous_rate) else 0.0,
+		"max_instantaneous_rate_speed": max_instantaneous_rate_speed,
+		"min_instantaneous_radius_m": min_instantaneous_radius if is_finite(min_instantaneous_radius) else 0.0,
+		"min_instantaneous_radius_speed": min_instantaneous_radius_speed,
+		"max_sustained_rate_deg_s": max_sustained_rate if is_finite(max_sustained_rate) else 0.0,
+		"max_sustained_rate_speed": max_sustained_rate_speed,
+		"min_sustained_radius_m": min_sustained_radius if is_finite(min_sustained_radius) else 0.0,
+		"min_sustained_radius_speed": min_sustained_radius_speed,
+	}
+
+
+func _get_turn_performance_speed_range() -> Vector2:
+	var min_speed := maxf(maxf(_plane.corner_speed_sample_min_speed, _plane.sustain_turn_vy_sample_min_speed), 10.0)
+	var max_speed := maxf(maxf(_plane.corner_speed_sample_max_speed, _plane.sustain_turn_vy_sample_max_speed), min_speed)
+	for point in _plane.thrust_coefficient_table:
+		min_speed = minf(min_speed, point.x)
+		max_speed = maxf(max_speed, point.x)
+	for point in _plane.control_authority_coefficient_table:
+		min_speed = minf(min_speed, point.x)
+		max_speed = maxf(max_speed, point.x)
+	min_speed = maxf(min_speed, 0.1)
+	max_speed = maxf(max_speed, min_speed)
+	return Vector2(min_speed, max_speed)
+
+
+func _get_instantaneous_load_factor(speed: float, weight: float, gravity: float, cl_max: float) -> float:
+	var dynamic_pressure := 0.5 * _plane.air_density * speed * speed
+	var lift_limit := (dynamic_pressure * _plane.reference_area * cl_max) / weight
+
+	var control_coefficient := maxf(_sample_aero_table(_plane.control_authority_coefficient_table, speed), 0.0)
+	var available_torque := _plane.base_control_torque * control_coefficient * _plane.max_pitch
+	var pitch_linear_drag := maxf(_plane.extra_angular_drag_linear_coefficients.x, 0.0)
+	var pitch_quadratic_drag := maxf(_plane.extra_angular_drag_quadratic_coefficients.x, 0.0)
+	var max_pitch_rate := _solve_max_rate_from_torque(available_torque, pitch_linear_drag, pitch_quadratic_drag)
+	var control_limit := max_pitch_rate * speed / gravity
+	return minf(lift_limit, control_limit)
+
+
+func _get_sustained_load_factor(
+	speed: float,
+	gamma_rad: float,
+	weight: float,
+	_max_aoa: float,
+	aoa_step: float,
+	aoa_sample_count: int
+) -> float:
+	var dynamic_pressure := 0.5 * _plane.air_density * speed * speed
+	var lift_scale := dynamic_pressure * _plane.reference_area
+	if lift_scale <= 0.0001:
+		return 0.0
+
+	var drag_budget := _get_available_thrust_at_speed(speed) - weight * sin(gamma_rad)
+	if drag_budget <= 0.0:
+		return 0.0
+
+	var best_cl := 0.0
+	for aoa_index in range(aoa_sample_count + 1):
+		var aoa := float(aoa_index) * aoa_step
+		var drag_coefficient := maxf(_sample_aero_table(_plane.drag_coefficient_table, aoa), 0.0)
+		var total_drag := dynamic_pressure * _plane.reference_area * drag_coefficient
+		total_drag += maxf(_plane.extra_linear_drag_quadratic_coefficient, 0.0) * speed * speed
+		if total_drag > drag_budget:
+			continue
+		var lift_coefficient := _sample_aero_table(_plane.lift_coefficient_table, aoa)
+		best_cl = maxf(best_cl, lift_coefficient)
+
+	return (lift_scale * best_cl) / weight
+
+
+func _get_turn_solution(speed: float, load_factor: float, gamma_rad: float, cos_gamma: float, gravity: float) -> Dictionary:
+	var threshold := cos(gamma_rad)
+	if load_factor <= threshold:
+		return {}
+	var radical := load_factor * load_factor - threshold * threshold
+	if radical <= 0.0:
+		return {}
+	var rate_rad_s := gravity * sqrt(radical) / (speed * cos_gamma)
+	if rate_rad_s <= 0.0 or not is_finite(rate_rad_s):
+		return {}
+	return {
+		"rate_deg_s": rad_to_deg(rate_rad_s),
+		"radius_m": speed * cos_gamma / rate_rad_s,
+	}
+
+
+func _solve_max_rate_from_torque(available_torque: float, linear_drag: float, quadratic_drag: float) -> float:
+	if available_torque <= 0.0:
+		return 0.0
+	if quadratic_drag <= 0.0:
+		if linear_drag <= 0.0:
+			return INF
+		return available_torque / linear_drag
+	var discriminant := linear_drag * linear_drag + 4.0 * quadratic_drag * available_torque
+	if discriminant <= 0.0:
+		return 0.0
+	return (-linear_drag + sqrt(discriminant)) / (2.0 * quadratic_drag)
 
 
 func _get_current_bank_load_factor() -> float:

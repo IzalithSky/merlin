@@ -30,7 +30,14 @@ func _ready() -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
-		_set_open(not _is_open)
+		if not _is_open:
+			_set_open(true)
+		elif _keybindings_panel.visible:
+			_on_keybindings_back_requested()
+		elif _options_panel.visible:
+			_on_options_back_requested()
+		else:
+			_set_open(false)
 		get_viewport().set_input_as_handled()
 
 

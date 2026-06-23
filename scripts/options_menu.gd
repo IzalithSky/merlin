@@ -33,6 +33,14 @@ func _ready() -> void:
 	_sync_from_settings()
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	if not visible:
+		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+		_on_back_pressed()
+		get_viewport().set_input_as_handled()
+
+
 func focus_first() -> void:
 	_debug_force_arrows_check.grab_focus()
 

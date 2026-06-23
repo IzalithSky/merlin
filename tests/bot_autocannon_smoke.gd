@@ -33,11 +33,24 @@ func _ready() -> void:
 	_assert(bullets.size() >= 1, "expected bot to fire autocannon")
 
 	print("bot_autocannon_smoke_ok bullet_count=%d" % bullets.size())
-	get_tree().quit(0)
+	_finish(0)
 
 
 func _assert(condition: bool, message: String) -> void:
 	if condition:
 		return
 	push_error(message)
-	get_tree().quit(1)
+	_finish(1)
+
+
+func _finish(exit_code: int) -> void:
+	call_deferred("_deferred_finish", exit_code)
+
+
+func _deferred_finish(exit_code: int) -> void:
+	var tree := get_tree()
+	await tree.process_frame
+	var scene := tree.current_scene
+	if scene != null and is_instance_valid(scene):
+		scene.free()
+	tree.quit(exit_code)
