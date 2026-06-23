@@ -81,7 +81,6 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 
 @export var min_acceptable_forward_speed: float = 50.0
 @export var reserve_forward_speed: float = 80.0
-@export var max_lift_turn_min_forward_speed: float = 80.0
 @export var default_altitude: float = 5000.0
 @export var min_ground_clearance: float = 300.0
 @export var ground_clearance_tolerance: float = 25.0
@@ -114,8 +113,6 @@ var _ground_clearance := INF
 var _next_ground_probe_time := 0.0
 var _checkpoint_index := 0
 var _correction_turn_active := false
-var _last_sustain_turn_limiter_enabled := true
-var _has_applied_turn_limiter_mode := false
 var _debug_adapter
 var _engagement
 var _frame_position := Vector3.ZERO
@@ -228,7 +225,6 @@ func get_follow_target_debug_label() -> String:
 
 func _update_flight_controls(delta: float) -> void:
 	var forward_speed := _get_forward_speed()
-	_update_turn_limiter_mode(forward_speed)
 	_update_collision_threat()
 	_flight_state = _select_flight_state(forward_speed)
 
@@ -687,19 +683,6 @@ func _get_altitude_pitch_target(target_altitude: float) -> float:
 
 func _get_recovery_exit_speed() -> float:
 	return maxf(reserve_forward_speed, min_acceptable_forward_speed)
-
-
-func _update_turn_limiter_mode(forward_speed: float) -> void:
-	var threshold := maxf(max_lift_turn_min_forward_speed, 0.0)
-	var sustain_limiter_enabled := forward_speed < threshold
-	if _flight_state == FlightState.GROUND_AVOIDANCE or _flight_state == FlightState.COLLISION_AVOIDANCE:
-		sustain_limiter_enabled = false
-	if _has_applied_turn_limiter_mode and sustain_limiter_enabled == _last_sustain_turn_limiter_enabled:
-		return
-
-	_has_applied_turn_limiter_mode = true
-	_last_sustain_turn_limiter_enabled = sustain_limiter_enabled
-	_plane.set_sustain_turn_limiter_runtime_enabled(sustain_limiter_enabled)
 
 
 func _update_collision_threat() -> void:

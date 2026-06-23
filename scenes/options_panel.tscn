@@ -39,7 +39,7 @@ text = "Show bot debug visuals"
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
-text = "Show advanced HUD (AoA and below)"
+text = "Show advanced HUD (AoA and inputs)"
 
 [node name="RelativeRollClockCheck" type="CheckButton" parent="Margin/VBox"]
 unique_name_in_owner = true

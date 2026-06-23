@@ -95,17 +95,10 @@ The pitch and yaw requests are rate-damped against local angular velocity. This 
 
 Roll behavior during recovery depends on context. If the bot has a follow target, it rolls its lift vector toward the target or player killzone point while recovering speed. If it has no target and is already slow or steeply diving, wings-level correction is neutralized so it does not keep rolling while it is trying to build speed. Wings-level correction is only used in untargeted recovery once the aircraft has enough speed and is not in a steep dive.
 
-## Turn Limiter Mode
-The plane controller has two pitch-input limiter layers:
+## Turn Limiting
+The plane controller applies max-lift pitch limiting, which prevents pitch input from exceeding the configured max-lift AoA.
 
-- max-lift limiting, which prevents pitch input from exceeding the configured max-lift AoA
-- sustain-turn limiting, which further reduces pitch input when the requested turn would spend energy faster than available thrust can sustain
-
-The bot can switch the sustain-turn limiter at runtime. Below its max-lift-turn speed threshold, sustain-turn limiting stays enabled so the bot preserves energy. At or above that threshold, the bot disables sustain-turn limiting, leaving max-lift limiting as the active cap.
-
-During ground avoidance and collision avoidance the bot unconditionally forces max-lift mode regardless of current speed. Both states demand maximum pitch authority; sustain-turn limiting would restrict the pull available precisely when it is most critical.
-
-This does not change forces, torques, velocity, or AoA directly. The bot does not run its own AoA, sustain-turn, or max-load pitch limiter. It only sends normalized control intentions; the plane controller decides how much pitch input is physically accepted.
+This does not change forces, torques, velocity, or AoA directly. The bot does not run its own AoA or max-load pitch limiter. It only sends normalized control intentions; the plane controller decides how much pitch input is physically accepted.
 
 ## Ground Avoidance
 Ground avoidance is a reactive safety layer.
@@ -200,24 +193,22 @@ Direction-to-control flow:
 
 Roll control is rate-damped. The pilot converts bank or lift-vector error into a desired local roll rate, compares that against the aircraft's current local roll angular velocity, and only then produces roll input. This lets the bot back off or counter-roll before it crosses the target bank angle, instead of waiting for angle error alone to change sign.
 
-Pitch targets are behavior requests, not physical guarantees. The bot may request full pull for a hard turn or escape, but the plane controller remains responsible for max-lift and sustain-turn limiting.
+Pitch targets are behavior requests, not physical guarantees. The bot may request full pull for a hard turn or escape, but the plane controller remains responsible for max-lift limiting.
 
 For small lateral target errors near the nose, the bot can briefly pitch down to increase angular separation before doing the normal roll-and-pull turn. This avoids tiny same-heading errors becoming endless shallow corrections.
 
 ## Difficulty Tuning
-Bot aggression and energy management are governed by three speed thresholds exported on `PlaneBotPilot`:
+Bot aggression and energy management are governed by two speed thresholds exported on `PlaneBotPilot`:
 
 - `min_acceptable_forward_speed` — the speed below which the bot abandons its target and enters recovery.
 - `reserve_forward_speed` — the speed it must reach before it will exit recovery mode (hysteresis prevents flicker).
-- `max_lift_turn_min_forward_speed` — the speed above which sustain-turn limiting is disabled, giving the bot full pitch authority for hard turns.
 
-All three thresholds are absolute values in m/s, but their effective meaning depends on the plane model's natural flight envelope. The recommended practice is to set them relative to the plane's optimal cruise and turn speeds:
+Both thresholds are absolute values in m/s, but their effective meaning depends on the plane model's natural flight envelope. The recommended practice is to set them relative to the plane's optimal cruise and turn speeds:
 
 - A bot that recovers early (high thresholds relative to cruise speed) maintains its energy advantage and is harder to defeat in extended maneuver fights.
 - A bot that recovers late (low thresholds) can be drained into stall more easily by a skilled player.
-- `max_lift_turn_min_forward_speed` controls when the bot is allowed to trade energy for turn rate; a high value means the bot usually fights energy-conservatively, a low value means it will pull hard even at modest speed.
 
-As a practical baseline, set `min_acceptable_forward_speed` near the plane's minimum safe handling speed, `reserve_forward_speed` near comfortable cruise, and `max_lift_turn_min_forward_speed` slightly above that. Raising all three uniformly makes the bot more conservative and harder to exploit; lowering them makes the bot more reckless and easier to separate from energy.
+As a practical baseline, set `min_acceptable_forward_speed` near the plane's minimum safe handling speed and `reserve_forward_speed` near comfortable cruise. Raising both makes the bot more conservative and harder to exploit; lowering them makes the bot more reckless and easier to separate from energy.
 
 ## Export Reference
 All `@export` fields on `PlaneBotPilot` are set by `PlaneBotSetup` or the bot scene and can be overridden per-bot without touching the script.
@@ -235,7 +226,6 @@ All `@export` fields on `PlaneBotPilot` are set by `PlaneBotSetup` or the bot sc
 |---|---|---|---|
 | `min_acceptable_forward_speed` | 50 | m/s | Forward speed below which the bot abandons its target and enters speed recovery. |
 | `reserve_forward_speed` | 90 | m/s | Speed the bot must reach before it exits recovery. Creates hysteresis to prevent flicker. |
-| `max_lift_turn_min_forward_speed` | 110 | m/s | Speed above which sustain-turn limiting is disabled, allowing the bot to trade energy for turn rate. |
 
 ### Ground avoidance
 | Export | Default | Unit | Role |

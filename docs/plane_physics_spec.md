@@ -201,13 +201,12 @@ The limiter stack is:
 ```text
 requested_pitch
   -> max_lift_turn_limiter
-  -> sustain_turn_limiter
   -> limited_pitch
 ```
 
-Both player and bot input pass through this path unless the caller explicitly changes limiter mode.
+Both player and bot input pass through this path.
 
-For the local player, turning pitch assist off bypasses both limiter stages entirely and feeds the requested pitch input straight into control torque.
+For the local player, turning pitch assist off bypasses the limiter entirely and feeds the requested pitch input straight into control torque.
 
 ### Max-Lift Turn Limiter
 The max-lift limiter prevents pitch input from commanding angle of attack beyond the peak lift region of the lift curve.
@@ -225,55 +224,6 @@ Behavior:
 - Nose-up recovery remains available.
 
 The result is a control limiter, not a stall simulation. Stall-like behavior must come from the shape of the lift and drag tables.
-
-### Sustain-Turn Limiter
-The sustain limiter keeps nose-up pitch energy-aware. It runs in one of two modes depending on whether the aircraft is trying to climb. Either mode only limits pitch input; neither changes actual forces.
-
-**Drag-balance mode (default).** When the aircraft is not climbing, the limiter restricts pitch input to an angle of attack whose drag demand can be supported by available forward force.
-
-Available forward force is projected along the current airflow/movement direction:
-
-```text
-available = dot(F_thrust, airflow_direction) + dot(F_gravity, airflow_direction)
-```
-
-This captures the key energy effect:
-
-- In descending flight, gravity contributes to available forward force.
-- In climbing flight, gravity subtracts from available forward force.
-
-For candidate angles of attack, the limiter estimates required drag using the drag table and extra drag terms:
-
-```text
-required = estimated_drag_at_candidate_aoa * drag_margin
-```
-
-The limiter samples candidate AoA values from neutral toward the max-lift bound and keeps the largest candidate whose required force does not exceed available force.
-
-**Vy speed-margin mode (climbing).** Drag-balance mode structurally forbids a sustained climb: a climb spends energy, and because climbing makes gravity *subtract* from available forward force, the available term collapses and the pitch cap craters to zero exactly when the pilot is trying to climb. To allow the intended speed-for-altitude trade, the limiter switches modes when the aircraft is climbing.
-
-The climb switch engages when both:
-
-- a valid best-climb speed (Vy) is known, and
-- the aircraft is gaining altitude — either world vertical speed is positive past a hysteresis dead-band, or the pilot is commanding enough nose-up pitch intent to start a climb before altitude has visibly risen.
-
-In this mode, nose-up authority is gated by how far current airspeed sits above Vy:
-
-```text
-authority = clamp((air_speed - Vy) / margin_speed, 0, 1)
-```
-
-Pitch authority is full while airspeed is at or above `Vy + margin_speed` and fades linearly to zero as airspeed bleeds down to Vy. This lets the aircraft convert excess speed into a steep, sustained climb while arresting the pull near Vy rather than dragging toward stall.
-
-Best-climb speed Vy is the air-relative speed that maximizes excess-power climb potential — where `(available_thrust - drag) * speed` is greatest. It is recomputed on a periodic interval from the current aero tables under a max-load-factor constraint, and is exposed to the HUD (value, validity, and whether the Vy gate is currently active).
-
-The sustain limiter still only limits pitch input in either mode. It does not cheat by changing actual forces.
-
-Bot policy:
-
-- While recovering low speed, the bot keeps sustain limiting active.
-- Once above its recovery exit speed, the bot disables sustain limiting and relies on max-lift limiting only.
-- During ground avoidance and collision avoidance the bot forces sustain limiting off regardless of speed, so the full max-lift pull is available when it is most needed.
 
 ## Aerodynamic Coefficient Tables
 Aerodynamic behavior comes from editable tables:
@@ -414,9 +364,7 @@ The force debug renderer can display the major force and torque contributors:
 - roll torque
 - alignment torque
 
-The HUD can display basic flight telemetry and optional advanced rows. Advanced rows include angle of attack, input bars, and a force-balance projection.
-
-The main telemetry block also shows live `Pitch Assist`, `Stabilizers`, and `Input Decay` indicators so the player can see whether the limiter path, stabilization torques, and decay-to-neutral behavior are currently active.
+The main telemetry block also shows live `Pitch Assist`, `Stabilizers`, and `Input Decay` indicators so the player can see whether the limiter path, stabilization torques, and decay-to-neutral behavior are currently active. The optional advanced HUD rows show AoA and normalized pitch/yaw/roll/throttle inputs.
 
 The local follow camera also applies a tunable shake when angle of attack exceeds the positive or negative max-lift AoA derived from the lift table. The shake magnitude is parameterized on the camera rig and scales with how far past the max-lift threshold the current AoA has moved.
 
@@ -548,22 +496,12 @@ This section describes the main exports and internal constants that shape aircra
 - `max_lift_turn_limiter_min_airspeed`: airspeed below which the limiter stays inactive to avoid noisy low-speed behaviour.
 - `max_lift_turn_limiter_fade_deg`: angle-of-attack band over which pitch authority fades out as the lift peak is approached.
 
-### Sustain-Turn / Vy Limiter
+### Turn Performance Diagrams
 
-- `sustain_turn_limiter_enabled`: master switch for the energy-aware sustain limiter.
-- `sustain_turn_limiter_min_target_airspeed`: floor speed used by the drag-balance path when estimating sustainable turn conditions.
-- `sustain_turn_limiter_fade_deg`: angle-of-attack fade band for the sustain limiter.
-- `sustain_turn_limiter_samples`: number of candidate AoA samples checked when solving the drag-balance sustain limit.
-- `sustain_turn_limiter_drag_margin`: safety factor applied to estimated drag demand.
-- `sustain_turn_vy_enabled`: enables the climb-specific Vy gate.
-- `sustain_turn_vy_update_interval`: how often the best-climb-speed estimate is recomputed.
-- `sustain_turn_vy_sample_min_speed`: lower bound of the speed sweep used when solving for Vy.
-- `sustain_turn_vy_sample_max_speed`: upper bound of the speed sweep used when solving for Vy.
-- `sustain_turn_vy_sample_count`: number of sampled speeds in the Vy search.
-- `sustain_turn_vy_max_load_factor`: load-factor cap used while evaluating Vy candidates.
-- `sustain_turn_vy_margin_speed`: speed margin above Vy that grants full pitch authority in climb mode.
-- `sustain_turn_vy_climb_speed_threshold`: vertical-speed hysteresis around zero for deciding whether altitude is rising.
-- `sustain_turn_vy_min_vertical_pull_intent`: minimum upward pull intent that allows Vy mode to engage at climb entry before vertical speed becomes clearly positive.
+- `turn_performance_sample_min_speed`: lower bound for EM diagram speed sampling.
+- `turn_performance_sample_max_speed`: upper bound for EM diagram speed sampling.
+- `turn_performance_speed_sample_count`: base number of speed samples used for EM diagrams.
+- `turn_performance_aoa_sample_count`: number of AoA samples used when solving sustained EM curves.
 
 ### Ground Impact Damage
 
