@@ -2,7 +2,7 @@
 	"name": "default",
 	"source": "builtin",
 	"id": "default",
-	"version": 4,
+	"version": 5,
 	"lift_table": [
 		{
 			"x": -27.6253890991211,
@@ -188,6 +188,7 @@
 		}
 	],
 	"params": {
+		"mass": 3000.0,
 		"max_thrust": 14000.0,
 		"max_pitch": 1.0,
 		"max_yaw": 0.5,

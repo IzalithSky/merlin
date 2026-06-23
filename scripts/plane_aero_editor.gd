@@ -27,6 +27,7 @@ var _suspend_graph_updates := false
 var _suspend_param_updates := false
 var _save_queued := false
 var _dirty := false
+var _navigating := false
 var _param_spins: Dictionary = {}
 var _current_preset: Dictionary = {
 	"source": AERO_TABLES_STORE.SOURCE_BUILTIN,
@@ -73,8 +74,8 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
-		_on_back_pressed()
 		get_viewport().set_input_as_handled()
+		_on_back_pressed()
 
 
 func _create_model_plane() -> void:
@@ -490,7 +491,13 @@ func _set_status(text: String) -> void:
 
 
 func _on_back_pressed() -> void:
-	get_tree().change_scene_to_file(MAIN_MENU_SCENE)
+	# Defer to a frame boundary: tearing the scene down synchronously from
+	# within input propagation (the ESC path) can freeze the GUI, e.g. while a
+	# graph pan/drag grab is active. Guard against re-entrant navigation.
+	if _navigating:
+		return
+	_navigating = true
+	get_tree().change_scene_to_file.call_deferred(MAIN_MENU_SCENE)
 
 
 func _exit_tree() -> void:

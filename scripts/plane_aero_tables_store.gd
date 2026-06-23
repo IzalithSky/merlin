@@ -1,7 +1,7 @@
 extends RefCounted
 
 const SAVE_PATH := "user://plane_aero_tables.json"
-const SAVE_VERSION := 4
+const SAVE_VERSION := 5
 
 # Named presets. Built-ins ship in the project (read-only); user presets are
 # saved snapshots. The active config above (SAVE_PATH) is what the game flies.
@@ -14,6 +14,7 @@ const SOURCE_USER := "user"
 # Single source of truth for the editable numeric plane parameters. Drives JSON
 # (de)serialization, runtime application, MP sync, and the editor's spinboxes.
 const PARAM_SPECS: Array[Dictionary] = [
+	{"key": "mass", "label": "Mass (kg)", "min": 1.0, "max": 50000.0, "step": 50.0},
 	{"key": "max_thrust", "label": "Max thrust", "min": 0.0, "max": 100000.0, "step": 100.0},
 	{"key": "max_pitch", "label": "Max pitch", "min": 0.0, "max": 10.0, "step": 0.05},
 	{"key": "max_yaw", "label": "Max yaw", "min": 0.0, "max": 10.0, "step": 0.05},
