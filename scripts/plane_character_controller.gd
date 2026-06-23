@@ -757,6 +757,32 @@ func get_turn_performance(gamma_deg := 0.0) -> Dictionary:
 	return _flight_model.get_turn_performance(gamma_deg)
 
 
+func build_sustained_turn_aoa_surface(
+	gamma_min_deg := -30.0,
+	gamma_max_deg := 30.0,
+	gamma_sample_count := 61
+) -> Dictionary:
+	_ensure_flight_model()
+	return _flight_model.build_sustained_turn_aoa_surface(
+		gamma_min_deg,
+		gamma_max_deg,
+		gamma_sample_count
+	)
+
+
+func build_sustained_turn_rate_surface(
+	gamma_min_deg := -30.0,
+	gamma_max_deg := 30.0,
+	gamma_sample_count := 61
+) -> Dictionary:
+	_ensure_flight_model()
+	return _flight_model.build_sustained_turn_rate_surface(
+		gamma_min_deg,
+		gamma_max_deg,
+		gamma_sample_count
+	)
+
+
 func get_cached_corner_speed() -> float:
 	return _corner_speed
 

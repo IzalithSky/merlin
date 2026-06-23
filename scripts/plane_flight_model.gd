@@ -230,6 +230,22 @@ func get_turn_performance(gamma_deg := 0.0) -> Dictionary:
 	return _get_turn_performance(gamma_deg)
 
 
+func build_sustained_turn_aoa_surface(
+	gamma_min_deg := -30.0,
+	gamma_max_deg := 30.0,
+	gamma_sample_count := 61
+) -> Dictionary:
+	return _build_sustained_turn_surface(gamma_min_deg, gamma_max_deg, gamma_sample_count, "aoa_deg")
+
+
+func build_sustained_turn_rate_surface(
+	gamma_min_deg := -30.0,
+	gamma_max_deg := 30.0,
+	gamma_sample_count := 61
+) -> Dictionary:
+	return _build_sustained_turn_surface(gamma_min_deg, gamma_max_deg, gamma_sample_count, "rate_deg_s")
+
+
 func get_effective_pitch_input() -> float:
 	return _get_effective_pitch_input()
 
@@ -652,7 +668,8 @@ func _get_turn_performance(gamma_deg := 0.0) -> Dictionary:
 		else:
 			instantaneous_rate_curve.append(Vector2(speed, 0.0))
 
-		var sustained_load_factor := _get_sustained_load_factor(speed, gamma_rad, weight, cl_max_aoa, aoa_step, aoa_sample_count)
+		var sustained_state := _get_sustained_turn_state(speed, gamma_rad, weight, cl_max_aoa, aoa_step, aoa_sample_count)
+		var sustained_load_factor := float(sustained_state.get("load_factor", 0.0))
 		var sustained_solution := _get_turn_solution(speed, sustained_load_factor, gamma_rad, cos_gamma, gravity)
 		if not sustained_solution.is_empty():
 			var sustained_rate_deg := float(sustained_solution["rate_deg_s"])
@@ -684,6 +701,78 @@ func _get_turn_performance(gamma_deg := 0.0) -> Dictionary:
 		"max_sustained_rate_speed": max_sustained_rate_speed,
 		"min_sustained_radius_m": min_sustained_radius if is_finite(min_sustained_radius) else 0.0,
 		"min_sustained_radius_speed": min_sustained_radius_speed,
+	}
+
+
+func _build_sustained_turn_surface(
+	gamma_min_deg: float,
+	gamma_max_deg: float,
+	gamma_sample_count: int,
+	value_key: String
+) -> Dictionary:
+	var clamped_gamma_count := maxi(gamma_sample_count, 1)
+	var speed_range := _get_turn_performance_speed_range()
+	var min_speed := speed_range.x
+	var max_speed := speed_range.y
+	var speed_sample_count := maxi(maxi(_plane.corner_speed_sample_count, _plane.turn_performance_speed_sample_count), 64) * 5
+	var aoa_sample_count := maxi(_plane.turn_performance_aoa_sample_count, 48)
+
+	var weight := _get_weight_force_magnitude()
+	if weight <= 0.0:
+		return {}
+
+	var gravity := weight / maxf(_plane.mass, 0.0001)
+	var cl_max_aoa := maxf(_plane._positive_max_lift_aoa_deg, 0.0)
+	if maxf(_sample_aero_table(_plane.lift_coefficient_table, cl_max_aoa), 0.0) <= 0.0:
+		return {}
+
+	var aoa_step := cl_max_aoa / float(aoa_sample_count)
+	var speed_values := PackedFloat32Array()
+	var gamma_values := PackedFloat32Array()
+	var value_values := PackedFloat32Array()
+	var points: Array[Vector3] = []
+
+	for speed_index in range(speed_sample_count + 1):
+		var speed_ratio := float(speed_index) / float(speed_sample_count)
+		speed_values.append(lerpf(min_speed, max_speed, speed_ratio))
+
+	for gamma_index in range(clamped_gamma_count):
+		var gamma_ratio := 0.0
+		if clamped_gamma_count > 1:
+			gamma_ratio = float(gamma_index) / float(clamped_gamma_count - 1)
+		var gamma_deg := lerpf(gamma_min_deg, gamma_max_deg, gamma_ratio)
+		gamma_values.append(gamma_deg)
+		var gamma_rad := deg_to_rad(gamma_deg)
+		var cos_gamma := cos(gamma_rad)
+
+		for speed in speed_values:
+			var value := 0.0
+			if absf(cos_gamma) > 0.0001:
+				var sustained_state := _get_sustained_turn_state(
+					speed,
+					gamma_rad,
+					weight,
+					cl_max_aoa,
+					aoa_step,
+					aoa_sample_count
+				)
+				if value_key == "aoa_deg":
+					value = float(sustained_state.get("aoa_deg", 0.0))
+				else:
+					var load_factor := float(sustained_state.get("load_factor", 0.0))
+					var turn_solution := _get_turn_solution(speed, load_factor, gamma_rad, cos_gamma, gravity)
+					value = float(turn_solution.get("rate_deg_s", 0.0))
+			value_values.append(value)
+			points.append(Vector3(speed, value, gamma_deg))
+
+	return {
+		"speed_values": speed_values,
+		"gamma_values": gamma_values,
+		"value_values": value_values,
+		"points": points,
+		"value_key": value_key,
+		"speed_count": speed_values.size(),
+		"gamma_count": gamma_values.size(),
 	}
 
 
@@ -722,16 +811,28 @@ func _get_sustained_load_factor(
 	aoa_step: float,
 	aoa_sample_count: int
 ) -> float:
+	return float(_get_sustained_turn_state(speed, gamma_rad, weight, _max_aoa, aoa_step, aoa_sample_count).get("load_factor", 0.0))
+
+
+func _get_sustained_turn_state(
+	speed: float,
+	gamma_rad: float,
+	weight: float,
+	_max_aoa: float,
+	aoa_step: float,
+	aoa_sample_count: int
+) -> Dictionary:
 	var dynamic_pressure := 0.5 * _plane.air_density * speed * speed
 	var lift_scale := dynamic_pressure * _plane.reference_area
 	if lift_scale <= 0.0001:
-		return 0.0
+		return {}
 
 	var drag_budget := _get_available_thrust_at_speed(speed) - weight * sin(gamma_rad)
 	if drag_budget <= 0.0:
-		return 0.0
+		return {}
 
 	var best_cl := 0.0
+	var best_aoa := 0.0
 	for aoa_index in range(aoa_sample_count + 1):
 		var aoa := float(aoa_index) * aoa_step
 		var drag_coefficient := maxf(_sample_aero_table(_plane.drag_coefficient_table, aoa), 0.0)
@@ -740,9 +841,14 @@ func _get_sustained_load_factor(
 		if total_drag > drag_budget:
 			continue
 		var lift_coefficient := _sample_aero_table(_plane.lift_coefficient_table, aoa)
-		best_cl = maxf(best_cl, lift_coefficient)
+		if lift_coefficient > best_cl:
+			best_cl = lift_coefficient
+			best_aoa = aoa
 
-	return (lift_scale * best_cl) / weight
+	return {
+		"load_factor": (lift_scale * best_cl) / weight,
+		"aoa_deg": best_aoa,
+	}
 
 
 func _get_turn_solution(speed: float, load_factor: float, gamma_rad: float, cos_gamma: float, gravity: float) -> Dictionary:
