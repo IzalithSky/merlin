@@ -123,7 +123,7 @@ const SUSTAIN_AOA_TABLE_GAMMA_SAMPLES := 35
 ]
 @export var alignment_strength: float = 400.0
 @export var alignment_max_torque: float = 10_000.0
-@export var alignment_angle_to_rate_gain: float = 1.2
+@export var alignment_angle_to_rate_gain: float = 8.0
 @export var alignment_max_desired_axis_rate: float = 1.4
 @export var alignment_rate_response_gain: float = 0.8
 @export var alignment_deadband_deg: float = 1.0
