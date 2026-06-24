@@ -8,6 +8,7 @@ const PLANE_BOT_ENGAGEMENT_MODEL_SCRIPT := preload("res://scripts/plane_bot_enga
 enum FlightState {
 	IDLE,
 	SPEED_RECOVERY,
+	SPEED_REDUCTION,
 	ALTITUDE_HOLD,
 	LEVEL_FLIGHT,
 	GROUND_AVOIDANCE,
@@ -29,6 +30,9 @@ const SPEED_RECOVERY_MAX_DESIRED_YAW_RATE := 0.8
 const SPEED_RECOVERY_WINGS_LEVEL_MIN_FORWARD_SPEED := 60.0
 const SPEED_RECOVERY_WINGS_LEVEL_MAX_DIVE_ANGLE_DEG := 20.0
 const HALF_THROTTLE_INPUT := 0.0
+const SPEED_REDUCTION_MIN_THROTTLE_INPUT := -1.0
+const SPEED_REDUCTION_PITCH_RESPONSE_RATE := 0.16
+const SPEED_REDUCTION_MAX_NOSE_UP_INPUT := 0.6
 const LEVEL_FLIGHT_PITCH_RESPONSE_RATE := 0.6
 const LEVEL_FLIGHT_VERTICAL_SPEED_GAIN := 0.012
 const ALTITUDE_CAPTURE_TOLERANCE := 10.0
@@ -81,6 +85,8 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 
 @export var min_acceptable_forward_speed: float = 70.0
 @export var reserve_forward_speed: float = 85.0
+@export var max_acceptable_forward_speed: float = 170.0
+@export var speed_reduction_reserve_forward_speed: float = 150.0
 @export var default_altitude: float = 5000.0
 @export var min_ground_clearance: float = 300.0
 @export var ground_clearance_tolerance: float = 25.0
@@ -201,6 +207,8 @@ func get_flight_state_name() -> String:
 	match _flight_state:
 		FlightState.SPEED_RECOVERY:
 			return "SPEED_RECOVERY"
+		FlightState.SPEED_REDUCTION:
+			return "SPEED_REDUCTION"
 		FlightState.ALTITUDE_HOLD:
 			return "ALTITUDE_HOLD"
 		FlightState.LEVEL_FLIGHT:
@@ -235,6 +243,8 @@ func _update_flight_controls(delta: float) -> void:
 			_update_collision_avoidance_controls(delta)
 		FlightState.SPEED_RECOVERY:
 			_update_speed_recovery_controls(delta, forward_speed)
+		FlightState.SPEED_REDUCTION:
+			_update_speed_reduction_controls(delta, forward_speed)
 		FlightState.FOLLOW_TARGET:
 			_update_follow_target_controls(delta)
 		FlightState.ALTITUDE_HOLD:
@@ -255,6 +265,9 @@ func _select_flight_state(forward_speed: float) -> int:
 
 	if _should_recover_speed(forward_speed):
 		return FlightState.SPEED_RECOVERY
+
+	if _should_reduce_speed(forward_speed):
+		return FlightState.SPEED_REDUCTION
 
 	if not _can_track_level(forward_speed):
 		return FlightState.IDLE
@@ -308,6 +321,22 @@ func _update_speed_recovery_controls(delta: float, forward_speed: float) -> void
 		0.0,
 		SPEED_RECOVERY_PITCH_RESPONSE_RATE,
 		SPEED_RECOVERY_FULL_THROTTLE_INPUT
+	)
+
+
+func _update_speed_reduction_controls(delta: float, forward_speed: float) -> void:
+	var reduction_ratio := _get_speed_reduction_ratio(forward_speed)
+	# Mirror of SPEED_RECOVERY: cut throttle and pitch up proportionally to the
+	# overspeed so the climb bleeds airspeed via gravity and induced drag instead
+	# of waiting on throttle alone.
+	var throttle_target := lerpf(HALF_THROTTLE_INPUT, SPEED_REDUCTION_MIN_THROTTLE_INPUT, reduction_ratio)
+	# Negative pitch input is nose-up (see _get_ground_avoidance_pitch_target).
+	var pitch_up_target := -reduction_ratio * SPEED_REDUCTION_MAX_NOSE_UP_INPUT
+	_apply_pitch_behavior(
+		delta,
+		pitch_up_target,
+		SPEED_REDUCTION_PITCH_RESPONSE_RATE,
+		throttle_target
 	)
 
 
@@ -584,6 +613,28 @@ func _should_recover_speed(forward_speed: float) -> bool:
 		return forward_speed < _get_recovery_exit_speed()
 
 	return forward_speed < min_speed
+
+
+func _should_reduce_speed(forward_speed: float) -> bool:
+	var max_speed := max_acceptable_forward_speed
+	if max_speed <= 0.0:
+		return false
+
+	if _flight_state == FlightState.SPEED_REDUCTION:
+		return forward_speed > _get_reduction_exit_speed()
+
+	return forward_speed > max_speed
+
+
+func _get_reduction_exit_speed() -> float:
+	return minf(speed_reduction_reserve_forward_speed, max_acceptable_forward_speed)
+
+
+func _get_speed_reduction_ratio(forward_speed: float) -> float:
+	var max_speed := max_acceptable_forward_speed
+	var exit_speed := _get_reduction_exit_speed()
+	var speed_span := maxf(max_speed - exit_speed, 1.0)
+	return clampf((forward_speed - exit_speed) / speed_span, 0.0, 1.0)
 
 
 func _get_speed_recovery_ratio(forward_speed: float) -> float:
