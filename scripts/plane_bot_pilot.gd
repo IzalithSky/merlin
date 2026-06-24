@@ -69,6 +69,24 @@ const GROUND_PROBE_EXCLUSION_REFRESH_INTERVAL := 1.0
 const GROUND_PROBE_SAFE_INTERVAL := 0.25
 const GROUND_PROBE_NEAR_CLEARANCE_MULTIPLIER := 2.0
 const GROUND_PROBE_FAST_CLOSURE_RATIO := 0.25
+# Forward (flight-path) terrain probe: the down ray can't see a mountain or upslope
+# the bot is flying level into, so also cast along the velocity vector.
+const GROUND_PROBE_TERRAIN_URGENT_FACTOR := 2.0
+const GROUND_AVOIDANCE_TERRAIN_EXIT_FACTOR := 1.5
+# Escape candidates probed when terrain is ahead, as Vector2(yaw_deg, pitch_up_deg)
+# relative to the horizontal flight heading. The bot steers toward whichever has the
+# most open air, so it climbs over a shallow rise but turns away from a steep wall.
+const GROUND_ESCAPE_CANDIDATES: Array[Vector2] = [
+	Vector2(0.0, 30.0),
+	Vector2(0.0, 55.0),
+	Vector2(-40.0, 25.0),
+	Vector2(40.0, 25.0),
+	Vector2(-75.0, 15.0),
+	Vector2(75.0, 15.0),
+]
+# Clearance (m) subtracted per degree of yaw so the bot prefers climbing/least turn
+# when escape paths are similarly open.
+const GROUND_ESCAPE_YAW_PENALTY := 1.5
 const CONTROL_INPUT_LIMIT := 1.0
 const FOLLOW_LEAD_MAX_TIME := 3.0
 const FOLLOW_LEAD_MIN_CLOSING_SPEED := 1.0
@@ -119,6 +137,7 @@ var _roll_input := 0.0
 var _pitch_input := 0.0
 var _yaw_input := 0.0
 var _ground_clearance := INF
+var _terrain_ahead_distance := INF
 var _next_ground_probe_time := 0.0
 var _checkpoint_index := 0
 var _correction_turn_active := false
@@ -291,6 +310,19 @@ func _select_flight_state(forward_speed: float) -> int:
 
 
 func avoid_ground(delta: float) -> void:
+	# Terrain in the flight path: steer toward the most open escape direction
+	# (climb, or turn away when a pure pull-up can't clear the rise). A descent
+	# toward ground below with nothing ahead falls through to the nose-up pull.
+	if _will_hit_terrain_ahead():
+		turn_toward_direction(
+			delta,
+			_get_terrain_escape_direction(),
+			INF,
+			SPEED_RECOVERY_FULL_THROTTLE_INPUT,
+			GROUND_AVOIDANCE_PITCH_RESPONSE_RATE
+		)
+		return
+
 	_apply_pitch_behavior(
 		delta,
 		_get_ground_avoidance_pitch_target(),
@@ -488,6 +520,9 @@ func _should_avoid_ground(clearance: float) -> bool:
 	if min_clearance <= 0.0:
 		return false
 
+	if _will_hit_terrain_ahead():
+		return true
+
 	if not is_finite(clearance):
 		return false
 
@@ -502,6 +537,7 @@ func _should_avoid_ground(clearance: float) -> bool:
 func _update_ground_clearance() -> void:
 	if maxf(min_ground_clearance, 0.0) <= 0.0:
 		_ground_clearance = INF
+		_terrain_ahead_distance = INF
 		return
 
 	var now_seconds := Time.get_ticks_msec() / 1000.0
@@ -509,6 +545,7 @@ func _update_ground_clearance() -> void:
 		return
 
 	_ground_clearance = _measure_ground_clearance()
+	_terrain_ahead_distance = _measure_terrain_ahead()
 	_next_ground_probe_time = now_seconds + _get_next_ground_probe_interval()
 
 
@@ -520,7 +557,7 @@ func _should_probe_ground(now_seconds: float) -> bool:
 		return true
 
 	if not is_finite(_ground_clearance):
-		return _has_fast_ground_closure()
+		return _has_fast_ground_closure() or _has_terrain_ahead_threat()
 
 	return _is_ground_probe_urgent(_ground_clearance)
 
@@ -540,6 +577,9 @@ func _get_next_ground_probe_interval() -> float:
 
 func _is_ground_probe_urgent(clearance: float) -> bool:
 	if _has_fast_ground_closure():
+		return true
+
+	if _has_terrain_ahead_threat():
 		return true
 
 	if not is_finite(clearance):
@@ -576,7 +616,11 @@ func _get_ground_avoidance_pitch_target() -> float:
 		0.0,
 		1.0
 	)
-	var urgency := maxf(clearance_urgency, maxf(closure_urgency, dive_angle_urgency))
+	var terrain_ahead_urgency := _get_terrain_ahead_urgency()
+	var urgency := maxf(
+		maxf(clearance_urgency, closure_urgency),
+		maxf(dive_angle_urgency, terrain_ahead_urgency)
+	)
 	var nose_up_input := lerpf(
 		GROUND_AVOIDANCE_MIN_NOSE_UP_INPUT,
 		CONTROL_INPUT_LIMIT,
@@ -598,6 +642,46 @@ func _will_hit_ground_soon(clearance: float, descending_rate: float) -> bool:
 
 func _get_ground_closure_rate() -> float:
 	return maxf(-_frame_velocity.y, 0.0)
+
+
+func _get_terrain_ahead_time_to_impact() -> float:
+	if not is_finite(_terrain_ahead_distance) or _frame_speed <= 0.001:
+		return INF
+
+	return _terrain_ahead_distance / _frame_speed
+
+
+func _will_hit_terrain_ahead() -> bool:
+	var lookahead := maxf(ground_avoidance_time_to_impact, 0.0)
+	if lookahead <= 0.0:
+		return false
+
+	# Hold the avoidance longer once engaged so the climb-out doesn't immediately
+	# re-detect/release the obstacle and chatter the state.
+	if _flight_state == FlightState.GROUND_AVOIDANCE:
+		lookahead *= GROUND_AVOIDANCE_TERRAIN_EXIT_FACTOR
+
+	return _get_terrain_ahead_time_to_impact() <= lookahead
+
+
+func _has_terrain_ahead_threat() -> bool:
+	var lookahead := maxf(ground_avoidance_time_to_impact, 0.0)
+	if lookahead <= 0.0:
+		return false
+
+	return _get_terrain_ahead_time_to_impact() <= lookahead * GROUND_PROBE_TERRAIN_URGENT_FACTOR
+
+
+func _get_terrain_ahead_urgency() -> float:
+	var lookahead := maxf(ground_avoidance_time_to_impact, 0.0)
+	if lookahead <= 0.0:
+		return 0.0
+
+	var time_to_impact := _get_terrain_ahead_time_to_impact()
+	if not is_finite(time_to_impact):
+		return 0.0
+
+	return clampf(1.0 - time_to_impact / lookahead, 0.0, 1.0)
 
 
 func _get_downward_flight_path_angle_deg() -> float:
@@ -1017,6 +1101,82 @@ func _measure_ground_clearance() -> float:
 
 	var hit_position: Vector3 = hit.get("position", to_point)
 	return from_point.distance_to(hit_position)
+
+
+func _measure_terrain_ahead() -> float:
+	if _frame_speed <= 0.001:
+		return INF
+
+	return _probe_terrain_distance(_frame_velocity / _frame_speed, _get_terrain_probe_lookahead())
+
+
+func _get_terrain_probe_lookahead() -> float:
+	# Look ahead along the flight path far enough to react in time, bounded by the
+	# configured probe budget.
+	return clampf(
+		_frame_speed * maxf(ground_avoidance_time_to_impact, 0.0),
+		maxf(min_ground_clearance, 1.0),
+		maxf(ground_probe_distance, min_ground_clearance)
+	)
+
+
+func _probe_terrain_distance(direction: Vector3, max_distance: float) -> float:
+	if _plane == null or not _plane.is_inside_tree():
+		return INF
+
+	var world_ref: World3D = _plane.get_world_3d()
+	if world_ref == null:
+		return INF
+
+	if max_distance <= 0.0 or direction.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return INF
+
+	var from_point: Vector3 = _frame_position
+	var to_point: Vector3 = from_point + direction.normalized() * max_distance
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from_point, to_point)
+	query.exclude = _get_ground_probe_exclusions()
+	query.collide_with_areas = false
+
+	var hit: Dictionary = world_ref.direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return INF
+
+	var hit_position: Vector3 = hit.get("position", to_point)
+	return from_point.distance_to(hit_position)
+
+
+func _get_terrain_escape_direction() -> Vector3:
+	var heading := _get_escape_heading()
+	var lookahead := _get_terrain_probe_lookahead()
+	var best_direction := _build_escape_candidate(heading, 0.0, 55.0)
+	var best_score := -INF
+
+	# Pick the candidate with the most open air, penalizing yaw so the bot climbs
+	# straight ahead when that path is clear and only turns away when it isn't.
+	for candidate in GROUND_ESCAPE_CANDIDATES:
+		var direction := _build_escape_candidate(heading, candidate.x, candidate.y)
+		var clearance := _probe_terrain_distance(direction, lookahead)
+		var clear_value: float = lookahead if not is_finite(clearance) else clearance
+		var score := clear_value - GROUND_ESCAPE_YAW_PENALTY * absf(candidate.x)
+		if score > best_score:
+			best_score = score
+			best_direction = direction
+
+	return best_direction
+
+
+func _get_escape_heading() -> Vector3:
+	var heading := Vector3(_frame_velocity.x, 0.0, _frame_velocity.z)
+	if heading.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return _get_horizontal_forward_axis()
+
+	return heading.normalized()
+
+
+func _build_escape_candidate(horizontal_heading: Vector3, yaw_deg: float, pitch_up_deg: float) -> Vector3:
+	var yawed := horizontal_heading.rotated(Vector3.UP, deg_to_rad(yaw_deg))
+	var pitch_rad := deg_to_rad(pitch_up_deg)
+	return (yawed * cos(pitch_rad) + Vector3.UP * sin(pitch_rad)).normalized()
 
 
 func _get_ground_probe_exclusions() -> Array[RID]:
