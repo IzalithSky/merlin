@@ -273,8 +273,11 @@ func _get_collision_threat_direction(other: Node3D, other_vel: Vector3, current_
 	if cpa_offset.length() > _pilot.COLLISION_AVOIDANCE_RADIUS:
 		return {"detected": false}
 
-	var local_offset := _pilot._frame_inverse_basis * offset
-	var direction := 1.0 if local_offset.z < 0.0 else -1.0
+	# Always break to the bot's own right (standard head-on avoidance). A fixed
+	# handedness makes two converging planes diverge to opposite global sides;
+	# choosing the side from the threat's bearing instead makes them mirror each
+	# other into the same global direction and still collide.
+	var direction := -1.0
 	return {
 		"detected": true,
 		"tca": tca,

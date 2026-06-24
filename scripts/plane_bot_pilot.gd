@@ -73,8 +73,11 @@ const CONTROL_INPUT_LIMIT := 1.0
 const FOLLOW_LEAD_MAX_TIME := 3.0
 const FOLLOW_LEAD_MIN_CLOSING_SPEED := 1.0
 const FOLLOW_THROTTLE_BRAKE_DISTANCE_SCALE := 2.0
-const COLLISION_AVOIDANCE_RADIUS := 12.0
-const COLLISION_AVOIDANCE_LOOKAHEAD := 1.5
+# Planes are a 10 m box, and the constant-velocity CPA prediction underestimates
+# the real miss because both planes keep curving toward each other while pursuing,
+# so keep a generous miss-distance and look further ahead to start the break early.
+const COLLISION_AVOIDANCE_RADIUS := 50.0
+const COLLISION_AVOIDANCE_LOOKAHEAD := 3.0
 const COLLISION_AVOIDANCE_MIN_DURATION := 0.5
 const COLLISION_AVOIDANCE_RESPONSE_RATE := 1.5
 const COLLISION_AVOIDANCE_BANK_DEG := 90.0
