@@ -69,7 +69,4 @@ func update_visuals() -> void:
 
 func _get_bot_debug_label_text() -> String:
 	var target_text := _pilot.get_follow_target_debug_label()
-	var state_text := _pilot.get_flight_state_name()
-	if _pilot.is_fine_tracking_active():
-		state_text += " [FINE TRACK]"
-	return "BOT %s\nTARGET %s" % [state_text, target_text]
+	return "BOT %s\nTARGET %s" % [_pilot.get_flight_state_name(), target_text]

@@ -5,15 +5,13 @@ const BOT_DEBUG_RENDERER_SCRIPT := preload("res://scripts/bot_debug_renderer_3d.
 const PLANE_BOT_DEBUG_ADAPTER_SCRIPT := preload("res://scripts/plane_bot_debug_adapter.gd")
 const PLANE_BOT_ENGAGEMENT_MODEL_SCRIPT := preload("res://scripts/plane_bot_engagement_model.gd")
 
-enum FlightState {
-	IDLE,
-	SPEED_RECOVERY,
-	SPEED_REDUCTION,
-	ALTITUDE_HOLD,
-	LEVEL_FLIGHT,
-	GROUND_AVOIDANCE,
-	COLLISION_AVOIDANCE,
-	FOLLOW_TARGET,
+# Four global modes. Selection (the conditions below) decides which one is active;
+# execution is intentionally left as placeholders to be rebuilt.
+enum Mode {
+	AVOIDANCE,
+	SPEED_MANAGEMENT,
+	GOTO,
+	FINETRACK,
 }
 
 const GROUND_AVOIDANCE_MIN_NOSE_UP_INPUT := 0.25
@@ -33,6 +31,10 @@ const HALF_THROTTLE_INPUT := 0.0
 const SPEED_REDUCTION_MIN_THROTTLE_INPUT := -1.0
 const SPEED_REDUCTION_PITCH_RESPONSE_RATE := 0.16
 const SPEED_REDUCTION_MAX_NOSE_UP_INPUT := 0.6
+# Attitude targets for speed management, scaled by how far out of the speed band the
+# bot is: dive to regain speed when too slow, climb to bleed it when too fast.
+const SPEED_RECOVERY_MAX_DIVE_ANGLE_RAD := PI / 4.0
+const SPEED_REDUCTION_MAX_CLIMB_ANGLE_RAD := PI / 4.0
 const LEVEL_FLIGHT_PITCH_RESPONSE_RATE := 0.6
 const LEVEL_FLIGHT_VERTICAL_SPEED_GAIN := 0.012
 const ALTITUDE_CAPTURE_TOLERANCE := 10.0
@@ -55,18 +57,8 @@ const TURN_PITCH_RATE_RESPONSE_GAIN := 0.75
 const TURN_MAX_DESIRED_PITCH_RATE := 1.4
 const TURN_MIN_PULL_ANGLE_RAD := 0.02
 const TURN_ANGLE_DEADBAND_RAD := PI / 180.0
-# Below this nose-to-target angle, blend the turn roll toward wings level so the
-# bot rolls out of its bank as it aligns instead of holding bank and overshooting.
 const TURN_ROLLOUT_ANGLE_RAD := PI / 12.0
-# Within this nose-to-target angle the bot tracks with a small bank proportional to
-# the lateral (course) error plus pitch for the vertical error, instead of the
-# lift-vector roll-and-pull. Lift-vector roll is ill-conditioned near alignment (a
-# tiny lateral error demands ~90 deg of bank), which wobbles the nose out of plane
-# and overshoots when chasing a low-aspect target. Yaw is left to the plane's own
-# coordination (steering by yaw only sideslips, it does not turn the flight path).
 const FINE_TRACKING_HYSTERESIS_RAD := 2.0 * PI / 180.0
-# Lateral course error (rad) -> commanded bank (rad), clamped. A gentle, proportional
-# bank so small errors get small banks instead of the lift-vector method's full bank.
 const FINE_TRACKING_BANK_GAIN := 1.5
 const FINE_TRACKING_MAX_BANK_RAD := PI / 4.0
 const WINGS_LEVEL_DEADBAND_RAD := PI / 180.0
@@ -81,9 +73,6 @@ const GROUND_PROBE_FAST_CLOSURE_RATIO := 0.25
 # the bot is flying level into, so also cast along the velocity vector.
 const GROUND_PROBE_TERRAIN_URGENT_FACTOR := 2.0
 const GROUND_AVOIDANCE_TERRAIN_EXIT_FACTOR := 1.5
-# Escape candidates probed when terrain is ahead, as Vector2(yaw_deg, pitch_up_deg)
-# relative to the horizontal flight heading. The bot steers toward whichever has the
-# most open air, so it climbs over a shallow rise but turns away from a steep wall.
 const GROUND_ESCAPE_CANDIDATES: Array[Vector2] = [
 	Vector2(0.0, 30.0),
 	Vector2(0.0, 55.0),
@@ -92,10 +81,19 @@ const GROUND_ESCAPE_CANDIDATES: Array[Vector2] = [
 	Vector2(-75.0, 15.0),
 	Vector2(75.0, 15.0),
 ]
-# Clearance (m) subtracted per degree of yaw so the bot prefers climbing/least turn
-# when escape paths are similarly open.
 const GROUND_ESCAPE_YAW_PENALTY := 1.5
 const CONTROL_INPUT_LIMIT := 1.0
+# Proportional control foundation: input magnitude scales with the error, reaching
+# full deflection at ~0.5 rad (~29 deg) of error with a gain of 2.0.
+const PROPORTIONAL_ROLL_GAIN := 2.0
+const PROPORTIONAL_PITCH_GAIN := 2.0
+# GOTO steers by rolling the lift vector onto the target, then pulling (pitch up).
+# It never blends the two: roll until aligned within ALIGN, then pitch; when the
+# bank drifts past REALIGN, stop pitching and roll again.
+const GOTO_ROLL_ALIGN_RAD := PI / 36.0
+const GOTO_ROLL_REALIGN_RAD := PI / 15.0
+# Upward slope of the climb direction when seeking a higher altitude with no target.
+const GOTO_CLIMB_SLOPE := 0.5
 const FOLLOW_LEAD_MAX_TIME := 3.0
 const FOLLOW_LEAD_MIN_CLOSING_SPEED := 1.0
 const FOLLOW_THROTTLE_BRAKE_DISTANCE_SCALE := 2.0
@@ -140,7 +138,7 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 var _plane: PlaneCharacter
 var _altitude_target_active := false
 var _target_altitude := 0.0
-var _flight_state: int = FlightState.IDLE
+var _mode: int = Mode.GOTO
 var _roll_input := 0.0
 var _pitch_input := 0.0
 var _yaw_input := 0.0
@@ -149,7 +147,7 @@ var _terrain_ahead_distance := INF
 var _next_ground_probe_time := 0.0
 var _checkpoint_index := 0
 var _fine_tracking_active := false
-var _fine_tracking_engaged := false
+var _goto_pitching := false
 var _debug_adapter
 var _engagement
 var _frame_position := Vector3.ZERO
@@ -235,27 +233,15 @@ func _update_bot_debug_visuals() -> void:
 
 
 func get_flight_state_name() -> String:
-	match _flight_state:
-		FlightState.SPEED_RECOVERY:
-			return "SPEED_RECOVERY"
-		FlightState.SPEED_REDUCTION:
-			return "SPEED_REDUCTION"
-		FlightState.ALTITUDE_HOLD:
-			return "ALTITUDE_HOLD"
-		FlightState.LEVEL_FLIGHT:
-			return "LEVEL_FLIGHT"
-		FlightState.GROUND_AVOIDANCE:
-			return "GROUND_AVOIDANCE"
-		FlightState.COLLISION_AVOIDANCE:
-			return "COLLISION_AVOIDANCE"
-		FlightState.FOLLOW_TARGET:
-			return "FOLLOW_TARGET"
+	match _mode:
+		Mode.AVOIDANCE:
+			return "AVOIDANCE"
+		Mode.SPEED_MANAGEMENT:
+			return "SPEEDMANAGEMENT"
+		Mode.FINETRACK:
+			return "FINETRACK"
 		_:
-			return "IDLE"
-
-
-func is_fine_tracking_active() -> bool:
-	return _fine_tracking_engaged
+			return "GOTO"
 
 
 func get_engagement_debug_snapshot() -> Dictionary:
@@ -266,289 +252,195 @@ func get_follow_target_debug_label() -> String:
 	return _engagement.get_follow_target_debug_label()
 
 
+# ---------------------------------------------------------------------------
+# Mode selection (conditions). Execution is dispatched to placeholders below.
+# ---------------------------------------------------------------------------
 func _update_flight_controls(delta: float) -> void:
 	var forward_speed := _get_forward_speed()
 	_update_collision_threat()
-	# Reset each frame; _apply_fine_tracking re-sets it when it actually steers, so the
-	# debug readout reflects the live sub-mode rather than the hysteresis latch.
-	_fine_tracking_engaged = false
-	_flight_state = _select_flight_state(forward_speed)
+	_mode = _select_mode(forward_speed)
 
-	match _flight_state:
-		FlightState.GROUND_AVOIDANCE:
-			avoid_ground(delta)
-		FlightState.COLLISION_AVOIDANCE:
-			_update_collision_avoidance_controls(delta)
-		FlightState.SPEED_RECOVERY:
-			_update_speed_recovery_controls(delta, forward_speed)
-		FlightState.SPEED_REDUCTION:
-			_update_speed_reduction_controls(delta, forward_speed)
-		FlightState.FOLLOW_TARGET:
-			_update_follow_target_controls(delta)
-		FlightState.ALTITUDE_HOLD:
-			_update_altitude_hold_controls(delta)
-		FlightState.LEVEL_FLIGHT:
-			_update_level_flight_controls(delta)
+	match _mode:
+		Mode.AVOIDANCE:
+			_execute_avoidance(delta)
+		Mode.SPEED_MANAGEMENT:
+			_execute_speed_management(delta)
+		Mode.FINETRACK:
+			_execute_finetrack(delta)
 		_:
-			_update_idle_controls(delta)
+			_execute_goto(delta)
 
 
-func _select_flight_state(forward_speed: float) -> int:
+func _select_mode(forward_speed: float) -> int:
 	_update_ground_clearance()
 	if _should_avoid_ground(_ground_clearance):
-		return FlightState.GROUND_AVOIDANCE
+		return Mode.AVOIDANCE
 
 	if _engagement.get_collision_avoidance_direction() != 0.0:
-		return FlightState.COLLISION_AVOIDANCE
+		return Mode.AVOIDANCE
 
 	if _should_recover_speed(forward_speed):
-		return FlightState.SPEED_RECOVERY
+		return Mode.SPEED_MANAGEMENT
 
 	if _should_reduce_speed(forward_speed):
-		return FlightState.SPEED_REDUCTION
+		return Mode.SPEED_MANAGEMENT
 
-	if not _can_track_level(forward_speed):
-		return FlightState.IDLE
+	if _should_fine_track(forward_speed):
+		return Mode.FINETRACK
 
-	if _has_follow_target():
-		return FlightState.FOLLOW_TARGET
-
-	if _altitude_target_active and _is_climbing_to_altitude():
-		return FlightState.ALTITUDE_HOLD
-
-	if _has_checkpoint():
-		return FlightState.IDLE
-
-	if _altitude_target_active:
-		return FlightState.ALTITUDE_HOLD
-
-	return FlightState.LEVEL_FLIGHT
+	return Mode.GOTO
 
 
-func avoid_ground(delta: float) -> void:
-	# Terrain in the flight path: steer toward the most open escape direction
-	# (climb, or turn away when a pure pull-up can't clear the rise). A descent
-	# toward ground below with nothing ahead falls through to the nose-up pull.
-	if _will_hit_terrain_ahead():
-		turn_toward_direction(
-			delta,
-			_get_terrain_escape_direction(),
-			INF,
-			SPEED_RECOVERY_FULL_THROTTLE_INPUT,
-			GROUND_AVOIDANCE_PITCH_RESPONSE_RATE
-		)
-		return
-
-	_apply_pitch_behavior(
-		delta,
-		_get_ground_avoidance_pitch_target(),
-		GROUND_AVOIDANCE_PITCH_RESPONSE_RATE,
-		SPEED_RECOVERY_FULL_THROTTLE_INPUT
-	)
+# ---------------------------------------------------------------------------
+# Execution placeholders. Conditions above pick the mode; the actual control
+# inputs are intentionally not driven yet -- to be reworked.
+# ---------------------------------------------------------------------------
+func _execute_avoidance(_delta: float) -> void:
+	# TODO: ground + plane collision avoidance.
+	pass
 
 
-func _update_collision_avoidance_controls(delta: float) -> void:
-	var local_world_up := _frame_inverse_basis * Vector3.UP
-	var current_bank := atan2(local_world_up.x, local_world_up.y)
-	var target_bank: float = _engagement.get_collision_avoidance_direction() * deg_to_rad(COLLISION_AVOIDANCE_BANK_DEG)
-	var bank_error: float = target_bank - current_bank
-	var roll_target := _get_roll_input_for_error(bank_error, WINGS_LEVEL_ROLL_GAIN)
-	_apply_control_behavior(
-		delta,
-		roll_target,
-		-CONTROL_INPUT_LIMIT,
-		0.0,
-		COLLISION_AVOIDANCE_RESPONSE_RATE,
-		SPEED_RECOVERY_FULL_THROTTLE_INPUT
-	)
-
-
-func _update_speed_recovery_controls(delta: float, forward_speed: float) -> void:
-	var recovery_direction := _get_speed_recovery_direction(forward_speed)
-	_apply_control_behavior(
-		delta,
-		_get_speed_recovery_roll_target(forward_speed),
-		_get_speed_recovery_pitch_target(recovery_direction),
-		0.0,
-		SPEED_RECOVERY_PITCH_RESPONSE_RATE,
-		SPEED_RECOVERY_FULL_THROTTLE_INPUT
-	)
-
-
-func _update_speed_reduction_controls(delta: float, forward_speed: float) -> void:
-	var reduction_ratio := _get_speed_reduction_ratio(forward_speed)
-	# Mirror of SPEED_RECOVERY: cut throttle and pitch up proportionally to the
-	# overspeed so the climb bleeds airspeed via gravity and induced drag instead
-	# of waiting on throttle alone.
-	var throttle_target := lerpf(HALF_THROTTLE_INPUT, SPEED_REDUCTION_MIN_THROTTLE_INPUT, reduction_ratio)
-	# Negative pitch input is nose-up (see _get_ground_avoidance_pitch_target).
-	var pitch_up_target := -reduction_ratio * SPEED_REDUCTION_MAX_NOSE_UP_INPUT
-	_apply_pitch_behavior(
-		delta,
-		pitch_up_target,
-		SPEED_REDUCTION_PITCH_RESPONSE_RATE,
-		throttle_target
-	)
-
-
-func _update_altitude_hold_controls(delta: float) -> void:
-	_apply_pitch_behavior(
-		delta,
-		_get_altitude_pitch_target(_target_altitude),
-		ALTITUDE_HOLD_PITCH_RESPONSE_RATE,
-		HALF_THROTTLE_INPUT
-	)
-
-
-func _update_level_flight_controls(delta: float) -> void:
-	_apply_pitch_behavior(
-		delta,
-		_get_level_flight_pitch_target(),
-		LEVEL_FLIGHT_PITCH_RESPONSE_RATE,
-		HALF_THROTTLE_INPUT
-	)
-
-
-func _update_follow_target_controls(delta: float) -> void:
-	if not _has_follow_target():
-		_update_idle_controls(delta)
-		return
-
-	var target_point := _get_follow_destination_point()
-	var throttle_target := _get_follow_throttle_target(target_point)
-
-	var desired_direction: Vector3
-	var target_altitude: float
-	if _is_in_follow_killzone(target_point):
-		desired_direction = _get_follow_alignment_direction()
-		target_altitude = target_point.y
+func _execute_speed_management(_delta: float) -> void:
+	# Blending is allowed here (unlike GOTO): wings-leveling roll runs together with
+	# pitch, and pitch may go down (dive) to regain speed when too slow.
+	var forward_speed := _get_forward_speed()
+	if _should_reduce_speed(forward_speed):
+		_execute_speed_reduction(forward_speed)
 	else:
-		var steering_point := _get_follow_steering_point(target_point)
-		desired_direction = steering_point - _frame_position
-		target_altitude = steering_point.y
-
-	turn_toward_direction(
-		delta,
-		desired_direction,
-		target_altitude,
-		throttle_target,
-		LEVEL_TURN_ROLL_RESPONSE_RATE
-	)
+		_execute_speed_recovery(forward_speed)
 
 
-func _update_idle_controls(delta: float) -> void:
-	if _has_checkpoint():
-		level_turn(delta, _get_current_checkpoint())
-		return
-
-	_apply_pitch_behavior(
-		delta,
+func _execute_speed_recovery(forward_speed: float) -> void:
+	# Too slow: dive proportionally to the deficit (full throttle) to trade altitude
+	# for airspeed, keeping the wings level for a clean dive.
+	var ratio := _get_speed_recovery_ratio(forward_speed)
+	var desired_pitch := -ratio * SPEED_RECOVERY_MAX_DIVE_ANGLE_RAD
+	var pitch_input := _proportional_pitch(desired_pitch - _get_pitch_angle())
+	_apply_controls(
+		_wings_level_roll(),
+		pitch_input,
 		0.0,
-		LEVEL_FLIGHT_PITCH_RESPONSE_RATE,
-		HALF_THROTTLE_INPUT
+		SPEED_RECOVERY_FULL_THROTTLE_INPUT
 	)
 
 
-func level_turn(delta: float, turn_center: Vector3) -> void:
-	var desired_direction := _get_checkpoint_orbit_direction(turn_center)
-	turn_toward_direction(delta, desired_direction, turn_center.y)
+func _execute_speed_reduction(forward_speed: float) -> void:
+	# Too fast: climb proportionally to the excess and cut throttle so the climb
+	# bleeds airspeed via gravity and induced drag.
+	var ratio := _get_speed_reduction_ratio(forward_speed)
+	var desired_pitch := ratio * SPEED_REDUCTION_MAX_CLIMB_ANGLE_RAD
+	var pitch_input := _proportional_pitch(desired_pitch - _get_pitch_angle())
+	var throttle := lerpf(HALF_THROTTLE_INPUT, SPEED_REDUCTION_MIN_THROTTLE_INPUT, ratio)
+	_apply_controls(_wings_level_roll(), pitch_input, 0.0, throttle)
 
 
-func turn_toward_direction(
-	delta: float,
-	desired_direction: Vector3,
-	target_altitude: float = INF,
-	throttle_target: float = HALF_THROTTLE_INPUT,
-	response_rate: float = LEVEL_TURN_ROLL_RESPONSE_RATE
-) -> void:
-	var direction := _get_safe_world_direction(desired_direction)
-	var local_direction := _frame_inverse_basis * direction
+func _execute_goto(_delta: float) -> void:
+	# Single-axis control: roll the lift vector onto the target, then pull toward it.
+	# Never roll and pitch at once, and only ever pitch up (pull). To reach a target
+	# below, the bot banks/rolls so the lift points down and still pulls.
+	var desired_direction := _get_safe_world_direction(_get_goto_desired_direction())
+	var local_direction := _frame_inverse_basis * desired_direction
 	var turn_angle := _get_local_turn_angle(local_direction)
-	if _should_use_fine_tracking(local_direction, turn_angle):
-		_apply_fine_tracking(delta, local_direction, throttle_target, response_rate)
-		return
+	var throttle := _get_goto_throttle()
+
+	var roll_input := 0.0
+	var pitch_input := 0.0
 
 	if turn_angle <= TURN_ANGLE_DEADBAND_RAD:
-		_apply_pitch_behavior(
-			delta,
-			_get_turn_altitude_pitch_target(target_altitude),
-			LEVEL_FLIGHT_PITCH_RESPONSE_RATE,
-			throttle_target
-		)
-		return
+		# Already pointed at the target; hold attitude.
+		_goto_pitching = true
+	else:
+		var lift_vector_error := atan2(local_direction.x, local_direction.y)
+		_update_goto_phase(lift_vector_error)
+		if _goto_pitching:
+			# Pull toward the target. _proportional_pitch already returns nose-up
+			# (negative) for a positive error; clamp guarantees we never push down.
+			pitch_input = minf(_proportional_pitch(turn_angle), 0.0)
+		else:
+			# Roll so the lift vector (local up) points at the target, then we pitch.
+			roll_input = _proportional_roll(-lift_vector_error)
 
-	var roll_target := _get_lift_vector_roll_target(local_direction, turn_angle)
-	var pitch_target := _get_turn_pitch_target(turn_angle, target_altitude)
-	_apply_control_behavior(
-		delta,
-		roll_target,
-		pitch_target,
-		0.0,
-		response_rate,
-		throttle_target
+	_apply_controls(roll_input, pitch_input, 0.0, throttle)
+
+
+func _update_goto_phase(lift_vector_error: float) -> void:
+	var misalignment := absf(lift_vector_error)
+	if _goto_pitching:
+		if misalignment > GOTO_ROLL_REALIGN_RAD:
+			_goto_pitching = false
+	elif misalignment <= GOTO_ROLL_ALIGN_RAD:
+		_goto_pitching = true
+
+
+func _get_goto_desired_direction() -> Vector3:
+	if _has_follow_target():
+		var target_point := _get_follow_destination_point()
+		if _is_in_follow_killzone(target_point):
+			return _get_follow_alignment_direction()
+
+		return _get_follow_steering_point(target_point) - _frame_position
+
+	if _altitude_target_active:
+		return _get_altitude_seek_direction(_target_altitude)
+
+	return _get_altitude_seek_direction(_frame_position.y)
+
+
+func _get_altitude_seek_direction(target_altitude: float) -> Vector3:
+	var heading := Vector3(_frame_forward_axis.x, 0.0, _frame_forward_axis.z)
+	if heading.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		heading = Vector3.FORWARD
+	else:
+		heading = heading.normalized()
+
+	# Climb toward a higher target; otherwise stay level (never command a descent).
+	if target_altitude - _frame_position.y <= ALTITUDE_CAPTURE_TOLERANCE:
+		return heading
+
+	return (heading + Vector3.UP * GOTO_CLIMB_SLOPE).normalized()
+
+
+func _get_goto_throttle() -> float:
+	if _has_follow_target():
+		return _get_follow_throttle_target(_get_follow_destination_point())
+
+	return HALF_THROTTLE_INPUT
+
+
+func _execute_finetrack(_delta: float) -> void:
+	# TODO: precise close-in target tracking.
+	pass
+
+
+# ---------------------------------------------------------------------------
+# Proportional control foundation. Each returns a control input proportional to
+# the supplied error, clamped to the input limit. Not wired up yet -- the basis
+# the executors above will be built on. Signs follow the plane's convention.
+# ---------------------------------------------------------------------------
+func _proportional_roll(roll_error: float) -> float:
+	# roll_error is the bank error (target_bank - current_bank). Positive roll input
+	# rolls left, which increases the bank, so the sign is direct.
+	return clampf(roll_error * PROPORTIONAL_ROLL_GAIN, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
+
+
+func _proportional_pitch(pitch_error: float) -> float:
+	# pitch_error is positive when the nose must come up. Nose-up is negative input,
+	# so the error is negated.
+	return clampf(-pitch_error * PROPORTIONAL_PITCH_GAIN, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
+
+
+func _apply_controls(roll_value: float, pitch_value: float, yaw_value: float, throttle_value: float) -> void:
+	_plane.set_bot_control_inputs(
+		clampf(roll_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
+		clampf(pitch_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
+		clampf(yaw_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
+		clampf(throttle_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
 	)
 
 
-func _apply_fine_tracking(
-	delta: float,
-	local_direction: Vector3,
-	throttle_target: float,
-	response_rate: float
-) -> void:
-	# Bank-to-turn with a small bank proportional to the lateral course error, and
-	# pitch for the vertical error. The plane banks gently toward the target and the
-	# tilted lift vector curves the flight path; pitch holds the nose on it. Yaw is
-	# left to the plane's auto-coordination -- commanding yaw only sideslips.
-	_fine_tracking_engaged = true
-	var forward_alignment := maxf(-local_direction.z, MIN_DIRECTION_LENGTH_SQUARED)
-	var course_error := atan2(local_direction.x, forward_alignment)
-	var pitch_error := atan2(local_direction.y, forward_alignment)
-	var target_bank := clampf(
-		-course_error * FINE_TRACKING_BANK_GAIN,
-		-FINE_TRACKING_MAX_BANK_RAD,
-		FINE_TRACKING_MAX_BANK_RAD
-	)
-	_apply_control_behavior(
-		delta,
-		_get_roll_input_for_bank(target_bank),
-		_get_pitch_input_for_error(pitch_error),
-		0.0,
-		response_rate,
-		throttle_target
-	)
-
-
-func _apply_pitch_behavior(delta: float, pitch_target: float, response_rate: float, throttle_target: float) -> void:
-	_apply_control_behavior(
-		delta,
-		_get_wings_level_roll_target(),
-		pitch_target,
-		0.0,
-		response_rate,
-		throttle_target
-	)
-
-
-func _apply_control_behavior(
-	delta: float,
-	roll_target: float,
-	pitch_target: float,
-	yaw_target: float,
-	response_rate: float,
-	throttle_target: float
-) -> void:
-	var clamped_roll_target := clampf(roll_target, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
-	var clamped_pitch_target := clampf(pitch_target, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
-	var clamped_yaw_target := clampf(yaw_target, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
-	var pitch_step := maxf(response_rate * delta, 0.0)
-	var roll_step := maxf(LEVEL_TURN_ROLL_RESPONSE_RATE * delta, pitch_step)
-	var yaw_step := maxf(LEVEL_TURN_YAW_RESPONSE_RATE * delta, pitch_step)
-	_roll_input = move_toward(_roll_input, clamped_roll_target, roll_step)
-	_pitch_input = move_toward(_pitch_input, clamped_pitch_target, pitch_step)
-	_yaw_input = move_toward(_yaw_input, clamped_yaw_target, yaw_step)
-	_apply_controls(_roll_input, _pitch_input, _yaw_input, throttle_target)
-
-
+# ---------------------------------------------------------------------------
+# Avoidance conditions (ground + forward terrain probing).
+# ---------------------------------------------------------------------------
 func _should_avoid_ground(clearance: float) -> bool:
 	var min_clearance := maxf(min_ground_clearance, 0.0)
 	if min_clearance <= 0.0:
@@ -561,7 +453,7 @@ func _should_avoid_ground(clearance: float) -> bool:
 		return false
 
 	var descending_rate := _get_ground_closure_rate()
-	if _flight_state == FlightState.GROUND_AVOIDANCE:
+	if _mode == Mode.AVOIDANCE:
 		var exit_clearance := min_clearance + maxf(ground_clearance_tolerance, 0.0)
 		return clearance < exit_clearance or _will_hit_ground_soon(clearance, descending_rate)
 
@@ -587,7 +479,7 @@ func _should_probe_ground(now_seconds: float) -> bool:
 	if now_seconds >= _next_ground_probe_time:
 		return true
 
-	if _flight_state == FlightState.GROUND_AVOIDANCE:
+	if _mode == Mode.AVOIDANCE:
 		return true
 
 	if not is_finite(_ground_clearance):
@@ -597,7 +489,7 @@ func _should_probe_ground(now_seconds: float) -> bool:
 
 
 func _get_next_ground_probe_interval() -> float:
-	if _flight_state == FlightState.GROUND_AVOIDANCE:
+	if _mode == Mode.AVOIDANCE:
 		return 0.0
 
 	if not is_finite(_ground_clearance):
@@ -636,33 +528,6 @@ func _has_fast_ground_closure() -> bool:
 	return _get_ground_closure_rate() >= threshold
 
 
-func _get_ground_avoidance_pitch_target() -> float:
-	var min_clearance := maxf(min_ground_clearance, 1.0)
-	var clearance := clampf(_ground_clearance, 0.0, min_clearance)
-	var clearance_urgency := 1.0 - (clearance / min_clearance)
-	var closure_urgency := clampf(
-		_get_ground_closure_rate() / maxf(ground_avoidance_closure_rate_for_max_pull, 1.0),
-		0.0,
-		1.0
-	)
-	var dive_angle_urgency := clampf(
-		_get_downward_flight_path_angle_deg() / maxf(ground_avoidance_dive_angle_for_max_pull_deg, 1.0),
-		0.0,
-		1.0
-	)
-	var terrain_ahead_urgency := _get_terrain_ahead_urgency()
-	var urgency := maxf(
-		maxf(clearance_urgency, closure_urgency),
-		maxf(dive_angle_urgency, terrain_ahead_urgency)
-	)
-	var nose_up_input := lerpf(
-		GROUND_AVOIDANCE_MIN_NOSE_UP_INPUT,
-		CONTROL_INPUT_LIMIT,
-		urgency
-	)
-	return -nose_up_input
-
-
 func _will_hit_ground_soon(clearance: float, descending_rate: float) -> bool:
 	if descending_rate <= 0.0:
 		return false
@@ -691,8 +556,8 @@ func _will_hit_terrain_ahead() -> bool:
 		return false
 
 	# Hold the avoidance longer once engaged so the climb-out doesn't immediately
-	# re-detect/release the obstacle and chatter the state.
-	if _flight_state == FlightState.GROUND_AVOIDANCE:
+	# re-detect/release the obstacle and chatter the mode.
+	if _mode == Mode.AVOIDANCE:
 		lookahead *= GROUND_AVOIDANCE_TERRAIN_EXIT_FACTOR
 
 	return _get_terrain_ahead_time_to_impact() <= lookahead
@@ -706,18 +571,6 @@ func _has_terrain_ahead_threat() -> bool:
 	return _get_terrain_ahead_time_to_impact() <= lookahead * GROUND_PROBE_TERRAIN_URGENT_FACTOR
 
 
-func _get_terrain_ahead_urgency() -> float:
-	var lookahead := maxf(ground_avoidance_time_to_impact, 0.0)
-	if lookahead <= 0.0:
-		return 0.0
-
-	var time_to_impact := _get_terrain_ahead_time_to_impact()
-	if not is_finite(time_to_impact):
-		return 0.0
-
-	return clampf(1.0 - time_to_impact / lookahead, 0.0, 1.0)
-
-
 func _get_downward_flight_path_angle_deg() -> float:
 	if _frame_speed <= 0.001:
 		return 0.0
@@ -725,12 +578,15 @@ func _get_downward_flight_path_angle_deg() -> float:
 	return rad_to_deg(asin(clampf(-_frame_velocity.y / _frame_speed, 0.0, 1.0)))
 
 
+# ---------------------------------------------------------------------------
+# Speed-management conditions (too slow -> recover, too fast -> reduce).
+# ---------------------------------------------------------------------------
 func _should_recover_speed(forward_speed: float) -> bool:
 	var min_speed := maxf(min_acceptable_forward_speed, 0.0)
 	if min_speed <= 0.0:
 		return false
 
-	if _flight_state == FlightState.SPEED_RECOVERY:
+	if _mode == Mode.SPEED_MANAGEMENT:
 		return forward_speed < _get_recovery_exit_speed()
 
 	return forward_speed < min_speed
@@ -741,120 +597,131 @@ func _should_reduce_speed(forward_speed: float) -> bool:
 	if max_speed <= 0.0:
 		return false
 
-	if _flight_state == FlightState.SPEED_REDUCTION:
+	if _mode == Mode.SPEED_MANAGEMENT:
 		return forward_speed > _get_reduction_exit_speed()
 
 	return forward_speed > max_speed
+
+
+func _get_recovery_exit_speed() -> float:
+	return maxf(reserve_forward_speed, min_acceptable_forward_speed)
 
 
 func _get_reduction_exit_speed() -> float:
 	return minf(speed_reduction_reserve_forward_speed, max_acceptable_forward_speed)
 
 
-func _get_speed_reduction_ratio(forward_speed: float) -> float:
-	var max_speed := max_acceptable_forward_speed
-	var exit_speed := _get_reduction_exit_speed()
-	var speed_span := maxf(max_speed - exit_speed, 1.0)
-	return clampf((forward_speed - exit_speed) / speed_span, 0.0, 1.0)
-
-
 func _get_speed_recovery_ratio(forward_speed: float) -> float:
+	# 0 at the recovery exit speed, 1 at (or below) the minimum acceptable speed.
 	var min_speed := maxf(min_acceptable_forward_speed, 0.0)
 	var exit_speed := _get_recovery_exit_speed()
 	var speed_span := maxf(exit_speed - min_speed, 1.0)
 	return clampf((exit_speed - forward_speed) / speed_span, 0.0, 1.0)
 
 
-func _get_speed_recovery_direction(forward_speed: float) -> Vector3:
-	var recovery_ratio := _get_speed_recovery_ratio(forward_speed)
-	var horizontal_direction := _get_speed_recovery_horizontal_direction()
-	if not _has_follow_target():
-		return _blend_directions(horizontal_direction, Vector3.DOWN, recovery_ratio)
-
-	var destination_point := _get_follow_destination_point()
-	var destination_offset := destination_point - _frame_position
-	var horizontal_to_destination := Vector3(destination_offset.x, 0.0, destination_offset.z)
-	if horizontal_to_destination.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
-		horizontal_to_destination = horizontal_direction
-	else:
-		horizontal_to_destination = horizontal_to_destination.normalized()
-
-	if destination_offset.y < 0.0:
-		var destination_direction := _get_safe_world_direction(destination_offset)
-		return _blend_directions(horizontal_to_destination, destination_direction, recovery_ratio)
-
-	return _blend_directions(
-		horizontal_to_destination,
-		Vector3.DOWN,
-		recovery_ratio * SPEED_RECOVERY_TARGET_ABOVE_MAX_NADIR_BLEND
-	)
-
-
-func _get_speed_recovery_horizontal_direction() -> Vector3:
-	var horizontal_direction := _frame_forward_axis
-	horizontal_direction.y = 0.0
-	if horizontal_direction.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
-		return Vector3.FORWARD
-
-	return horizontal_direction.normalized()
-
-
-func _blend_directions(from_direction: Vector3, to_direction: Vector3, weight: float) -> Vector3:
-	var blended_direction := from_direction.lerp(to_direction, clampf(weight, 0.0, 1.0))
-	if blended_direction.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
-		return _get_safe_world_direction(to_direction)
-
-	return blended_direction.normalized()
-
-
-func _get_speed_recovery_pitch_target(recovery_direction: Vector3) -> float:
-	var local_direction := _get_local_direction(recovery_direction)
-	var pitch_error := atan2(local_direction.y, -local_direction.z)
-	return _get_pitch_input_for_error(pitch_error)
-
-
-func _get_speed_recovery_roll_target(forward_speed: float) -> float:
-	if _has_follow_target():
-		return _get_roll_target_toward_point(_get_follow_destination_point())
-
-	if forward_speed < SPEED_RECOVERY_WINGS_LEVEL_MIN_FORWARD_SPEED:
-		return 0.0
-
-	if _get_downward_flight_path_angle_deg() > SPEED_RECOVERY_WINGS_LEVEL_MAX_DIVE_ANGLE_DEG:
-		return 0.0
-
-	return _get_wings_level_roll_target()
-
-
-func _get_roll_target_toward_point(target_point: Vector3) -> float:
-	var direction := _get_safe_world_direction(target_point - _frame_position)
-	var local_direction := _get_local_direction(direction)
-	var turn_angle := _get_local_turn_angle(local_direction)
-	return _get_lift_vector_roll_target(local_direction, turn_angle)
+func _get_speed_reduction_ratio(forward_speed: float) -> float:
+	# 0 at the reduction exit speed, 1 at (or above) the maximum acceptable speed.
+	var max_speed := max_acceptable_forward_speed
+	var exit_speed := _get_reduction_exit_speed()
+	var speed_span := maxf(max_speed - exit_speed, 1.0)
+	return clampf((forward_speed - exit_speed) / speed_span, 0.0, 1.0)
 
 
 func _can_track_level(forward_speed: float) -> bool:
 	return forward_speed >= maxf(min_acceptable_forward_speed, 0.0)
 
 
-func _get_level_flight_pitch_target() -> float:
-	var vertical_speed := _frame_velocity.y
-	return vertical_speed * LEVEL_FLIGHT_VERTICAL_SPEED_GAIN
+# ---------------------------------------------------------------------------
+# Fine-track condition (close, well-aligned on the follow target).
+# ---------------------------------------------------------------------------
+func _should_fine_track(forward_speed: float) -> bool:
+	if not _can_track_level(forward_speed):
+		_fine_tracking_active = false
+		return false
+
+	if not _has_follow_target():
+		_fine_tracking_active = false
+		return false
+
+	var desired_direction := _get_fine_track_desired_direction()
+	var local_direction := _frame_inverse_basis * _get_safe_world_direction(desired_direction)
+	var turn_angle := _get_local_turn_angle(local_direction)
+	return _should_use_fine_tracking(local_direction, turn_angle)
 
 
-func _get_altitude_pitch_target(target_altitude: float) -> float:
-	var altitude_error := target_altitude - _frame_position.y
-	var desired_vertical_speed := clampf(
-		altitude_error * ALTITUDE_HOLD_ALTITUDE_GAIN,
-		-ALTITUDE_HOLD_MAX_VERTICAL_SPEED,
-		ALTITUDE_HOLD_MAX_VERTICAL_SPEED
-	)
-	var vertical_speed_error := desired_vertical_speed - _frame_velocity.y
-	return -vertical_speed_error * ALTITUDE_HOLD_VERTICAL_SPEED_GAIN
+func _get_fine_track_desired_direction() -> Vector3:
+	var target_point := _get_follow_destination_point()
+	if _is_in_follow_killzone(target_point):
+		return _get_follow_alignment_direction()
+
+	return _get_follow_steering_point(target_point) - _frame_position
 
 
-func _get_recovery_exit_speed() -> float:
-	return maxf(reserve_forward_speed, min_acceptable_forward_speed)
+func _should_use_fine_tracking(local_direction: Vector3, turn_angle: float) -> bool:
+	var threshold := deg_to_rad(maxf(fine_tracking_angle_deg, 0.0))
+	if threshold <= 0.0:
+		_fine_tracking_active = false
+		return false
+
+	# Only fine-track a target ahead of the nose; large/rear angles still roll to turn.
+	if -local_direction.z <= 0.0:
+		_fine_tracking_active = false
+		return false
+
+	if _fine_tracking_active:
+		if turn_angle < threshold + FINE_TRACKING_HYSTERESIS_RAD:
+			return true
+
+		_fine_tracking_active = false
+		return false
+
+	if turn_angle < threshold:
+		_fine_tracking_active = true
+		return true
+
+	return false
+
+
+# ---------------------------------------------------------------------------
+# Shared geometry / engagement / sensing helpers used by the conditions.
+# ---------------------------------------------------------------------------
+func _get_safe_world_direction(direction: Vector3) -> Vector3:
+	if direction.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return _frame_forward_axis
+
+	return direction.normalized()
+
+
+func _get_local_turn_angle(local_direction: Vector3) -> float:
+	var forward_alignment := clampf(-local_direction.z, -1.0, 1.0)
+	return acos(forward_alignment)
+
+
+func _get_pitch_angle() -> float:
+	# Nose elevation above the horizon (positive up).
+	return asin(clampf(_frame_forward_axis.y, -1.0, 1.0))
+
+
+func _get_current_bank() -> float:
+	var local_world_up := _frame_inverse_basis * Vector3.UP
+	return atan2(local_world_up.x, local_world_up.y)
+
+
+func _wings_level_roll() -> float:
+	# Roll back to wings level: drive the bank toward zero.
+	return _proportional_roll(-_get_current_bank())
+
+
+func _has_checkpoint() -> bool:
+	return not checkpoints.is_empty()
+
+
+func _get_clamped_checkpoint_index() -> int:
+	if checkpoints.is_empty():
+		return 0
+
+	_checkpoint_index = clampi(_checkpoint_index, 0, checkpoints.size() - 1)
+	return _checkpoint_index
 
 
 func _update_collision_threat() -> void:
@@ -889,211 +756,8 @@ func _get_follow_steering_point(destination_point: Vector3) -> Vector3:
 	return _engagement.get_follow_steering_point(destination_point)
 
 
-func _get_safe_world_direction(direction: Vector3) -> Vector3:
-	if direction.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
-		return _frame_forward_axis
-
-	return direction.normalized()
-
-
-func _get_local_direction(world_direction: Vector3) -> Vector3:
-	return _frame_inverse_basis * world_direction
-
-
-func _get_local_turn_angle(local_direction: Vector3) -> float:
-	var forward_alignment := clampf(-local_direction.z, -1.0, 1.0)
-	return acos(forward_alignment)
-
-
-func _get_lift_vector_roll_target(local_direction: Vector3, turn_angle: float) -> float:
-	var transverse_length_squared := local_direction.x * local_direction.x + local_direction.y * local_direction.y
-	if transverse_length_squared <= MIN_DIRECTION_LENGTH_SQUARED:
-		return _get_wings_level_roll_target()
-
-	var lift_vector_error := atan2(local_direction.x, local_direction.y)
-	var turn_ratio := clampf(turn_angle / TURN_FULL_PULL_ANGLE_RAD, 0.0, 1.0)
-	var lift_vector_roll := _get_roll_input_for_error(lift_vector_error, LEVEL_TURN_ROLL_GAIN, turn_ratio)
-
-	# As the nose closes onto the target, roll out to wings level instead of holding
-	# the bank. Scaling only the roll rate (turn_ratio) toward zero makes the bot coast
-	# at its current bank while it keeps pulling, curving the nose past the target
-	# (slalom). Blend toward the wings-level target over the final approach so the lift
-	# vector comes upright as the pull relaxes.
-	var rollout := 1.0 - clampf(turn_angle / TURN_ROLLOUT_ANGLE_RAD, 0.0, 1.0)
-	if rollout <= 0.0:
-		return lift_vector_roll
-
-	return lerpf(lift_vector_roll, _get_wings_level_roll_target(), rollout)
-
-
-func _should_use_fine_tracking(local_direction: Vector3, turn_angle: float) -> bool:
-	var threshold := deg_to_rad(maxf(fine_tracking_angle_deg, 0.0))
-	if threshold <= 0.0:
-		_fine_tracking_active = false
-		return false
-
-	# Only fine-track a target ahead of the nose; large/rear angles still roll to turn.
-	if -local_direction.z <= 0.0:
-		_fine_tracking_active = false
-		return false
-
-	if _fine_tracking_active:
-		if turn_angle < threshold + FINE_TRACKING_HYSTERESIS_RAD:
-			return true
-
-		_fine_tracking_active = false
-		return false
-
-	if turn_angle < threshold:
-		_fine_tracking_active = true
-		return true
-
-	return false
-
-
-func _get_wings_level_roll_target() -> float:
-	var local_world_up := _frame_inverse_basis * Vector3.UP
-	var bank_error := atan2(local_world_up.x, local_world_up.y)
-	if absf(bank_error) <= WINGS_LEVEL_DEADBAND_RAD and absf(_get_local_roll_rate()) <= ROLL_RATE_DEADBAND:
-		return 0.0
-
-	return _get_roll_input_for_error(bank_error, WINGS_LEVEL_ROLL_GAIN)
-
-
-func _get_roll_input_for_bank(target_bank: float) -> float:
-	var local_world_up := _frame_inverse_basis * Vector3.UP
-	var current_bank := atan2(local_world_up.x, local_world_up.y)
-	return _get_roll_input_for_error(target_bank - current_bank, WINGS_LEVEL_ROLL_GAIN)
-
-
-func _get_roll_input_for_error(roll_error: float, angle_to_rate_gain: float, rate_scale: float = 1.0) -> float:
-	return _plane.get_roll_input_for_error(
-		roll_error,
-		angle_to_rate_gain,
-		ROLL_MAX_DESIRED_RATE,
-		ROLL_RATE_RESPONSE_GAIN,
-		rate_scale
-	)
-
-
-func _get_local_roll_rate() -> float:
-	return _get_local_angular_velocity().z
-
-
-func _get_pitch_input_for_error(pitch_error: float) -> float:
-	return _plane.get_rate_stabilized_axis_input(
-		pitch_error,
-		SPEED_RECOVERY_PITCH_ANGLE_TO_RATE_GAIN,
-		SPEED_RECOVERY_MAX_DESIRED_PITCH_RATE,
-		_get_local_pitch_rate(),
-		SPEED_RECOVERY_PITCH_RATE_RESPONSE_GAIN,
-		1.0,
-		-1.0
-	)
-
-
-func _get_local_pitch_rate() -> float:
-	return _get_local_angular_velocity().x
-
-
-func _get_local_angular_velocity() -> Vector3:
-	return _frame_local_angular_velocity
-
-
-func _get_turn_pitch_target(turn_angle: float, target_altitude: float) -> float:
-	return _get_turn_pull_pitch_target(turn_angle) + _get_turn_altitude_pitch_target(target_altitude)
-
-
-func _get_turn_pull_pitch_target(turn_angle: float) -> float:
-	if turn_angle <= TURN_MIN_PULL_ANGLE_RAD:
-		return 0.0
-
-	return _plane.get_rate_stabilized_axis_input(
-		turn_angle,
-		TURN_PITCH_ANGLE_TO_RATE_GAIN,
-		TURN_MAX_DESIRED_PITCH_RATE,
-		_get_local_pitch_rate(),
-		TURN_PITCH_RATE_RESPONSE_GAIN,
-		1.0,
-		-1.0
-	)
-
-
-func _get_turn_altitude_pitch_target(target_altitude: float) -> float:
-	if target_altitude >= INF:
-		return 0.0
-
-	return _get_altitude_pitch_target(target_altitude)
-
-
-func _has_checkpoint() -> bool:
-	return not checkpoints.is_empty()
-
-
-func _get_clamped_checkpoint_index() -> int:
-	if checkpoints.is_empty():
-		return 0
-
-	_checkpoint_index = clampi(_checkpoint_index, 0, checkpoints.size() - 1)
-	return _checkpoint_index
-
-
-func _get_checkpoint_orbit_direction(turn_center: Vector3) -> Vector3:
-	var plane_position := _frame_position
-	var radial_from_center := Vector3(
-		plane_position.x - turn_center.x,
-		0.0,
-		plane_position.z - turn_center.z
-	)
-
-	if radial_from_center.length_squared() <= 0.000001:
-		radial_from_center = _get_horizontal_forward_axis()
-	else:
-		radial_from_center = radial_from_center.normalized()
-
-	var orbit_sign := 1.0 if checkpoint_orbit_direction >= 0.0 else -1.0
-	var tangent := Vector3.UP.cross(radial_from_center).normalized() * orbit_sign
-	var horizontal_distance := Vector2(
-		plane_position.x - turn_center.x,
-		plane_position.z - turn_center.z
-	).length()
-	var radius := maxf(checkpoint_orbit_radius, 1.0)
-	var radial_error := clampf(
-		(horizontal_distance - radius) / radius,
-		-1.0,
-		1.0
-	)
-	if absf(radial_error) <= CHECKPOINT_ORBIT_RADIUS_DEADBAND:
-		radial_error = 0.0
-
-	var radial_correction := -radial_from_center * radial_error * CHECKPOINT_ORBIT_RADIAL_CORRECTION
-	var desired_direction := tangent + radial_correction
-	if desired_direction.length_squared() <= 0.000001:
-		return tangent
-
-	return desired_direction.normalized()
-
-
-func _get_horizontal_forward_axis() -> Vector3:
-	var forward_axis := _frame_forward_axis
-	forward_axis.y = 0.0
-	if forward_axis.length_squared() <= 0.000001:
-		return Vector3.FORWARD
-
-	return forward_axis.normalized()
-
-
 func _update_weapon_targeting() -> void:
 	_engagement.update_weapon_targeting()
-
-
-func _apply_controls(roll_value: float, pitch_value: float, yaw_value: float, throttle_value: float) -> void:
-	_plane.set_bot_control_inputs(
-		clampf(roll_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
-		clampf(pitch_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
-		clampf(yaw_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
-		clampf(throttle_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
-	)
 
 
 func _get_forward_speed() -> float:
@@ -1166,40 +830,6 @@ func _probe_terrain_distance(direction: Vector3, max_distance: float) -> float:
 
 	var hit_position: Vector3 = hit.get("position", to_point)
 	return from_point.distance_to(hit_position)
-
-
-func _get_terrain_escape_direction() -> Vector3:
-	var heading := _get_escape_heading()
-	var lookahead := _get_terrain_probe_lookahead()
-	var best_direction := _build_escape_candidate(heading, 0.0, 55.0)
-	var best_score := -INF
-
-	# Pick the candidate with the most open air, penalizing yaw so the bot climbs
-	# straight ahead when that path is clear and only turns away when it isn't.
-	for candidate in GROUND_ESCAPE_CANDIDATES:
-		var direction := _build_escape_candidate(heading, candidate.x, candidate.y)
-		var clearance := _probe_terrain_distance(direction, lookahead)
-		var clear_value: float = lookahead if not is_finite(clearance) else clearance
-		var score := clear_value - GROUND_ESCAPE_YAW_PENALTY * absf(candidate.x)
-		if score > best_score:
-			best_score = score
-			best_direction = direction
-
-	return best_direction
-
-
-func _get_escape_heading() -> Vector3:
-	var heading := Vector3(_frame_velocity.x, 0.0, _frame_velocity.z)
-	if heading.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
-		return _get_horizontal_forward_axis()
-
-	return heading.normalized()
-
-
-func _build_escape_candidate(horizontal_heading: Vector3, yaw_deg: float, pitch_up_deg: float) -> Vector3:
-	var yawed := horizontal_heading.rotated(Vector3.UP, deg_to_rad(yaw_deg))
-	var pitch_rad := deg_to_rad(pitch_up_deg)
-	return (yawed * cos(pitch_rad) + Vector3.UP * sin(pitch_rad)).normalized()
 
 
 func _get_ground_probe_exclusions() -> Array[RID]:
