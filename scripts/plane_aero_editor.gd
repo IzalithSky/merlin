@@ -43,6 +43,11 @@ var _save_as_dialog: ConfirmationDialog
 var _save_as_edit: LineEdit
 var _aoa_surface_window: Window
 var _rate_surface_window: Window
+var _surface_cache_timer: Timer
+
+# Debounce so dragging a graph point only rebuilds the (expensive) AoA surface
+# cache once the values settle, not on every intermediate frame.
+const SURFACE_CACHE_WARM_DELAY := 0.6
 
 
 func _ready() -> void:
@@ -59,6 +64,11 @@ func _ready() -> void:
 	_em_gamma_spin.value_changed.connect(_on_em_gamma_changed)
 	_aoa_surface_button.pressed.connect(_on_aoa_surface_pressed)
 	_rate_surface_button.pressed.connect(_on_rate_surface_pressed)
+	_surface_cache_timer = Timer.new()
+	_surface_cache_timer.one_shot = true
+	_surface_cache_timer.wait_time = SURFACE_CACHE_WARM_DELAY
+	_surface_cache_timer.timeout.connect(_warm_surface_cache)
+	add_child(_surface_cache_timer)
 	_build_save_as_dialog()
 
 	_create_model_plane()
@@ -79,6 +89,7 @@ func _ready() -> void:
 	_populate_preset_dropdown()
 	_update_preset_buttons()
 	_update_status()
+	_schedule_surface_cache_warm()
 	_back_button.grab_focus()
 
 
@@ -98,6 +109,7 @@ func _load_payload_into_model(payload: Dictionary) -> void:
 		_refresh_graphs_from_model()
 		_refresh_param_fields()
 		_refresh_em_diagrams()
+		_schedule_surface_cache_warm()
 
 
 func _build_param_fields() -> void:
@@ -364,7 +376,21 @@ func _model_payload() -> Dictionary:
 	return _model_plane.call("get_aero_tables_payload")
 
 
+# Rebuild (and persist) the AoA surface cache for the current profile values,
+# debounced. The plane's signature check makes this a no-op when nothing changed,
+# so redundant autosaves don't trigger a rebuild.
+func _schedule_surface_cache_warm() -> void:
+	if _surface_cache_timer != null:
+		_surface_cache_timer.start()
+
+
+func _warm_surface_cache() -> void:
+	if _model_plane != null and _model_plane.has_method("rebuild_sustained_aoa_table"):
+		_model_plane.call("rebuild_sustained_aoa_table")
+
+
 func _mark_dirty() -> void:
+	_schedule_surface_cache_warm()
 	if not _dirty:
 		_dirty = true
 		if _current_preset.get("source", "") == AERO_TABLES_STORE.SOURCE_BUILTIN:

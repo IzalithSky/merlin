@@ -214,18 +214,6 @@ func get_rate_stabilized_input_for_desired_rate(
 	return clampf(rate_error * rate_response_gain * input_sign, -1.0, 1.0)
 
 
-func get_corner_speed() -> float:
-	return _plane.get_cached_corner_speed()
-
-
-func is_corner_speed_valid() -> bool:
-	return _plane.is_cached_corner_speed_valid()
-
-
-func update_corner_speed(delta: float) -> void:
-	_update_corner_speed(delta)
-
-
 func get_turn_performance(gamma_deg := 0.0) -> Dictionary:
 	return _get_turn_performance(gamma_deg)
 
@@ -658,16 +646,6 @@ func _get_weight_force_magnitude() -> float:
 	var default_gravity := float(ProjectSettings.get_setting("physics/3d/default_gravity"))
 	var gravity_magnitude := default_gravity * _plane.gravity_scale
 	return _plane.mass * gravity_magnitude
-
-
-func _update_corner_speed(delta: float) -> void:
-	var update_timer := _plane.get_corner_speed_update_timer() - delta
-	_plane.set_corner_speed_update_timer(update_timer)
-	if update_timer > 0.0:
-		return
-	_plane.set_corner_speed_update_timer(maxf(_plane.corner_speed_update_interval, 0.01))
-	var corner_speed := _calculate_corner_speed()
-	_plane.set_cached_corner_speed(corner_speed, corner_speed > 0.0)
 
 
 # Highest airspeed at which available pitch torque can still sustain the body pitch
