@@ -89,18 +89,17 @@ horizontal_alignment = 1
 custom_minimum_size = Vector2(0, 8)
 layout_mode = 2
 
-[node name="PresetRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="PresetRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox" unique_id=1775126217]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="PresetLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox/PresetRow"]
+[node name="PresetLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox/PresetRow" unique_id=1430983289]
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_vertical = 4
 theme_override_font_sizes/font_size = 17
 text = "Plane Preset"
 
-[node name="PresetOption" type="OptionButton" parent="CenterContainer/Panel/Margin/VBox/PresetRow"]
+[node name="PresetOption" type="OptionButton" parent="CenterContainer/Panel/Margin/VBox/PresetRow" unique_id=527778882]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(220, 0)
 layout_mode = 2
@@ -182,7 +181,7 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Exit"
 
-[node name="OptionsPanel" parent="CenterContainer" instance=ExtResource("2_options_panel")]
+[node name="OptionsPanel" parent="CenterContainer" unique_id=571673206 instance=ExtResource("2_options_panel")]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2

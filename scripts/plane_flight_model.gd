@@ -233,17 +233,79 @@ func get_turn_performance(gamma_deg := 0.0) -> Dictionary:
 func build_sustained_turn_aoa_surface(
 	gamma_min_deg := -30.0,
 	gamma_max_deg := 30.0,
-	gamma_sample_count := 61
+	gamma_sample_count := 61,
+	speed_min := -1.0,
+	speed_max := -1.0
 ) -> Dictionary:
-	return _build_sustained_turn_surface(gamma_min_deg, gamma_max_deg, gamma_sample_count, "aoa_deg")
+	return _build_sustained_turn_surface(
+		gamma_min_deg, gamma_max_deg, gamma_sample_count, "aoa_deg", speed_min, speed_max
+	)
 
 
 func build_sustained_turn_rate_surface(
 	gamma_min_deg := -30.0,
 	gamma_max_deg := 30.0,
-	gamma_sample_count := 61
+	gamma_sample_count := 61,
+	speed_min := -1.0,
+	speed_max := -1.0
 ) -> Dictionary:
-	return _build_sustained_turn_surface(gamma_min_deg, gamma_max_deg, gamma_sample_count, "rate_deg_s")
+	return _build_sustained_turn_surface(
+		gamma_min_deg, gamma_max_deg, gamma_sample_count, "rate_deg_s", speed_min, speed_max
+	)
+
+
+## Look up the nearest sampled value in a surface produced by the sustained-turn
+## surface builders (an aoa_deg or rate_deg_s grid over speed × gamma). Returns
+## the value stored at the grid cell closest to the queried (speed, gamma_deg).
+func find_nearest_surface_value(surface: Dictionary, speed: float, gamma_deg: float) -> float:
+	var cell := find_nearest_surface_cell(surface, speed, gamma_deg)
+	return float(cell.get("value", 0.0))
+
+
+## As find_nearest_surface_value, but returns the full cell: the resolved grid
+## speed_index/gamma_index, their sampled speed/gamma_deg, and the stored value.
+func find_nearest_surface_cell(surface: Dictionary, speed: float, gamma_deg: float) -> Dictionary:
+	var speed_values: PackedFloat32Array = surface.get("speed_values", PackedFloat32Array())
+	var gamma_values: PackedFloat32Array = surface.get("gamma_values", PackedFloat32Array())
+	var value_values: PackedFloat32Array = surface.get("value_values", PackedFloat32Array())
+	var speed_count := int(surface.get("speed_count", speed_values.size()))
+	if speed_values.is_empty() or gamma_values.is_empty() or value_values.is_empty() or speed_count <= 0:
+		return {}
+
+	var speed_index := _nearest_sorted_index(speed_values, speed)
+	var gamma_index := _nearest_sorted_index(gamma_values, gamma_deg)
+	if speed_index < 0 or gamma_index < 0:
+		return {}
+
+	var flat_index := gamma_index * speed_count + speed_index
+	if flat_index < 0 or flat_index >= value_values.size():
+		return {}
+
+	return {
+		"speed_index": speed_index,
+		"gamma_index": gamma_index,
+		"speed": speed_values[speed_index],
+		"gamma_deg": gamma_values[gamma_index],
+		"value": value_values[flat_index],
+	}
+
+
+# Nearest index into an ascending-sorted array; -1 when empty.
+func _nearest_sorted_index(values: PackedFloat32Array, target: float) -> int:
+	var count := values.size()
+	if count == 0:
+		return -1
+	if count == 1:
+		return 0
+	var hi := values.bsearch(target)
+	if hi <= 0:
+		return 0
+	if hi >= count:
+		return count - 1
+	var lo := hi - 1
+	if absf(values[hi] - target) < absf(values[lo] - target):
+		return hi
+	return lo
 
 
 func get_effective_pitch_input() -> float:
@@ -510,7 +572,53 @@ func _sample_aero_table_segment(points: Array[Vector2], x_value: float, segment_
 
 
 func _get_turn_limited_pitch_input(raw_pitch_input: float) -> float:
-	return _get_max_lift_limited_pitch_input(raw_pitch_input)
+	var limited := _get_max_lift_limited_pitch_input(raw_pitch_input)
+	return _get_sustained_turn_limited_pitch_input(limited)
+
+
+# Caps AoA at the sustainable value sampled from the plane's cached AoA surface
+# for the current airspeed and flight-path angle. Mirrors the max-lift limiter,
+# but the upper/lower AoA bounds are the (tighter) sustainable AoA rather than
+# the static stall limit.
+func _get_sustained_turn_limited_pitch_input(raw_pitch_input: float) -> float:
+	var limited_pitch_input := clampf(raw_pitch_input, -1.0, 1.0)
+	if not _plane._pitch_assist_enabled:
+		return limited_pitch_input
+	if not _plane.is_sustain_turn_limiter_active():
+		return limited_pitch_input
+	if _plane._frame_air_speed < maxf(_plane.sustain_turn_limiter_min_airspeed, 0.0):
+		return limited_pitch_input
+	var max_airspeed := _plane.sustain_turn_limiter_max_airspeed
+	if max_airspeed > 0.0 and _plane._frame_air_speed > max_airspeed:
+		return limited_pitch_input
+
+	var surface: Dictionary = _plane.get_sustained_aoa_surface()
+	if surface.is_empty():
+		return limited_pitch_input
+
+	var gamma_deg := _get_air_flight_path_angle_deg()
+	var sustained_aoa := find_nearest_surface_value(surface, _plane._frame_air_speed, gamma_deg)
+	if sustained_aoa <= 0.0:
+		return limited_pitch_input
+
+	# Never exceed the static stall limit even if the table says otherwise.
+	var upper_limit := minf(sustained_aoa, _plane._positive_max_lift_aoa_deg)
+	var lower_limit := maxf(-sustained_aoa, _plane._negative_max_lift_aoa_deg)
+	var fade_degrees := maxf(_plane.sustain_turn_limiter_fade_deg, 0.0)
+
+	if limited_pitch_input < 0.0 or _plane.aoa_deg > upper_limit:
+		return _limit_pitch_input_below_upper_aoa_limit(limited_pitch_input, upper_limit, fade_degrees)
+	if limited_pitch_input > 0.0 or _plane.aoa_deg < lower_limit:
+		return _limit_pitch_input_above_lower_aoa_limit(limited_pitch_input, lower_limit, fade_degrees)
+	return limited_pitch_input
+
+
+# Flight-path angle (climb positive) of the air-relative velocity, in degrees.
+func _get_air_flight_path_angle_deg() -> float:
+	var speed := _plane._frame_air_speed
+	if speed <= 0.0001:
+		return 0.0
+	return rad_to_deg(asin(clampf(_plane._frame_air_velocity_world.y / speed, -1.0, 1.0)))
 
 
 func _get_effective_pitch_input() -> float:
@@ -708,12 +816,18 @@ func _build_sustained_turn_surface(
 	gamma_min_deg: float,
 	gamma_max_deg: float,
 	gamma_sample_count: int,
-	value_key: String
+	value_key: String,
+	speed_min_override := -1.0,
+	speed_max_override := -1.0
 ) -> Dictionary:
 	var clamped_gamma_count := maxi(gamma_sample_count, 1)
 	var speed_range := _get_turn_performance_speed_range()
 	var min_speed := speed_range.x
 	var max_speed := speed_range.y
+	if speed_min_override >= 0.0:
+		min_speed = speed_min_override
+	if speed_max_override >= 0.0:
+		max_speed = maxf(speed_max_override, min_speed)
 	var speed_sample_count := maxi(maxi(_plane.corner_speed_sample_count, _plane.turn_performance_speed_sample_count), 64) * 5
 	var aoa_sample_count := maxi(_plane.turn_performance_aoa_sample_count, 48)
 

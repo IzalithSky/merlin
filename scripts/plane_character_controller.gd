@@ -12,6 +12,11 @@ const PLANE_FORCE_DEBUG_ADAPTER_SCRIPT := preload("res://scripts/plane_force_deb
 const PLANE_INPUT_COLLECTOR_SCRIPT := preload("res://scripts/plane_input_collector.gd")
 const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 
+# Resolution of the sustained-turn AoA surface cached at spawn for the limiter.
+const SUSTAIN_AOA_TABLE_GAMMA_MIN_DEG := -85.0
+const SUSTAIN_AOA_TABLE_GAMMA_MAX_DEG := 85.0
+const SUSTAIN_AOA_TABLE_GAMMA_SAMPLES := 35
+
 @export var rot_rate: float = 2.4
 @export var rot_decay: float = 3.0
 @export var thr_rate: float = 1.2
@@ -31,6 +36,17 @@ const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 @export var max_lift_turn_limiter_enabled: bool = true
 @export var max_lift_turn_limiter_min_airspeed: float = 5.0
 @export var max_lift_turn_limiter_fade_deg: float = 10.0
+
+# Sustain-turn limiter: caps AoA at the sustainable value sampled from the
+# precomputed AoA surface (built once at spawn) for the current speed and
+# flight-path angle, so the plane holds an energy-neutral turn instead of
+# bleeding speed in an over-pulled instantaneous turn.
+@export var sustain_turn_limiter_enabled: bool = true
+# Active speed band: the limiter only acts when min <= airspeed <= max. Below the
+# minimum and above the maximum it does nothing. Set max <= 0 for no upper bound.
+@export var sustain_turn_limiter_min_airspeed: float = 72.0
+@export var sustain_turn_limiter_max_airspeed: float = 130.0
+@export var sustain_turn_limiter_fade_deg: float = 6.0
 
 # Corner speed: the highest airspeed at which control authority can still drive the
 # pitch rate needed to hold CL_max AoA in a turn (above it the controls compress and
@@ -204,6 +220,8 @@ var _negative_max_lift_aoa_deg := -15.0
 var _corner_speed := 0.0
 var _corner_speed_valid := false
 var _corner_speed_update_timer := 0.0
+var _sustained_aoa_surface: Dictionary = {}
+var _sustain_turn_limiter_runtime_enabled := true
 var _flame_trail: Node3D
 var _net_limiter_override_active := false
 var _net_effective_pitch_input := 0.0
@@ -230,6 +248,7 @@ func _ready() -> void:
 	_sanitize_aero_tables()
 	if _is_aero_table_authority():
 		_apply_persisted_aero_tables()
+	rebuild_sustained_aoa_table()
 	_ensure_force_debug_renderer()
 	_apply_local_player_mode()
 	if _health != null:
@@ -565,8 +584,32 @@ func set_bot_control_inputs(roll_value: float, pitch_value: float, yaw_value: fl
 	_bot_target_throttle_input = clampf(throttle_value, -1.0, 1.0)
 
 
-func set_sustain_turn_limiter_runtime_enabled(_enabled: bool) -> void:
-	pass
+func set_sustain_turn_limiter_runtime_enabled(enabled: bool) -> void:
+	_sustain_turn_limiter_runtime_enabled = enabled
+	if enabled and _sustained_aoa_surface.is_empty():
+		rebuild_sustained_aoa_table()
+
+
+# Generate and cache the sustainable-AoA surface (AoA over speed × flight-path
+# angle) the limiter samples at runtime. Rebuilt whenever the aero tables change.
+func rebuild_sustained_aoa_table() -> void:
+	if not sustain_turn_limiter_enabled:
+		_sustained_aoa_surface = {}
+		return
+	_ensure_flight_model()
+	_sustained_aoa_surface = _flight_model.build_sustained_turn_aoa_surface(
+		SUSTAIN_AOA_TABLE_GAMMA_MIN_DEG,
+		SUSTAIN_AOA_TABLE_GAMMA_MAX_DEG,
+		SUSTAIN_AOA_TABLE_GAMMA_SAMPLES
+	)
+
+
+func get_sustained_aoa_surface() -> Dictionary:
+	return _sustained_aoa_surface
+
+
+func is_sustain_turn_limiter_active() -> bool:
+	return sustain_turn_limiter_enabled and _sustain_turn_limiter_runtime_enabled
 
 
 func _apply_remote_pose(remote_position: Vector3, rotation_quaternion: Quaternion) -> void:
@@ -760,27 +803,45 @@ func get_turn_performance(gamma_deg := 0.0) -> Dictionary:
 func build_sustained_turn_aoa_surface(
 	gamma_min_deg := -30.0,
 	gamma_max_deg := 30.0,
-	gamma_sample_count := 61
+	gamma_sample_count := 61,
+	speed_min := -1.0,
+	speed_max := -1.0
 ) -> Dictionary:
 	_ensure_flight_model()
 	return _flight_model.build_sustained_turn_aoa_surface(
 		gamma_min_deg,
 		gamma_max_deg,
-		gamma_sample_count
+		gamma_sample_count,
+		speed_min,
+		speed_max
 	)
 
 
 func build_sustained_turn_rate_surface(
 	gamma_min_deg := -30.0,
 	gamma_max_deg := 30.0,
-	gamma_sample_count := 61
+	gamma_sample_count := 61,
+	speed_min := -1.0,
+	speed_max := -1.0
 ) -> Dictionary:
 	_ensure_flight_model()
 	return _flight_model.build_sustained_turn_rate_surface(
 		gamma_min_deg,
 		gamma_max_deg,
-		gamma_sample_count
+		gamma_sample_count,
+		speed_min,
+		speed_max
 	)
+
+
+func find_nearest_surface_value(surface: Dictionary, speed: float, gamma_deg: float) -> float:
+	_ensure_flight_model()
+	return _flight_model.find_nearest_surface_value(surface, speed, gamma_deg)
+
+
+func find_nearest_surface_cell(surface: Dictionary, speed: float, gamma_deg: float) -> Dictionary:
+	_ensure_flight_model()
+	return _flight_model.find_nearest_surface_cell(surface, speed, gamma_deg)
 
 
 func get_cached_corner_speed() -> float:
@@ -1017,6 +1078,11 @@ func apply_aero_tables_payload(payload: Dictionary) -> void:
 	var params: Variant = payload.get("params", {})
 	if params is Dictionary:
 		_apply_params(params)
+
+	# Tables changed at runtime (editor preview / net sync); refresh the cached
+	# AoA surface. Skipped during _ready, which builds it once after setup.
+	if is_node_ready():
+		rebuild_sustained_aoa_table()
 
 
 func _apply_params(params: Dictionary) -> void:

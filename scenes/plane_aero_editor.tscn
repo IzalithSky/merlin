@@ -128,6 +128,112 @@ columns = 4
 layout_mode = 2
 size_flags_vertical = 3
 
+[node name="EM" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="HeaderRow" type="HBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="EMTitle" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM/HeaderRow"]
+layout_mode = 2
+size_flags_vertical = 1
+theme_override_font_sizes/font_size = 15
+text = "Energy-Maneuverability"
+
+[node name="Spacer" type="Control" parent="Panel/Margin/VBox/GraphTabs/EM/HeaderRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="GammaLabel" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM/HeaderRow"]
+layout_mode = 2
+size_flags_vertical = 1
+text = "γ (deg)"
+
+[node name="GammaSpin" type="SpinBox" parent="Panel/Margin/VBox/GraphTabs/EM/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = -85.0
+max_value = 85.0
+step = 1.0
+tooltip_text = "Flight-path angle: climb (+) or dive (-) relative to the horizon. 0 = level turn."
+
+[node name="AoaSurfaceButton" type="Button" parent="Panel/Margin/VBox/GraphTabs/EM/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Open a 3D surface of the sustained-turn angle of attack across speed and flight-path angle."
+text = "AoA 3D"
+
+[node name="RateSurfaceButton" type="Button" parent="Panel/Margin/VBox/GraphTabs/EM/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Open a 3D surface of the sustained turn rate across speed and flight-path angle."
+text = "Rate 3D"
+
+[node name="EMSummaryLabel" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="EMGraphs" type="HBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="EMRateColumn" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="EMRateGraph" type="Control" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRateColumn"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("3_turn_graph")
+x_axis_label = "Speed (m/s)"
+y_axis_label = "Turn rate (deg/s)"
+y_decimals = 1
+x_decimals = 0
+
+[node name="EMLegendRate" type="RichTextLabel" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRateColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+bbcode_enabled = true
+fit_content = true
+autowrap_mode = 3
+
+[node name="EMRadiusColumn" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="EMRadiusGraph" type="Control" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRadiusColumn"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("3_turn_graph")
+x_axis_label = "Speed (m/s)"
+y_axis_label = "Turn radius (m)"
+y_decimals = 0
+x_decimals = 0
+
+[node name="EMLegendRadius" type="RichTextLabel" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRadiusColumn"]
+unique_name_in_owner = true
+layout_mode = 2
+bbcode_enabled = true
+fit_content = true
+autowrap_mode = 3
+
 [node name="Lift" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs"]
 layout_mode = 2
 size_flags_horizontal = 3
@@ -247,97 +353,3 @@ edit_y_max = 5.0
 x_axis_label = "Forward speed (m/s)"
 y_axis_label = "Thrust ×"
 tick_decimals = 2
-
-[node name="EM" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs"]
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-theme_override_constants/separation = 4
-
-[node name="HeaderRow" type="HBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="EMTitle" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM/HeaderRow"]
-layout_mode = 2
-size_flags_vertical = 1
-theme_override_font_sizes/font_size = 15
-text = "Energy-Maneuverability"
-
-[node name="Spacer" type="Control" parent="Panel/Margin/VBox/GraphTabs/EM/HeaderRow"]
-layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="GammaLabel" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM/HeaderRow"]
-layout_mode = 2
-size_flags_vertical = 1
-text = "γ (deg)"
-
-[node name="GammaSpin" type="SpinBox" parent="Panel/Margin/VBox/GraphTabs/EM/HeaderRow"]
-unique_name_in_owner = true
-layout_mode = 2
-min_value = -85.0
-max_value = 85.0
-step = 1.0
-tooltip_text = "Flight-path angle: climb (+) or dive (-) relative to the horizon. 0 = level turn."
-
-[node name="EMSummaryLabel" type="Label" parent="Panel/Margin/VBox/GraphTabs/EM"]
-unique_name_in_owner = true
-layout_mode = 2
-autowrap_mode = 3
-
-[node name="EMGraphs" type="HBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM"]
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-theme_override_constants/separation = 12
-
-[node name="EMRateColumn" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs"]
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-theme_override_constants/separation = 6
-
-[node name="EMRateGraph" type="Control" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRateColumn"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 0)
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-script = ExtResource("3_turn_graph")
-x_axis_label = "Speed (m/s)"
-y_axis_label = "Turn rate (deg/s)"
-y_decimals = 1
-x_decimals = 0
-
-[node name="EMLegendRate" type="RichTextLabel" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRateColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-bbcode_enabled = true
-fit_content = true
-autowrap_mode = 3
-
-[node name="EMRadiusColumn" type="VBoxContainer" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs"]
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-theme_override_constants/separation = 6
-
-[node name="EMRadiusGraph" type="Control" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRadiusColumn"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 0)
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-script = ExtResource("3_turn_graph")
-x_axis_label = "Speed (m/s)"
-y_axis_label = "Turn radius (m)"
-y_decimals = 0
-x_decimals = 0
-
-[node name="EMLegendRadius" type="RichTextLabel" parent="Panel/Margin/VBox/GraphTabs/EM/EMGraphs/EMRadiusColumn"]
-unique_name_in_owner = true
-layout_mode = 2
-bbcode_enabled = true
-fit_content = true
-autowrap_mode = 3

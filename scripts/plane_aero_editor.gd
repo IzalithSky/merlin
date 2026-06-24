@@ -4,6 +4,7 @@ const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 const TURN_PERFORMANCE_GRAPH_SCRIPT := preload("res://scripts/turn_performance_graph.gd")
+const SURFACE_GRAPH_3D_SCRIPT := preload("res://scripts/surface_graph_3d.gd")
 
 @onready var _lift_graph: Node = %LiftGraph
 @onready var _drag_graph: Node = %DragGraph
@@ -15,6 +16,8 @@ const TURN_PERFORMANCE_GRAPH_SCRIPT := preload("res://scripts/turn_performance_g
 @onready var _em_legend_rate: RichTextLabel = %EMLegendRate
 @onready var _em_legend_radius: RichTextLabel = %EMLegendRadius
 @onready var _em_gamma_spin: SpinBox = %GammaSpin
+@onready var _aoa_surface_button: Button = %AoaSurfaceButton
+@onready var _rate_surface_button: Button = %RateSurfaceButton
 @onready var _status_label: Label = %StatusLabel
 @onready var _back_button: Button = %BackButton
 @onready var _params_grid: GridContainer = %ParamsGrid
@@ -38,6 +41,8 @@ var _current_preset: Dictionary = {
 }
 var _save_as_dialog: ConfirmationDialog
 var _save_as_edit: LineEdit
+var _aoa_surface_window: Window
+var _rate_surface_window: Window
 
 
 func _ready() -> void:
@@ -52,6 +57,8 @@ func _ready() -> void:
 	_save_as_button.pressed.connect(_on_save_as_pressed)
 	_delete_button.pressed.connect(_on_delete_pressed)
 	_em_gamma_spin.value_changed.connect(_on_em_gamma_changed)
+	_aoa_surface_button.pressed.connect(_on_aoa_surface_pressed)
+	_rate_surface_button.pressed.connect(_on_rate_surface_pressed)
 	_build_save_as_dialog()
 
 	_create_model_plane()
@@ -142,6 +149,43 @@ func _on_param_changed(value: float, key: String) -> void:
 func _on_em_gamma_changed(value: float) -> void:
 	_em_gamma_deg = value
 	_refresh_em_diagrams()
+
+
+func _on_aoa_surface_pressed() -> void:
+	if _model_plane == null or not _model_plane.has_method("build_sustained_turn_aoa_surface"):
+		return
+	var data: Dictionary = _model_plane.call("build_sustained_turn_aoa_surface", -45.0, 45.0, 61, 0.0, 200.0)
+	if data.is_empty():
+		return
+	data["x_label"] = "Speed (m/s)"
+	data["y_label"] = "AoA (deg)"
+	data["z_label"] = "γ (deg)"
+	_aoa_surface_window = _show_surface_window(
+		_aoa_surface_window, data, "Sustained-turn AoA — F(speed, γ)"
+	)
+
+
+func _on_rate_surface_pressed() -> void:
+	if _model_plane == null or not _model_plane.has_method("build_sustained_turn_rate_surface"):
+		return
+	var data: Dictionary = _model_plane.call("build_sustained_turn_rate_surface", -45.0, 45.0, 61, 0.0, 200.0)
+	if data.is_empty():
+		return
+	data["x_label"] = "Speed (m/s)"
+	data["y_label"] = "Turn rate (deg/s)"
+	data["z_label"] = "γ (deg)"
+	_rate_surface_window = _show_surface_window(
+		_rate_surface_window, data, "Sustained turn rate — F(speed, γ)"
+	)
+
+
+func _show_surface_window(window: Window, data: Dictionary, window_title: String) -> Window:
+	if window == null or not is_instance_valid(window):
+		window = SURFACE_GRAPH_3D_SCRIPT.new()
+		add_child(window)
+	window.call("show_surface", data, window_title)
+	window.popup_centered()
+	return window
 
 
 func _refresh_graphs_from_model() -> void:
