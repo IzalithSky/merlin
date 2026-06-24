@@ -82,16 +82,24 @@ const GROUND_ESCAPE_CANDIDATES: Array[Vector2] = [
 	Vector2(75.0, 15.0),
 ]
 const GROUND_ESCAPE_YAW_PENALTY := 1.5
+# Upward slope of the straight climb-out when sinking toward ground with nothing
+# directly ahead (~atan(1.0) = 45 deg).
+const AVOIDANCE_CLIMB_SLOPE := 1.0
 const CONTROL_INPUT_LIMIT := 1.0
 # Proportional control foundation: input magnitude scales with the error, reaching
 # full deflection at ~0.5 rad (~29 deg) of error with a gain of 2.0.
 const PROPORTIONAL_ROLL_GAIN := 2.0
 const PROPORTIONAL_PITCH_GAIN := 2.0
-# GOTO steers by rolling the lift vector onto the target, then pulling (pitch up).
-# It never blends the two: roll until aligned within ALIGN, then pitch; when the
-# bank drifts past REALIGN, stop pitching and roll again.
-const GOTO_ROLL_ALIGN_RAD := PI / 36.0
-const GOTO_ROLL_REALIGN_RAD := PI / 15.0
+# GOTO banks toward the target's horizontal bearing and pulls (pitch up). Roll is
+# always trimming toward the target bank; pitch only blends in once the bank error is
+# within the allowance (so a large bank change rolls first, then pitch joins as a
+# coordinated turn). Hysteresis between ALLOWANCE (enter) and RELEASE (exit) avoids
+# chattering pitch on and off.
+const GOTO_BLEND_ALLOWANCE_RAD := PI / 9.0
+const GOTO_BLEND_RELEASE_RAD := PI / 6.0
+# Horizontal course error (rad) -> desired bank (rad), clamped to a max bank angle.
+const GOTO_COURSE_TO_BANK_GAIN := 2.0
+const GOTO_MAX_BANK_RAD := PI / 3.0
 # Upward slope of the climb direction when seeking a higher altitude with no target.
 const GOTO_CLIMB_SLOPE := 0.5
 const FOLLOW_LEAD_MAX_TIME := 3.0
@@ -296,8 +304,102 @@ func _select_mode(forward_speed: float) -> int:
 # inputs are intentionally not driven yet -- to be reworked.
 # ---------------------------------------------------------------------------
 func _execute_avoidance(_delta: float) -> void:
-	# TODO: ground + plane collision avoidance.
-	pass
+	# Blending is allowed (roll and pitch together) and pitch may go either way.
+	# Terrain wins over a plane collision -- hitting the ground is fatal.
+	if _should_avoid_ground(_ground_clearance):
+		_execute_ground_avoidance()
+		return
+
+	var collision_direction: float = _engagement.get_collision_avoidance_direction()
+	if collision_direction != 0.0:
+		_execute_collision_avoidance(collision_direction)
+		return
+
+	# No live threat left (mode lags the conditions by a frame): climb out and hold.
+	_steer_blended(_get_climb_direction(), SPEED_RECOVERY_FULL_THROTTLE_INPUT, GOTO_MAX_BANK_RAD)
+
+
+func _execute_ground_avoidance() -> void:
+	# Terrain in the flight path: bank and pitch toward the most open escape direction
+	# (fan-probed climb or turn-away).
+	if _will_hit_terrain_ahead():
+		_steer_blended(_get_terrain_escape_direction(), SPEED_RECOVERY_FULL_THROTTLE_INPUT, GOTO_MAX_BANK_RAD)
+		return
+
+	# Sinking toward the ground below with nothing ahead: wings-level nose-up scaled by
+	# urgency (how low, how fast the descent, how steep the dive).
+	_apply_controls(
+		_wings_level_roll(),
+		_get_ground_avoidance_pitch_target(),
+		0.0,
+		SPEED_RECOVERY_FULL_THROTTLE_INPUT
+	)
+
+
+func _execute_collision_avoidance(direction: float) -> void:
+	# Hard break: bank toward the avoidance side and pull, full throttle.
+	var target_bank := direction * deg_to_rad(COLLISION_AVOIDANCE_BANK_DEG)
+	var bank_error := angle_difference(_get_current_bank(), target_bank)
+	_apply_controls(
+		_proportional_roll(bank_error),
+		-CONTROL_INPUT_LIMIT,
+		0.0,
+		SPEED_RECOVERY_FULL_THROTTLE_INPUT
+	)
+
+
+func _steer_blended(desired_direction: Vector3, throttle: float, max_bank: float) -> void:
+	# Bank toward the target bearing and pitch toward its elevation at the same time;
+	# pitch is free to go down here, unlike GOTO.
+	var direction := _get_safe_world_direction(desired_direction)
+	var course_error := _get_course_error(direction)
+	var target_bank := clampf(course_error * GOTO_COURSE_TO_BANK_GAIN, -max_bank, max_bank)
+	var bank_error := angle_difference(_get_current_bank(), target_bank)
+	var desired_pitch := asin(clampf(direction.y, -1.0, 1.0))
+	_apply_controls(
+		_proportional_roll(bank_error),
+		_proportional_pitch(desired_pitch - _get_pitch_angle()),
+		0.0,
+		throttle
+	)
+
+
+func _get_climb_direction() -> Vector3:
+	return (_get_escape_heading() + Vector3.UP * AVOIDANCE_CLIMB_SLOPE).normalized()
+
+
+func _get_terrain_escape_direction() -> Vector3:
+	var heading := _get_escape_heading()
+	var lookahead := _get_terrain_probe_lookahead()
+	var best_direction := _build_escape_candidate(heading, 0.0, 55.0)
+	var best_score := -INF
+
+	# Pick the candidate with the most open air, penalizing yaw so the bot climbs
+	# straight ahead when that path is clear and only turns away when it isn't.
+	for candidate in GROUND_ESCAPE_CANDIDATES:
+		var direction := _build_escape_candidate(heading, candidate.x, candidate.y)
+		var clearance := _probe_terrain_distance(direction, lookahead)
+		var clear_value: float = lookahead if not is_finite(clearance) else clearance
+		var score := clear_value - GROUND_ESCAPE_YAW_PENALTY * absf(candidate.x)
+		if score > best_score:
+			best_score = score
+			best_direction = direction
+
+	return best_direction
+
+
+func _get_escape_heading() -> Vector3:
+	var heading := Vector3(_frame_velocity.x, 0.0, _frame_velocity.z)
+	if heading.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return _frame_forward_axis
+
+	return heading.normalized()
+
+
+func _build_escape_candidate(horizontal_heading: Vector3, yaw_deg: float, pitch_up_deg: float) -> Vector3:
+	var yawed := horizontal_heading.rotated(Vector3.UP, deg_to_rad(yaw_deg))
+	var pitch_rad := deg_to_rad(pitch_up_deg)
+	return (yawed * cos(pitch_rad) + Vector3.UP * sin(pitch_rad)).normalized()
 
 
 func _execute_speed_management(_delta: float) -> void:
@@ -335,40 +437,76 @@ func _execute_speed_reduction(forward_speed: float) -> void:
 
 
 func _execute_goto(_delta: float) -> void:
-	# Single-axis control: roll the lift vector onto the target, then pull toward it.
-	# Never roll and pitch at once, and only ever pitch up (pull). To reach a target
-	# below, the bot banks/rolls so the lift points down and still pulls.
+	# Bank toward the target's bearing and pull toward it (pitch up only). Roll always
+	# trims the bank; pitch blends in once the bank error is within the allowance.
 	var desired_direction := _get_safe_world_direction(_get_goto_desired_direction())
 	var local_direction := _frame_inverse_basis * desired_direction
 	var turn_angle := _get_local_turn_angle(local_direction)
 	var throttle := _get_goto_throttle()
 
-	var roll_input := 0.0
-	var pitch_input := 0.0
+	# Bank error toward the desired bank, taken as the shortest signed rotation so the
+	# bot always rolls the short way (e.g. right-45 to left-45 through level, not the
+	# long way through inverted).
+	var target_bank := _get_goto_target_bank(desired_direction)
+	var bank_error := angle_difference(_get_current_bank(), target_bank)
+	_update_goto_phase(bank_error)
 
-	if turn_angle <= TURN_ANGLE_DEADBAND_RAD:
-		# Already pointed at the target; hold attitude.
-		_goto_pitching = true
-	else:
-		var lift_vector_error := atan2(local_direction.x, local_direction.y)
-		_update_goto_phase(lift_vector_error)
-		if _goto_pitching:
-			# Pull toward the target. _proportional_pitch already returns nose-up
-			# (negative) for a positive error; clamp guarantees we never push down.
-			pitch_input = minf(_proportional_pitch(turn_angle), 0.0)
-		else:
-			# Roll so the lift vector (local up) points at the target, then we pitch.
-			roll_input = _proportional_roll(-lift_vector_error)
+	var roll_input := _proportional_roll(bank_error)
+	var pitch_input := 0.0
+	if _goto_pitching and turn_angle > TURN_ANGLE_DEADBAND_RAD:
+		# Pull toward the target. _proportional_pitch returns nose-up (negative) for a
+		# positive error; clamp guarantees we never push down.
+		pitch_input = minf(_proportional_pitch(turn_angle), 0.0)
 
 	_apply_controls(roll_input, pitch_input, 0.0, throttle)
 
 
-func _update_goto_phase(lift_vector_error: float) -> void:
-	var misalignment := absf(lift_vector_error)
+func _get_goto_target_bank(desired_direction: Vector3) -> float:
+	# Bank that points the lift vector at the target so the (up-only) pull curves the
+	# nose onto it. This is the full lift-vector bank, not just the horizontal course:
+	# when the target is below, the bank rolls past 90 deg toward inverted so pulling
+	# descends instead of climbing. angle_difference in the caller keeps the roll the
+	# short way around.
+	var forward := _frame_forward_axis
+	var to_target := _get_safe_world_direction(desired_direction)
+	# Component of the target direction perpendicular to the nose -- the way the flight
+	# path must bend, i.e. where the lift should point.
+	var desired_turn := to_target - forward * to_target.dot(forward)
+	if desired_turn.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return 0.0
+	desired_turn = desired_turn.normalized()
+
+	# Wings-level reference for the lift vector (world up projected off the nose).
+	var ref_up := Vector3.UP - forward * Vector3.UP.dot(forward)
+	if ref_up.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return _get_current_bank()
+	ref_up = ref_up.normalized()
+
+	# Negated so a left-side target maps to a positive (left) bank, matching
+	# _get_current_bank's sign convention.
+	return -ref_up.signed_angle_to(desired_turn, forward)
+
+
+func _get_course_error(desired_direction: Vector3) -> float:
+	# Signed horizontal angle from the current heading to the target bearing. Positive
+	# (target to the left) maps to a positive bank, matching _get_current_bank.
+	var flat_target := Vector3(desired_direction.x, 0.0, desired_direction.z)
+	var flat_forward := Vector3(_frame_forward_axis.x, 0.0, _frame_forward_axis.z)
+	if flat_target.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return 0.0
+	if flat_forward.length_squared() <= MIN_DIRECTION_LENGTH_SQUARED:
+		return 0.0
+
+	return flat_forward.signed_angle_to(flat_target, Vector3.UP)
+
+
+func _update_goto_phase(bank_error: float) -> void:
+	# _goto_pitching means the bank is close enough to blend pitch with the roll trim.
+	var misalignment := absf(bank_error)
 	if _goto_pitching:
-		if misalignment > GOTO_ROLL_REALIGN_RAD:
+		if misalignment > GOTO_BLEND_RELEASE_RAD:
 			_goto_pitching = false
-	elif misalignment <= GOTO_ROLL_ALIGN_RAD:
+	elif misalignment <= GOTO_BLEND_ALLOWANCE_RAD:
 		_goto_pitching = true
 
 
@@ -569,6 +707,41 @@ func _has_terrain_ahead_threat() -> bool:
 		return false
 
 	return _get_terrain_ahead_time_to_impact() <= lookahead * GROUND_PROBE_TERRAIN_URGENT_FACTOR
+
+
+func _get_terrain_ahead_urgency() -> float:
+	var lookahead := maxf(ground_avoidance_time_to_impact, 0.0)
+	if lookahead <= 0.0:
+		return 0.0
+
+	var time_to_impact := _get_terrain_ahead_time_to_impact()
+	if not is_finite(time_to_impact):
+		return 0.0
+
+	return clampf(1.0 - time_to_impact / lookahead, 0.0, 1.0)
+
+
+func _get_ground_avoidance_pitch_target() -> float:
+	# Nose-up input scaled by the most pressing of: low clearance, fast descent, steep
+	# dive, or terrain closing ahead. Returns a negative (nose-up) control input.
+	var min_clearance := maxf(min_ground_clearance, 1.0)
+	var clearance := clampf(_ground_clearance, 0.0, min_clearance)
+	var clearance_urgency := 1.0 - (clearance / min_clearance)
+	var closure_urgency := clampf(
+		_get_ground_closure_rate() / maxf(ground_avoidance_closure_rate_for_max_pull, 1.0),
+		0.0,
+		1.0
+	)
+	var dive_angle_urgency := clampf(
+		_get_downward_flight_path_angle_deg() / maxf(ground_avoidance_dive_angle_for_max_pull_deg, 1.0),
+		0.0,
+		1.0
+	)
+	var urgency := maxf(
+		maxf(clearance_urgency, closure_urgency),
+		maxf(dive_angle_urgency, _get_terrain_ahead_urgency())
+	)
+	return -lerpf(GROUND_AVOIDANCE_MIN_NOSE_UP_INPUT, CONTROL_INPUT_LIMIT, urgency)
 
 
 func _get_downward_flight_path_angle_deg() -> float:
