@@ -192,7 +192,7 @@
     "max_thrust": 14000.0,
     "max_pitch": 1.0,
     "max_yaw": 0.5,
-    "max_roll": 1.2,
+    "max_roll": 1.6,
     "base_control_torque": 32000.0,
     "reference_area": 17.0,
     "extra_linear_drag_linear_coefficient": 0.0,

@@ -58,9 +58,17 @@ const TURN_ANGLE_DEADBAND_RAD := PI / 180.0
 # Below this nose-to-target angle, blend the turn roll toward wings level so the
 # bot rolls out of its bank as it aligns instead of holding bank and overshooting.
 const TURN_ROLLOUT_ANGLE_RAD := PI / 12.0
-const CORRECTION_TURN_PITCH_DOWN_RATE := 0.47
-const CORRECTION_TURN_MIN_LATERAL_ANGLE_RAD := 0.08
-const CORRECTION_TURN_HYSTERESIS_RAD := 2.0 * PI / 180.0
+# Within this nose-to-target angle the bot tracks with a small bank proportional to
+# the lateral (course) error plus pitch for the vertical error, instead of the
+# lift-vector roll-and-pull. Lift-vector roll is ill-conditioned near alignment (a
+# tiny lateral error demands ~90 deg of bank), which wobbles the nose out of plane
+# and overshoots when chasing a low-aspect target. Yaw is left to the plane's own
+# coordination (steering by yaw only sideslips, it does not turn the flight path).
+const FINE_TRACKING_HYSTERESIS_RAD := 2.0 * PI / 180.0
+# Lateral course error (rad) -> commanded bank (rad), clamped. A gentle, proportional
+# bank so small errors get small banks instead of the lift-vector method's full bank.
+const FINE_TRACKING_BANK_GAIN := 1.5
+const FINE_TRACKING_MAX_BANK_RAD := PI / 4.0
 const WINGS_LEVEL_DEADBAND_RAD := PI / 180.0
 const MIN_DIRECTION_LENGTH_SQUARED := 0.000001
 const PLAYER_TARGET_REACQUIRE_INTERVAL := 0.5
@@ -106,8 +114,8 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 
 @export var min_acceptable_forward_speed: float = 70.0
 @export var reserve_forward_speed: float = 85.0
-@export var max_acceptable_forward_speed: float = 170.0
-@export var speed_reduction_reserve_forward_speed: float = 150.0
+@export var max_acceptable_forward_speed: float = 150.0
+@export var speed_reduction_reserve_forward_speed: float = 130.0
 @export var default_altitude: float = 5000.0
 @export var min_ground_clearance: float = 300.0
 @export var ground_clearance_tolerance: float = 25.0
@@ -117,7 +125,7 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 @export var ground_probe_distance: float = 1000.0
 @export var checkpoint_orbit_radius: float = 500.0
 @export var checkpoint_orbit_direction: float = 1.0
-@export var correction_turn_small_angle_deg: float = 12.0
+@export var fine_tracking_angle_deg: float = 8.0
 @export var overshoot_closure_tolerance: float = 0.5
 @export var overshoot_throttle_gain: float = 0.08
 @export var killzone_distance: float = 250.0
@@ -140,7 +148,8 @@ var _ground_clearance := INF
 var _terrain_ahead_distance := INF
 var _next_ground_probe_time := 0.0
 var _checkpoint_index := 0
-var _correction_turn_active := false
+var _fine_tracking_active := false
+var _fine_tracking_engaged := false
 var _debug_adapter
 var _engagement
 var _frame_position := Vector3.ZERO
@@ -245,6 +254,10 @@ func get_flight_state_name() -> String:
 			return "IDLE"
 
 
+func is_fine_tracking_active() -> bool:
+	return _fine_tracking_engaged
+
+
 func get_engagement_debug_snapshot() -> Dictionary:
 	return _engagement.get_debug_snapshot()
 
@@ -256,6 +269,9 @@ func get_follow_target_debug_label() -> String:
 func _update_flight_controls(delta: float) -> void:
 	var forward_speed := _get_forward_speed()
 	_update_collision_threat()
+	# Reset each frame; _apply_fine_tracking re-sets it when it actually steers, so the
+	# debug readout reflects the live sub-mode rather than the hysteresis latch.
+	_fine_tracking_engaged = false
 	_flight_state = _select_flight_state(forward_speed)
 
 	match _flight_state:
@@ -448,8 +464,8 @@ func turn_toward_direction(
 	var direction := _get_safe_world_direction(desired_direction)
 	var local_direction := _frame_inverse_basis * direction
 	var turn_angle := _get_local_turn_angle(local_direction)
-	if _should_use_correction_turn(local_direction, turn_angle):
-		_apply_correction_turn(delta, throttle_target, response_rate)
+	if _should_use_fine_tracking(local_direction, turn_angle):
+		_apply_fine_tracking(delta, local_direction, throttle_target, response_rate)
 		return
 
 	if turn_angle <= TURN_ANGLE_DEADBAND_RAD:
@@ -473,11 +489,29 @@ func turn_toward_direction(
 	)
 
 
-func _apply_correction_turn(delta: float, throttle_target: float, response_rate: float) -> void:
+func _apply_fine_tracking(
+	delta: float,
+	local_direction: Vector3,
+	throttle_target: float,
+	response_rate: float
+) -> void:
+	# Bank-to-turn with a small bank proportional to the lateral course error, and
+	# pitch for the vertical error. The plane banks gently toward the target and the
+	# tilted lift vector curves the flight path; pitch holds the nose on it. Yaw is
+	# left to the plane's auto-coordination -- commanding yaw only sideslips.
+	_fine_tracking_engaged = true
+	var forward_alignment := maxf(-local_direction.z, MIN_DIRECTION_LENGTH_SQUARED)
+	var course_error := atan2(local_direction.x, forward_alignment)
+	var pitch_error := atan2(local_direction.y, forward_alignment)
+	var target_bank := clampf(
+		-course_error * FINE_TRACKING_BANK_GAIN,
+		-FINE_TRACKING_MAX_BANK_RAD,
+		FINE_TRACKING_MAX_BANK_RAD
+	)
 	_apply_control_behavior(
 		delta,
-		_get_wings_level_roll_target(),
-		_get_correction_turn_pitch_target(),
+		_get_roll_input_for_bank(target_bank),
+		_get_pitch_input_for_error(pitch_error),
 		0.0,
 		response_rate,
 		throttle_target
@@ -892,34 +926,26 @@ func _get_lift_vector_roll_target(local_direction: Vector3, turn_angle: float) -
 	return lerpf(lift_vector_roll, _get_wings_level_roll_target(), rollout)
 
 
-func _should_use_correction_turn(local_direction: Vector3, turn_angle: float) -> bool:
-	var threshold := deg_to_rad(maxf(correction_turn_small_angle_deg, 0.0))
+func _should_use_fine_tracking(local_direction: Vector3, turn_angle: float) -> bool:
+	var threshold := deg_to_rad(maxf(fine_tracking_angle_deg, 0.0))
 	if threshold <= 0.0:
-		_correction_turn_active = false
+		_fine_tracking_active = false
 		return false
 
+	# Only fine-track a target ahead of the nose; large/rear angles still roll to turn.
 	if -local_direction.z <= 0.0:
-		_correction_turn_active = false
+		_fine_tracking_active = false
 		return false
 
-	var lateral_angle := absf(atan2(local_direction.x, -local_direction.z))
-	if lateral_angle < CORRECTION_TURN_MIN_LATERAL_ANGLE_RAD:
-		_correction_turn_active = false
-		return false
-
-	if absf(local_direction.y) > absf(local_direction.x):
-		_correction_turn_active = false
-		return false
-
-	if _correction_turn_active:
-		if turn_angle < threshold + CORRECTION_TURN_HYSTERESIS_RAD:
+	if _fine_tracking_active:
+		if turn_angle < threshold + FINE_TRACKING_HYSTERESIS_RAD:
 			return true
 
-		_correction_turn_active = false
+		_fine_tracking_active = false
 		return false
 
 	if turn_angle < threshold:
-		_correction_turn_active = true
+		_fine_tracking_active = true
 		return true
 
 	return false
@@ -932,6 +958,12 @@ func _get_wings_level_roll_target() -> float:
 		return 0.0
 
 	return _get_roll_input_for_error(bank_error, WINGS_LEVEL_ROLL_GAIN)
+
+
+func _get_roll_input_for_bank(target_bank: float) -> float:
+	var local_world_up := _frame_inverse_basis * Vector3.UP
+	var current_bank := atan2(local_world_up.x, local_world_up.y)
+	return _get_roll_input_for_error(target_bank - current_bank, WINGS_LEVEL_ROLL_GAIN)
 
 
 func _get_roll_input_for_error(roll_error: float, angle_to_rate_gain: float, rate_scale: float = 1.0) -> float:
@@ -983,15 +1015,6 @@ func _get_turn_pull_pitch_target(turn_angle: float) -> float:
 		_get_local_pitch_rate(),
 		TURN_PITCH_RATE_RESPONSE_GAIN,
 		1.0,
-		-1.0
-	)
-
-
-func _get_correction_turn_pitch_target() -> float:
-	return _plane.get_rate_stabilized_input_for_desired_rate(
-		-CORRECTION_TURN_PITCH_DOWN_RATE,
-		_get_local_pitch_rate(),
-		TURN_PITCH_RATE_RESPONSE_GAIN,
 		-1.0
 	)
 
