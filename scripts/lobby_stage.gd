@@ -8,7 +8,7 @@ const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 @onready var _status_label: Label = %StatusLabel
 @onready var _ready_button: Button = %ReadyButton
 @onready var _join_in_progress_check: CheckButton = %JoinInProgressCheck
-@onready var _trails_enabled_check: CheckButton = %TrailsEnabledCheck
+@onready var _energy_trail_check: CheckButton = %EnergyTrailCheck
 @onready var _bot_count_spin_box: SpinBox = %BotCountSpinBox
 @onready var _preset_option: OptionButton = %PresetOption
 @onready var _start_button: Button = %StartButton
@@ -22,7 +22,7 @@ func _ready() -> void:
 	_lobby.status_changed.connect(_update_status)
 	_ready_button.pressed.connect(_on_ready_pressed)
 	_join_in_progress_check.toggled.connect(_on_join_in_progress_toggled)
-	_trails_enabled_check.toggled.connect(_on_trails_enabled_toggled)
+	_energy_trail_check.toggled.connect(_on_energy_trail_toggled)
 	_bot_count_spin_box.value_changed.connect(_on_bot_count_changed)
 	_populate_preset_option()
 	_preset_option.item_selected.connect(_on_preset_selected)
@@ -65,13 +65,13 @@ func _update_players(players: Dictionary) -> void:
 	_start_button.disabled = not _lobby.is_server_peer()
 	_join_in_progress_check.visible = _lobby.is_server_peer()
 	_join_in_progress_check.disabled = not _lobby.is_server_peer()
-	_trails_enabled_check.disabled = not _lobby.is_server_peer()
+	_energy_trail_check.disabled = not _lobby.is_server_peer()
 	_bot_count_spin_box.editable = _lobby.is_server_peer()
 
 
 func _update_session_options(_is_game_in_progress: bool, allow_join_in_progress: bool, bot_count: int, trails_enabled: bool) -> void:
 	_join_in_progress_check.button_pressed = allow_join_in_progress
-	_trails_enabled_check.set_pressed_no_signal(trails_enabled)
+	_energy_trail_check.set_pressed_no_signal(trails_enabled)
 	_bot_count_spin_box.set_value_no_signal(bot_count)
 
 
@@ -89,7 +89,7 @@ func _on_join_in_progress_toggled(button_pressed: bool) -> void:
 	_lobby.set_allow_join_in_progress(button_pressed)
 
 
-func _on_trails_enabled_toggled(button_pressed: bool) -> void:
+func _on_energy_trail_toggled(button_pressed: bool) -> void:
 	_lobby.set_trails_enabled(button_pressed)
 
 

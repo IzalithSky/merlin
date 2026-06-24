@@ -13,7 +13,7 @@ var _plane: PlaneCharacter
 var _trails: Array[VisualTrail3D] = []
 var _speed_trails: Array[SpeedColorTrail3D] = []
 var _active := false
-var _trails_visible := true
+var _energy_trails_visible := true
 
 
 func _ready() -> void:
@@ -21,31 +21,29 @@ func _ready() -> void:
 	_collect_trails()
 
 
-func set_trails_visible(enabled: bool) -> void:
-	_trails_visible = enabled
-	for trail in _trails:
-		trail.set_trail_visible(enabled)
+func set_energy_trails_visible(enabled: bool) -> void:
+	_energy_trails_visible = enabled
 	for trail in _speed_trails:
 		trail.set_trail_visible(enabled)
 
 
 func _physics_process(delta: float) -> void:
-	if not _trails_visible:
-		for trail in _trails:
-			trail.trail_enabled = false
-		for trail in _speed_trails:
-			trail.trail_enabled = false
+	if _plane == null:
 		return
 
 	var active := _should_emit_trails(delta)
 	for trail in _trails:
 		trail.trail_enabled = active
 
-	if _plane != null:
-		var forward_speed := _plane.linear_velocity.dot(_plane.get_frame_forward_axis())
+	if not _energy_trails_visible:
 		for trail in _speed_trails:
-			trail.trail_enabled = true
-			trail.set_current_speed(forward_speed)
+			trail.trail_enabled = false
+		return
+
+	var forward_speed := _plane.linear_velocity.dot(_plane.get_frame_forward_axis())
+	for trail in _speed_trails:
+		trail.trail_enabled = true
+		trail.set_current_speed(forward_speed)
 
 
 func _collect_trails() -> void:

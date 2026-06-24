@@ -131,13 +131,13 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 17
 text = "Allow Join In Progress"
 
-[node name="TrailsEnabledCheck" type="CheckButton" parent="CenterContainer/Panel/Margin/VBox"]
+[node name="EnergyTrailCheck" type="CheckButton" parent="CenterContainer/Panel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2
 theme_override_font_sizes/font_size = 17
 button_pressed = true
-text = "Show Visual Trails"
+text = "Show energy trail"
 
 [node name="BotCountRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
 layout_mode = 2

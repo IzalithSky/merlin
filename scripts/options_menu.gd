@@ -8,7 +8,7 @@ signal keybindings_requested
 @onready var _advanced_hud_check: CheckButton = %AdvancedHudCheck
 @onready var _relative_roll_clock_check: CheckButton = %RelativeRollClockCheck
 @onready var _global_direction_markers_check: CheckButton = %GlobalDirectionMarkersCheck
-@onready var _visual_trails_check: CheckButton = %VisualTrailsCheck
+@onready var _energy_trail_check: CheckButton = %EnergyTrailCheck
 @onready var _mouse_sensitivity_slider: HSlider = %MouseSensitivitySlider
 @onready var _mouse_sensitivity_edit: LineEdit = %MouseSensitivityEdit
 @onready var _master_volume_slider: HSlider = %MasterVolumeSlider
@@ -22,7 +22,7 @@ func _ready() -> void:
 	_advanced_hud_check.toggled.connect(_on_advanced_hud_toggled)
 	_relative_roll_clock_check.toggled.connect(_on_relative_roll_clock_toggled)
 	_global_direction_markers_check.toggled.connect(_on_global_direction_markers_toggled)
-	_visual_trails_check.toggled.connect(_on_visual_trails_toggled)
+	_energy_trail_check.toggled.connect(_on_energy_trail_toggled)
 	_mouse_sensitivity_slider.value_changed.connect(_on_mouse_sensitivity_slider_changed)
 	_mouse_sensitivity_edit.text_submitted.connect(_on_mouse_sensitivity_edit_submitted)
 	_mouse_sensitivity_edit.focus_exited.connect(_on_mouse_sensitivity_edit_focus_exited)
@@ -51,7 +51,7 @@ func _sync_from_settings() -> void:
 	_advanced_hud_check.set_pressed_no_signal(DisplaySettings.advanced_hud_enabled)
 	_relative_roll_clock_check.set_pressed_no_signal(DisplaySettings.relative_roll_clock_enabled)
 	_global_direction_markers_check.set_pressed_no_signal(DisplaySettings.global_direction_markers_enabled)
-	_visual_trails_check.set_pressed_no_signal(DisplaySettings.visual_trails_enabled)
+	_energy_trail_check.set_pressed_no_signal(DisplaySettings.energy_trail_enabled)
 	var display_val := int(round(DisplaySettings.mouse_sensitivity * 1000.0))
 	_mouse_sensitivity_slider.set_value_no_signal(float(display_val))
 	_mouse_sensitivity_edit.text = str(display_val)
@@ -78,8 +78,8 @@ func _on_global_direction_markers_toggled(button_pressed: bool) -> void:
 	DisplaySettings.set_global_direction_markers_enabled(button_pressed)
 
 
-func _on_visual_trails_toggled(button_pressed: bool) -> void:
-	DisplaySettings.set_visual_trails_enabled(button_pressed)
+func _on_energy_trail_toggled(button_pressed: bool) -> void:
+	DisplaySettings.set_energy_trail_enabled(button_pressed)
 
 
 func _on_mouse_sensitivity_slider_changed(value: float) -> void:

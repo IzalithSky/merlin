@@ -13,7 +13,8 @@ const KEY_MOUSE_SENSITIVITY := "mouse_sensitivity"
 const KEY_PITCH_ASSIST := "pitch_assist"
 const KEY_STABILIZATION_ASSIST := "stabilization_assist"
 const KEY_INPUT_DECAY := "input_decay"
-const KEY_VISUAL_TRAILS := "visual_trails"
+const KEY_ENERGY_TRAIL := "energy_trail"
+const LEGACY_KEY_VISUAL_TRAILS := "visual_trails"
 const KEY_MASTER_VOLUME := "master_volume"
 
 var debug_force_arrows_enabled := true
@@ -25,7 +26,7 @@ var mouse_sensitivity := 0.006
 var pitch_assist_enabled := true
 var stabilization_assist_enabled := true
 var input_decay_enabled := true
-var visual_trails_enabled := true
+var energy_trail_enabled := true
 var master_volume := 1.0
 
 
@@ -46,7 +47,7 @@ func load_settings() -> void:
 		pitch_assist_enabled = true
 		stabilization_assist_enabled = true
 		input_decay_enabled = true
-		visual_trails_enabled = true
+		energy_trail_enabled = true
 		return
 
 	debug_force_arrows_enabled = bool(config.get_value(SECTION, KEY_DEBUG_FORCE_ARROWS, true))
@@ -58,7 +59,10 @@ func load_settings() -> void:
 	pitch_assist_enabled = bool(config.get_value(SECTION, KEY_PITCH_ASSIST, true))
 	stabilization_assist_enabled = bool(config.get_value(SECTION, KEY_STABILIZATION_ASSIST, true))
 	input_decay_enabled = bool(config.get_value(SECTION, KEY_INPUT_DECAY, true))
-	visual_trails_enabled = bool(config.get_value(SECTION, KEY_VISUAL_TRAILS, true))
+	if config.has_section_key(SECTION, KEY_ENERGY_TRAIL):
+		energy_trail_enabled = bool(config.get_value(SECTION, KEY_ENERGY_TRAIL, true))
+	else:
+		energy_trail_enabled = bool(config.get_value(SECTION, LEGACY_KEY_VISUAL_TRAILS, true))
 	master_volume = clampf(float(config.get_value(SECTION, KEY_MASTER_VOLUME, 1.0)), 0.0, 1.0)
 	_apply_master_volume()
 
@@ -74,7 +78,7 @@ func save_settings() -> void:
 	config.set_value(SECTION, KEY_PITCH_ASSIST, pitch_assist_enabled)
 	config.set_value(SECTION, KEY_STABILIZATION_ASSIST, stabilization_assist_enabled)
 	config.set_value(SECTION, KEY_INPUT_DECAY, input_decay_enabled)
-	config.set_value(SECTION, KEY_VISUAL_TRAILS, visual_trails_enabled)
+	config.set_value(SECTION, KEY_ENERGY_TRAIL, energy_trail_enabled)
 	config.set_value(SECTION, KEY_MASTER_VOLUME, master_volume)
 
 	var error := config.save(SAVE_PATH)
@@ -164,11 +168,11 @@ func set_input_decay_enabled(enabled: bool) -> void:
 	settings_changed.emit()
 
 
-func set_visual_trails_enabled(enabled: bool) -> void:
-	if visual_trails_enabled == enabled:
+func set_energy_trail_enabled(enabled: bool) -> void:
+	if energy_trail_enabled == enabled:
 		return
 
-	visual_trails_enabled = enabled
+	energy_trail_enabled = enabled
 	save_settings()
 	settings_changed.emit()
 
