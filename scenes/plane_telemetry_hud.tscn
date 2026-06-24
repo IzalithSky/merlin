@@ -228,6 +228,16 @@ layout_mode = 2
 text = "--"
 horizontal_alignment = 2
 
+[node name="SustainTurnLabel" type="Label" parent="Root/Panel/Margin/Grid"]
+layout_mode = 2
+text = "Sustain Turn"
+
+[node name="SustainTurnValue" type="Label" parent="Root/Panel/Margin/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "--"
+horizontal_alignment = 2
+
 [node name="PitchInputLabel" type="Label" parent="Root/Panel/Margin/Grid"]
 layout_mode = 2
 text = "Pitch Input"

@@ -12,6 +12,7 @@ const VELOCITY_DIRECTION_TEXTURE_PATH := "res://textures/hud/heading_sprite.png"
 @onready var _pitch_assist_value: Label = %PitchAssistValue
 @onready var _stabilization_assist_value: Label = %StabilizationAssistValue
 @onready var _input_decay_value: Label = %InputDecayValue
+@onready var _sustain_turn_value: Label = %SustainTurnValue
 @onready var _pitch_input_bar: ProgressBar = %PitchInputBar
 @onready var _yaw_input_bar: ProgressBar = %YawInputBar
 @onready var _roll_input_bar: ProgressBar = %RollInputBar
@@ -99,6 +100,7 @@ func _process(_delta: float) -> void:
 	var pitch_assist_enabled := true
 	var stabilization_assist_enabled := true
 	var input_decay_enabled := true
+	var sustain_turn_enabled := false
 
 	throttle_percent = _target.get_throttle_percent()
 	aoa_deg = _target.get_aoa_deg()
@@ -109,6 +111,7 @@ func _process(_delta: float) -> void:
 	pitch_assist_enabled = _target.is_pitch_assist_enabled()
 	stabilization_assist_enabled = _target.is_stabilization_assist_enabled()
 	input_decay_enabled = _target.is_input_decay_enabled()
+	sustain_turn_enabled = _target.is_sustain_turn_limiter_active()
 
 	_airspeed_value.text = "%.1f m/s" % airspeed_forward
 	_vertical_speed_value.text = "%.1f m/s" % vertical_speed
@@ -120,6 +123,7 @@ func _process(_delta: float) -> void:
 	_pitch_assist_value.text = "ON" if pitch_assist_enabled else "OFF"
 	_stabilization_assist_value.text = "ON" if stabilization_assist_enabled else "OFF"
 	_input_decay_value.text = "ON" if input_decay_enabled else "OFF"
+	_sustain_turn_value.text = "ON" if sustain_turn_enabled else "OFF"
 
 	var health = _target.get_health_component()
 	if health != null:
@@ -153,6 +157,7 @@ func _reset_labels() -> void:
 	_pitch_assist_value.text = "--"
 	_stabilization_assist_value.text = "--"
 	_input_decay_value.text = "--"
+	_sustain_turn_value.text = "--"
 	_pitch_input_bar.value = 0.0
 	_yaw_input_bar.value = 0.0
 	_roll_input_bar.value = 0.0
