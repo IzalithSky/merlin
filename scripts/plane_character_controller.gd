@@ -223,7 +223,7 @@ var _corner_speed_update_timer := 0.0
 var _sustained_aoa_surface: Dictionary = {}
 var _sustain_turn_limiter_runtime_enabled := true
 var _flame_trail: Node3D
-var _net_limiter_override_active := false
+var _net_sustain_turn_mode_active := false
 var _net_effective_pitch_input := 0.0
 var _shot_down_random := RandomNumberGenerator.new()
 var _last_ground_impact_time: float = -INF
@@ -419,7 +419,7 @@ func _apply_spawn_control_defaults() -> void:
 	_player_pitch_control_active = false
 	_player_yaw_control_active = false
 	_player_direct_roll_control_active = false
-	_net_limiter_override_active = false
+	_net_sustain_turn_mode_active = false
 	_net_effective_pitch_input = 0.0
 	if is_local_player:
 		var ds := DisplaySettings

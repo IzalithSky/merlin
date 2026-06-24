@@ -40,7 +40,7 @@ func apply_inputs_to_plane() -> void:
 		_plane.relative_roll_target_active = bool(input.get("relative_roll_target_active", false))
 		_plane._pitch_assist_enabled = bool(input.get("pitch_assist_enabled", true))
 		_plane._stabilization_assist_enabled = bool(input.get("stabilization_assist_enabled", true))
-		_plane._net_limiter_override_active = bool(input.get("limiter_override_active", false))
+		_plane._net_sustain_turn_mode_active = bool(input.get("sustain_turn_mode_active", false))
 		_plane._net_effective_pitch_input = clampf(float(input.get("effective_pitch", _plane.pitch_input)), -1.0, 1.0)
 	_plane.throttle_percent = ((_plane.throttle_input + 1.0) * 0.5) * 100.0
 

@@ -441,7 +441,7 @@ func _is_valid_input_packet(input: Dictionary) -> bool:
 		"relative_roll_target_active",
 		"pitch_assist_enabled",
 		"stabilization_assist_enabled",
-		"limiter_override_active",
+		"sustain_turn_mode_active",
 	]:
 		if input.has(bool_key) and not (input.get(bool_key) is bool):
 			return false

@@ -21,11 +21,14 @@ func collect_bot_inputs(delta: float) -> void:
 	_plane._player_pitch_control_active = false
 	_plane._player_yaw_control_active = false
 	_plane._player_direct_roll_control_active = false
+	# Bots don't use sustain-turn mode for now; keep them on full authority.
+	_plane.set_sustain_turn_limiter_runtime_enabled(false)
 	_plane.throttle_percent = ((_plane.throttle_input + 1.0) * 0.5) * 100.0
 
 
 func collect_inputs(delta: float) -> void:
 	_handle_assist_toggle_inputs()
+	_plane.set_sustain_turn_limiter_runtime_enabled(_is_sustain_turn_mode_active())
 
 	var rotation_rate: float = _plane.rot_rate * delta
 	var rotation_decay: float = _plane.rot_decay * delta
@@ -90,8 +93,13 @@ func build_local_input_payload(seq: int) -> PackedByteArray:
 		"relative_roll_target_active": _plane.relative_roll_target_active,
 		"pitch_assist_enabled": _plane._pitch_assist_enabled,
 		"stabilization_assist_enabled": _plane._stabilization_assist_enabled,
-		"limiter_override_active": Input.is_action_pressed("limiter_override") != KeybindingsSettings.limiter_override_inverted,
+		"sustain_turn_mode_active": _is_sustain_turn_mode_active(),
 	})
+
+
+# Sustain-turn mode binding: hold to engage (or, when inverted, hold to disengage).
+func _is_sustain_turn_mode_active() -> bool:
+	return Input.is_action_pressed("sustain_turn_mode") != KeybindingsSettings.sustain_turn_mode_inverted
 
 
 func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: float) -> void:

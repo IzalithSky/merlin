@@ -19,7 +19,7 @@ func _init() -> void:
 		"relative_roll_target_active": false,
 		"pitch_assist_enabled": true,
 		"stabilization_assist_enabled": false,
-		"limiter_override_active": true,
+		"sustain_turn_mode_active": true,
 	}
 	var input_packet := NET_WIRE.encode_input(input)
 	var decoded_input := NET_WIRE.decode_input(input_packet)
@@ -36,7 +36,7 @@ func _init() -> void:
 	_assert(not bool(decoded_input.get("relative_roll_target_active", true)), "relative_roll_target_active round-trip failed")
 	_assert(bool(decoded_input.get("pitch_assist_enabled", false)), "pitch_assist_enabled round-trip failed")
 	_assert(not bool(decoded_input.get("stabilization_assist_enabled", true)), "stabilization_assist_enabled round-trip failed")
-	_assert(bool(decoded_input.get("limiter_override_active", false)), "limiter_override_active round-trip failed")
+	_assert(bool(decoded_input.get("sustain_turn_mode_active", false)), "sustain_turn_mode_active round-trip failed")
 
 	var planes: Array[Dictionary] = [
 		{

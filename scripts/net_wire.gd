@@ -9,7 +9,7 @@ const INPUT_FLAG_DIRECT_ROLL_CONTROL_ACTIVE := 1 << 2
 const INPUT_FLAG_RELATIVE_ROLL_TARGET_ACTIVE := 1 << 3
 const INPUT_FLAG_PITCH_ASSIST_ENABLED := 1 << 4
 const INPUT_FLAG_STABILIZATION_ASSIST_ENABLED := 1 << 5
-const INPUT_FLAG_LIMITER_OVERRIDE_ACTIVE := 1 << 6
+const INPUT_FLAG_SUSTAIN_TURN_MODE_ACTIVE := 1 << 6
 
 const WORLD_HEADER_BYTES := 1 + 4 + 2
 const WORLD_PLANE_BYTES := 4 + (9 * 4) + (4 * 4) + 4
@@ -124,7 +124,7 @@ static func decode_input(data: PackedByteArray) -> Dictionary:
 		"relative_roll_target_active": bool(flags & INPUT_FLAG_RELATIVE_ROLL_TARGET_ACTIVE),
 		"pitch_assist_enabled": bool(flags & INPUT_FLAG_PITCH_ASSIST_ENABLED),
 		"stabilization_assist_enabled": bool(flags & INPUT_FLAG_STABILIZATION_ASSIST_ENABLED),
-		"limiter_override_active": bool(flags & INPUT_FLAG_LIMITER_OVERRIDE_ACTIVE),
+		"sustain_turn_mode_active": bool(flags & INPUT_FLAG_SUSTAIN_TURN_MODE_ACTIVE),
 	}
 
 
@@ -142,8 +142,8 @@ static func _encode_input_flags(input: Dictionary) -> int:
 		flags |= INPUT_FLAG_PITCH_ASSIST_ENABLED
 	if bool(input.get("stabilization_assist_enabled", true)):
 		flags |= INPUT_FLAG_STABILIZATION_ASSIST_ENABLED
-	if bool(input.get("limiter_override_active", false)):
-		flags |= INPUT_FLAG_LIMITER_OVERRIDE_ACTIVE
+	if bool(input.get("sustain_turn_mode_active", false)):
+		flags |= INPUT_FLAG_SUSTAIN_TURN_MODE_ACTIVE
 	return flags
 
 
