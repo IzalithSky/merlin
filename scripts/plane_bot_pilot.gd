@@ -111,8 +111,8 @@ const COLLISION_AVOIDANCE_BANK_DEG := 90.0
 # speed, so without this gate the bot would jink at every plane it is tailing.
 const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 
-@export var min_acceptable_forward_speed: float = 70.0
-@export var reserve_forward_speed: float = 85.0
+@export var min_acceptable_forward_speed: float = 50.0
+@export var reserve_forward_speed: float = 70.0
 @export var max_acceptable_forward_speed: float = 150.0
 @export var speed_reduction_reserve_forward_speed: float = 130.0
 @export var default_altitude: float = 5000.0
