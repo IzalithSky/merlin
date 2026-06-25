@@ -196,11 +196,15 @@ func get_debug_snapshot() -> Dictionary:
 func get_follow_target_debug_label() -> String:
 	if not has_follow_target():
 		return "none"
-	if _follow_target_is_player:
-		return "player"
+
+	var identity := _follow_target.name
+	var peer_id = _follow_target.get("peer_id")
+	if peer_id != null:
+		identity = "%s #%d" % [identity, peer_id]
+
 	if _follow_target_uses_killzone:
-		return "killzone"
-	return "static"
+		return "%s (killzone)" % identity
+	return identity
 
 
 func _set_active_follow_target(target: Node3D, target_is_player: bool, use_killzone: bool = false) -> void:

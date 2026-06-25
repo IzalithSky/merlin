@@ -13,7 +13,6 @@ const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applie
 @export var bot_killzone_distance: float = 250.0
 @export var bot_killzone_tolerance: float = 150.0
 @export var bot_autocannon_fire_max_range: float = 650.0
-@export var bot_autocannon_lead_cone_half_angle_deg: float = 30.0
 
 @onready var _characters: Node3D = $characters
 
@@ -91,9 +90,6 @@ func _attach_bot_pilot(plane: RigidBody3D) -> Node:
 	pilot.set("autocannon_fire_max_range", bot_autocannon_fire_max_range)
 	if _has_display_settings():
 		pilot.set("debug_bot_visuals_enabled", DisplaySettings.bot_debug_enabled)
-	var autocannon := plane.get_node_or_null("Autocannon")
-	if autocannon != null:
-		autocannon.set("lead_cone_half_angle_deg", bot_autocannon_lead_cone_half_angle_deg)
 	if pilot.has_method("climb_to_altitude"):
 		pilot.call("climb_to_altitude", bot_default_altitude)
 	return pilot

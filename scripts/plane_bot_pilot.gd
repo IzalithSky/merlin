@@ -57,7 +57,14 @@ const TURN_MIN_PULL_ANGLE_RAD := 0.02
 const TURN_ANGLE_DEADBAND_RAD := PI / 180.0
 # Below this nose-to-target angle, blend the turn roll toward wings level so the
 # bot rolls out of its bank as it aligns instead of holding bank and overshooting.
-const TURN_ROLLOUT_ANGLE_RAD := PI / 12.0
+const TURN_ROLLOUT_ANGLE_RAD := PI / 4.0
+# While the lift vector is not yet aimed toward the desired turn direction, keep
+# only this fraction of the pitch pull so the bot rolls first instead of pulling
+# in the wrong direction.
+const TURN_MIN_UNALIGNED_PULL_RATIO := 0.25
+# Max pitch authority the altitude-hold trim may add inside a bank-to-turn, so it
+# cannot overpower the turn pull (see _get_turn_altitude_pitch_target).
+const TURN_ALTITUDE_PITCH_LIMIT := 0.25
 const CORRECTION_TURN_PITCH_DOWN_RATE := 0.47
 const CORRECTION_TURN_MIN_LATERAL_ANGLE_RAD := 0.08
 const CORRECTION_TURN_HYSTERESIS_RAD := 2.0 * PI / 180.0
@@ -125,6 +132,9 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 @export var autocannon_fire_max_range: float = 650.0
 @export var avoid_missiles: bool = true
 @export var debug_bot_visuals_enabled := true
+# Throttled logging of the bank-to-turn pitch/roll command vs. orientation, to
+# diagnose the "rolls lift vector on target then pitches down away from it" case.
+@export var debug_turn_logging := false
 @export var checkpoints: Array[Vector3] = [
 	Vector3(0.0, 1500.0, 0.0),
 ]
@@ -136,11 +146,13 @@ var _flight_state: int = FlightState.IDLE
 var _roll_input := 0.0
 var _pitch_input := 0.0
 var _yaw_input := 0.0
+var _throttle_input := 0.0
 var _ground_clearance := INF
 var _terrain_ahead_distance := INF
 var _next_ground_probe_time := 0.0
 var _checkpoint_index := 0
 var _correction_turn_active := false
+var _turn_log_cooldown := 0.0
 var _debug_adapter
 var _engagement
 var _frame_position := Vector3.ZERO
@@ -449,7 +461,7 @@ func turn_toward_direction(
 	var local_direction := _frame_inverse_basis * direction
 	var turn_angle := _get_local_turn_angle(local_direction)
 	if _should_use_correction_turn(local_direction, turn_angle):
-		_apply_correction_turn(delta, throttle_target, response_rate)
+		_apply_correction_turn(delta, local_direction, turn_angle, target_altitude, throttle_target, response_rate)
 		return
 
 	if turn_angle <= TURN_ANGLE_DEADBAND_RAD:
@@ -462,7 +474,8 @@ func turn_toward_direction(
 		return
 
 	var roll_target := _get_lift_vector_roll_target(local_direction, turn_angle)
-	var pitch_target := _get_turn_pitch_target(turn_angle, target_altitude)
+	var pitch_target := _get_lift_aligned_pitch_target(turn_angle, target_altitude, local_direction)
+	_log_turn_command(delta, local_direction, turn_angle, target_altitude, roll_target, pitch_target)
 	_apply_control_behavior(
 		delta,
 		roll_target,
@@ -473,11 +486,21 @@ func turn_toward_direction(
 	)
 
 
-func _apply_correction_turn(delta: float, throttle_target: float, response_rate: float) -> void:
+func _apply_correction_turn(
+	delta: float,
+	local_direction: Vector3,
+	turn_angle: float,
+	target_altitude: float,
+	throttle_target: float,
+	response_rate: float
+) -> void:
+	var roll_target := _get_lift_vector_roll_target(local_direction, turn_angle)
+	var pitch_target := _get_lift_aligned_pitch_target(turn_angle, target_altitude, local_direction)
+	_log_turn_command(delta, local_direction, turn_angle, target_altitude, roll_target, pitch_target)
 	_apply_control_behavior(
 		delta,
-		_get_wings_level_roll_target(),
-		_get_correction_turn_pitch_target(),
+		roll_target,
+		pitch_target,
 		0.0,
 		response_rate,
 		throttle_target
@@ -972,6 +995,77 @@ func _get_turn_pitch_target(turn_angle: float, target_altitude: float) -> float:
 	return _get_turn_pull_pitch_target(turn_angle) + _get_turn_altitude_pitch_target(target_altitude)
 
 
+# How well the current lift vector (local +Y) points toward the desired turn
+# direction. 1.0 means pull normally; 0.0 means the target is sideways (roll
+# first); below the lift vector clamps to 0.0 so the bot does not pull into the
+# wrong turn. Uses raw local_direction, independent of the roll rollout blend.
+func _get_lift_alignment_factor(local_direction: Vector3) -> float:
+	var transverse_length := sqrt(
+		local_direction.x * local_direction.x +
+		local_direction.y * local_direction.y
+	)
+
+	if transverse_length <= MIN_DIRECTION_LENGTH_SQUARED:
+		return 1.0
+
+	return clampf(local_direction.y / transverse_length, 0.0, 1.0)
+
+
+func _get_lift_aligned_pitch_target(turn_angle: float, target_altitude: float, local_direction: Vector3) -> float:
+	var pitch_target := _get_turn_pitch_target(turn_angle, target_altitude)
+	var lift_alignment := _get_lift_alignment_factor(local_direction)
+	var curved_alignment := lift_alignment * lift_alignment
+	var pitch_scale := lerpf(TURN_MIN_UNALIGNED_PULL_RATIO, 1.0, curved_alignment)
+
+	return pitch_target * pitch_scale
+
+
+# Throttled diagnostic: fires only while hard-banked (>60 deg) so we can see
+# what the bank-to-turn controller commands vs. the plane's actual orientation
+# during the "pitch down away from target" case. Sign: pitch<0 nose-up, >0 nose-down.
+func _log_turn_command(
+	delta: float,
+	local_direction: Vector3,
+	turn_angle: float,
+	target_altitude: float,
+	roll_target: float,
+	pitch_target: float
+) -> void:
+	if not debug_turn_logging:
+		return
+
+	var local_world_up := _frame_inverse_basis * Vector3.UP
+	var bank := atan2(local_world_up.x, local_world_up.y)
+	if absf(bank) < deg_to_rad(60.0):
+		return
+
+	_turn_log_cooldown -= delta
+	if _turn_log_cooldown > 0.0:
+		return
+	_turn_log_cooldown = 0.2
+
+	var commanded_roll_err := atan2(local_direction.x, local_direction.y)
+	var alignment := _get_lift_alignment_factor(local_direction)
+	var pull_term := _get_turn_pull_pitch_target(turn_angle)
+	var altitude_term := _get_turn_altitude_pitch_target(target_altitude)
+	print(
+		"[turn] bank=%+.0f inv=%s | local_dir=(%+.2f,%+.2f,%+.2f) turn=%.0f" % [
+			rad_to_deg(bank),
+			str(local_world_up.y < 0.0),
+			local_direction.x, local_direction.y, local_direction.z,
+			rad_to_deg(turn_angle),
+		]
+		+ " | align=%.2f roll_cmd=%+.0f roll_out=%+.2f | pull=%+.3f alt=%+.3f pitch=%+.3f" % [
+			alignment,
+			rad_to_deg(commanded_roll_err),
+			roll_target,
+			pull_term,
+			altitude_term,
+			pitch_target,
+		]
+	)
+
+
 func _get_turn_pull_pitch_target(turn_angle: float) -> float:
 	if turn_angle <= TURN_MIN_PULL_ANGLE_RAD:
 		return 0.0
@@ -1000,7 +1094,16 @@ func _get_turn_altitude_pitch_target(target_altitude: float) -> float:
 	if target_altitude >= INF:
 		return 0.0
 
-	return _get_altitude_pitch_target(target_altitude)
+	# During a bank-to-turn the pull must own the pitch axis. Altitude hold is
+	# allowed only a small trim authority; otherwise the vertical-speed term
+	# (e.g. arresting a zoom-climb that left a large climb rate) saturates nose-down
+	# and overwhelms the pull, so the bot pitches away from the target until the
+	# climb bleeds off.
+	return clampf(
+		_get_altitude_pitch_target(target_altitude),
+		-TURN_ALTITUDE_PITCH_LIMIT,
+		TURN_ALTITUDE_PITCH_LIMIT
+	)
 
 
 func _has_checkpoint() -> bool:
@@ -1065,11 +1168,12 @@ func _update_weapon_targeting() -> void:
 
 
 func _apply_controls(roll_value: float, pitch_value: float, yaw_value: float, throttle_value: float) -> void:
+	_throttle_input = clampf(throttle_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
 	_plane.set_bot_control_inputs(
 		clampf(roll_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
 		clampf(pitch_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
 		clampf(yaw_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT),
-		clampf(throttle_value, -CONTROL_INPUT_LIMIT, CONTROL_INPUT_LIMIT)
+		_throttle_input
 	)
 
 

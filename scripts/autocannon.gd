@@ -5,7 +5,7 @@ const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 
 @export var bullet_speed: float = 1000.0
 @export var fire_cooldown: float = 0.125
-@export var lead_cone_half_angle_deg: float = 30.0
+@export var lead_cone_half_angle_deg: float = 8.0
 @export var damage: float = 25.0
 @export var launch_lateral_offset: float = 0.0
 @export var launch_vertical_offset: float = 0.0

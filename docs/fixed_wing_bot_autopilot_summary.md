@@ -23,13 +23,13 @@ A practical bot can be split into three layers:
 
 ```text
 Waypoint / target logic
-    outputs target_roll, target_pitch, target_speed
+	outputs target_roll, target_pitch, target_speed
 
 Attitude controller
-    outputs aileron, elevator, rudder, throttle
+	outputs aileron, elevator, rudder, throttle
 
 Plane physics
-    applies forces / torques
+	applies forces / torques
 ```
 
 This makes the AI easier to tune because navigation and aircraft stability are separate.

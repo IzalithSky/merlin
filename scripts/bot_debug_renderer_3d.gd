@@ -87,7 +87,10 @@ func _setup_label() -> void:
 	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_label.fixed_size = true
 	_label.no_depth_test = true
-	_label.pixel_size = 0.00075
+	# Smaller on-screen text so the multi-line telemetry label fits. Render at a
+	# higher font_size and shrink via pixel_size to keep it crisp.
+	_label.font_size = 32
+	_label.pixel_size = 0.0008
 	_label.modulate = Color(0.75, 1.0, 0.35, 1.0)
 	_label.outline_modulate = Color(0.0, 0.0, 0.0, 1.0)
 	_label.outline_size = 2
