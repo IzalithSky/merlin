@@ -1,5 +1,7 @@
 extends Node3D
 
+@export var lifetime_sec: float = 6.0
+
 @onready var _sparks: GPUParticles3D = $Sparks
 @onready var _smoke: GPUParticles3D = $Smoke
 @onready var _fire: GPUParticles3D = $Fire
@@ -14,5 +16,5 @@ func _ready() -> void:
 	_sound.pitch_scale = randf_range(0.8, 1.2)
 	_sound.play()
 
-	await get_tree().create_timer(6.0).timeout
+	await get_tree().create_timer(lifetime_sec).timeout
 	queue_free()

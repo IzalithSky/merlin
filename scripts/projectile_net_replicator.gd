@@ -192,14 +192,14 @@ func _resolve_missile_target(plane: Node3D, target_kind: int, target_id: int) ->
 	return target
 
 
-func _on_bullet_died(_hit: bool, pos: Vector3, bullet_id: int) -> void:
+func _on_bullet_died(hit: bool, pos: Vector3, bullet_id: int) -> void:
 	_active_bullets.erase(bullet_id)
 	if multiplayer.multiplayer_peer == null or not multiplayer.is_server():
 		return
 	for peer_id in multiplayer.get_peers():
 		if _spawner.is_peer_world_ready(peer_id):
-			_spawner.record_net_send("projectile", [bullet_id, pos])
-			cl_despawn_bullet.rpc_id(peer_id, bullet_id, pos)
+			_spawner.record_net_send("projectile", [bullet_id, hit, pos])
+			cl_despawn_bullet.rpc_id(peer_id, bullet_id, hit, pos)
 
 
 @rpc("any_peer", "reliable")
@@ -311,12 +311,12 @@ func _get_lockable_target(target: Node3D):
 
 
 @rpc("authority", "call_remote", "reliable", 0)
-func cl_despawn_bullet(bullet_id: int, pos: Vector3) -> void:
+func cl_despawn_bullet(bullet_id: int, hit: bool, pos: Vector3) -> void:
 	if multiplayer.is_server():
 		return
 
-	_spawner.record_net_recv("projectile", [bullet_id, pos])
+	_spawner.record_net_recv("projectile", [bullet_id, hit, pos])
 	var visual = _active_bullet_visuals.get(bullet_id)
 	if visual != null and is_instance_valid(visual):
-		visual.despawn(pos)
+		visual.despawn(pos, hit)
 	_active_bullet_visuals.erase(bullet_id)

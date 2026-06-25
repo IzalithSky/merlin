@@ -5,6 +5,7 @@ const TRAIL_SCENE := preload("res://scenes/wing_trail.tscn")
 
 @export var max_range: float = 2000.0
 @export var damage: float = 25.0
+@export var impact_effect_scene: PackedScene
 @export var trail_lifespan: float = 0.05
 @export var trail_ttl_after_death: float = 0.5
 
@@ -99,6 +100,8 @@ func _despawn(hit: bool) -> void:
 
 	var death_pos := global_position
 	_finish_trail()
+	if hit:
+		_spawn_impact_effect(death_pos)
 
 	died.emit(hit, death_pos)
 	queue_free()
@@ -121,11 +124,13 @@ func _spawn_trail() -> void:
 	_trail = trail
 
 
-func despawn(hit_pos: Vector3) -> void:
+func despawn(hit_pos: Vector3, hit := false) -> void:
 	global_position = hit_pos
 	if _trail != null and is_instance_valid(_trail):
 		_trail.global_position = hit_pos
 	_finish_trail()
+	if hit:
+		_spawn_impact_effect(hit_pos)
 	queue_free()
 
 
@@ -134,3 +139,13 @@ func _finish_trail() -> void:
 		return
 	_trail.finish(trail_ttl_after_death)
 	_trail = null
+
+
+func _spawn_impact_effect(hit_pos: Vector3) -> void:
+	if impact_effect_scene == null:
+		return
+	var effect := impact_effect_scene.instantiate() as Node3D
+	if effect == null:
+		return
+	get_tree().current_scene.add_child(effect)
+	effect.global_position = hit_pos

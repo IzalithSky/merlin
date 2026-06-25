@@ -1,0 +1,23 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/explosion.tscn" id="1_explosion"]
+
+[node name="BulletImpact" instance=ExtResource("1_explosion")]
+scale = Vector3(0.25, 0.25, 0.25)
+lifetime_sec = 2.0
+
+[node name="Sparks" parent="." index="0"]
+amount = 10
+lifetime = 0.45
+
+[node name="Smoke" parent="." index="1"]
+amount = 6
+lifetime = 1.2
+
+[node name="Fire" parent="." index="2"]
+amount = 5
+lifetime = 0.8
+
+[node name="ExplosionSound" parent="." index="3"]
+volume_db = -8.0
+max_distance = 900.0
