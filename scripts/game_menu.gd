@@ -4,6 +4,7 @@ const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 
 @onready var _menu_root: Control = %MenuRoot
 @onready var _menu_panel: Control = $MenuRoot/CenterContainer/Panel
+@onready var _title_label: Label = $MenuRoot/CenterContainer/Panel/Margin/VBox/Title
 @onready var _options_panel: Control = %OptionsPanel
 @onready var _keybindings_panel: Control = %KeybindingsPanel
 @onready var _restart_button: Button = %RestartButton
@@ -12,11 +13,14 @@ const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 @onready var _exit_button: Button = %ExitButton
 
 var _is_open := false
+var _default_title := ""
+var _end_state_locked := false
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("game_menu")
+	_default_title = _title_label.text
 	_restart_button.pressed.connect(_on_restart_pressed)
 	_restart_button.visible = not _has_remote_peers()
 	_main_menu_button.pressed.connect(_on_main_menu_pressed)
@@ -36,6 +40,8 @@ func _input(event: InputEvent) -> void:
 			_on_keybindings_back_requested()
 		elif _options_panel.visible:
 			_on_options_back_requested()
+		elif _end_state_locked:
+			pass
 		else:
 			_set_open(false)
 		get_viewport().set_input_as_handled()
@@ -46,6 +52,8 @@ func is_open() -> bool:
 
 
 func _set_open(value: bool, update_mouse_mode := true) -> void:
+	if not value and _end_state_locked:
+		return
 	_is_open = value
 	_menu_root.visible = value
 	_set_options_open(false)
@@ -71,12 +79,20 @@ func _capture_mouse() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 
+func show_end_state(title: String) -> void:
+	_end_state_locked = true
+	_title_label.text = title
+	_set_open(true)
+
+
 func _on_restart_pressed() -> void:
+	_reset_end_state_lock()
 	_set_open(false)
 	get_tree().reload_current_scene()
 
 
 func _on_main_menu_pressed() -> void:
+	_reset_end_state_lock()
 	_set_open(false)
 	get_node("/root/Lobby").disconnect_session()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -84,6 +100,7 @@ func _on_main_menu_pressed() -> void:
 
 
 func _on_exit_pressed() -> void:
+	_reset_end_state_lock()
 	_set_open(false)
 	get_tree().quit()
 
@@ -132,3 +149,8 @@ func _apply_single_player_pause_state(menu_open: bool) -> void:
 
 func _has_remote_peers() -> bool:
 	return multiplayer.multiplayer_peer != null and not multiplayer.get_peers().is_empty()
+
+
+func _reset_end_state_lock() -> void:
+	_end_state_locked = false
+	_title_label.text = _default_title
