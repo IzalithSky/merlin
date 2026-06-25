@@ -455,7 +455,7 @@ func _get_extra_linear_drag_force_world() -> Vector3:
 	var direction := _plane._frame_airflow_direction
 	var linear_component := maxf(_plane.extra_linear_drag_linear_coefficient, 0.0) * _plane._frame_air_speed
 	var quadratic_component := maxf(_plane.extra_linear_drag_quadratic_coefficient, 0.0) * _plane._frame_air_speed_squared
-	return -direction * (linear_component + quadratic_component)
+	return -direction * _plane.reference_area * (linear_component + quadratic_component)
 
 
 func _get_extra_angular_drag_torque_world() -> Vector3:
@@ -929,7 +929,10 @@ func _get_sustained_turn_state(
 		var aoa := float(aoa_index) * aoa_step
 		var drag_coefficient := maxf(_sample_aero_table(_plane.drag_coefficient_table, aoa), 0.0)
 		var total_drag := dynamic_pressure * _plane.reference_area * drag_coefficient
-		total_drag += maxf(_plane.extra_linear_drag_quadratic_coefficient, 0.0) * speed * speed
+		total_drag += _plane.reference_area * (
+			maxf(_plane.extra_linear_drag_linear_coefficient, 0.0) * speed +
+			maxf(_plane.extra_linear_drag_quadratic_coefficient, 0.0) * speed * speed
+		)
 		if total_drag > drag_budget:
 			continue
 		var lift_coefficient := _sample_aero_table(_plane.lift_coefficient_table, aoa)
@@ -1006,8 +1009,8 @@ func _get_drag_required_for_lift_at_speed(required_lift: float, speed: float) ->
 	var drag_coefficient := maxf(_sample_aero_table(_plane.drag_coefficient_table, required_aoa), 0.0)
 	var aerodynamic_drag := dynamic_pressure * _plane.reference_area * drag_coefficient
 	var extra_drag := (
-		maxf(_plane.extra_linear_drag_linear_coefficient, 0.0) * speed +
-		maxf(_plane.extra_linear_drag_quadratic_coefficient, 0.0) * speed_squared +
+		_plane.reference_area * maxf(_plane.extra_linear_drag_linear_coefficient, 0.0) * speed +
+		_plane.reference_area * maxf(_plane.extra_linear_drag_quadratic_coefficient, 0.0) * speed_squared +
 		maxf(_plane._last_total_linear_damp, 0.0) * _plane.mass * speed
 	)
 	return aerodynamic_drag + extra_drag

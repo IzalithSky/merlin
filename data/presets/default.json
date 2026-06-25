@@ -196,6 +196,6 @@
     "base_control_torque": 32000.0,
     "reference_area": 17.0,
     "extra_linear_drag_linear_coefficient": 0.0,
-    "extra_linear_drag_quadratic_coefficient": 0.25
+    "extra_linear_drag_quadratic_coefficient": 0.015
   }
 }

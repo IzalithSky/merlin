@@ -277,14 +277,16 @@ AoA-derived drag alone may not be enough to bound top speed cleanly, especially 
 
 ```text
 F_extra_drag = -airflow_direction * (
-  linear_drag_coefficient * |v_air|
-  + quadratic_drag_coefficient * |v_air|^2
+  reference_area * (
+    linear_drag_coefficient * |v_air|
+    + quadratic_drag_coefficient * |v_air|^2
+  )
 )
 ```
 
 The linear term is useful for low-speed damping. The quadratic term dominates at high speed and is the more physically plausible approximation for air resistance at speed.
 
-This extra drag is not angle-of-attack drag. It is a coarse whole-aircraft drag term used to make the simplified model easier to tune.
+This extra drag is not angle-of-attack drag. It is a coarse whole-aircraft drag term used to make the simplified model easier to tune, and it scales with `reference_area` so larger aircraft area increases both coefficient-form aerodynamic drag and this coarse drag layer.
 
 ## Angular Drag
 Angular drag damps pitch, yaw, and roll rates so the aircraft does not spin indefinitely after torque input stops.
@@ -467,7 +469,7 @@ This section describes the main exports and internal constants that shape aircra
 
 - `max_thrust`: maximum engine force before thrust-table scaling.
 - `air_density`: density used for dynamic-pressure calculations.
-- `reference_area`: area term used in the coefficient-form lift/drag/side-force equations.
+- `reference_area`: area term used in the coefficient-form lift/drag/side-force equations and the coarse extra linear drag term.
 - `ambient_wind_velocity_world`: world-space wind vector subtracted from rigid-body velocity to produce air-relative velocity.
 - `lift_coefficient_table`: angle-of-attack to lift coefficient curve.
 - `drag_coefficient_table`: angle-of-attack to drag coefficient curve.
@@ -485,8 +487,8 @@ This section describes the main exports and internal constants that shape aircra
 - `alignment_deadband_deg`: yaw-angle threshold below which yaw stabilization is treated as settled when yaw rate is also small.
 - `alignment_rate_deadband`: pitch/yaw rate threshold below which stabilization is treated as settled.
 - `relative_roll_rate_response_gain`, `relative_roll_rate_deadband`: reused by passive roll damping when direct roll and relative roll are both inactive.
-- `extra_linear_drag_linear_coefficient`: coarse drag term proportional to speed.
-- `extra_linear_drag_quadratic_coefficient`: coarse drag term proportional to speed squared; usually the main top-speed limiter in the simplified model.
+- `extra_linear_drag_linear_coefficient`: coarse drag term proportional to speed, scaled by `reference_area`.
+- `extra_linear_drag_quadratic_coefficient`: coarse drag term proportional to speed squared, scaled by `reference_area`; usually the main top-speed limiter in the simplified model.
 - `extra_angular_drag_linear_coefficients`: per-axis linear angular damping coefficients in local pitch/yaw/roll space.
 - `extra_angular_drag_quadratic_coefficients`: per-axis quadratic angular damping coefficients in local pitch/yaw/roll space.
 

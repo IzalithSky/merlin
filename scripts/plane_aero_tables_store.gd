@@ -21,8 +21,8 @@ const PARAM_SPECS: Array[Dictionary] = [
 	{"key": "max_roll", "label": "Max roll", "min": 0.0, "max": 10.0, "step": 0.05},
 	{"key": "base_control_torque", "label": "Base control torque", "min": 0.0, "max": 200000.0, "step": 500.0},
 	{"key": "reference_area", "label": "Reference area", "min": 0.0, "max": 200.0, "step": 0.5},
-	{"key": "extra_linear_drag_linear_coefficient", "label": "Linear drag (xv)", "min": 0.0, "max": 100.0, "step": 0.01},
-	{"key": "extra_linear_drag_quadratic_coefficient", "label": "Quadratic drag (xv2)", "min": 0.0, "max": 100.0, "step": 0.01},
+	{"key": "extra_linear_drag_linear_coefficient", "label": "Linear drag (xv)", "min": 0.0, "max": 100.0, "step": 0.0001},
+	{"key": "extra_linear_drag_quadratic_coefficient", "label": "Quadratic drag (xv2)", "min": 0.0, "max": 100.0, "step": 0.0001},
 ]
 
 
