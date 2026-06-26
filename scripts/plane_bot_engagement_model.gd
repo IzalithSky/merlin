@@ -3,20 +3,20 @@ extends RefCounted
 
 var _pilot: PlaneBotPilot
 var _follow_target: Node3D
-var _fallback_follow_target: Node3D
-var _fallback_follow_target_uses_killzone := false
+var _manual_follow_target: Node3D
+var _manual_follow_target_uses_killzone := false
 var _follow_target_velocity := Vector3.ZERO
 var _last_follow_target_position := Vector3.ZERO
 var _has_follow_target_sample := false
-var _follow_target_is_player := false
+var _follow_target_is_auto_hostile := false
 var _follow_target_uses_killzone := false
-var _player_target_reacquire_timer := 0.0
 var _ground_probe_exclusions: Array[RID] = []
 var _next_ground_probe_exclusion_refresh_time := 0.0
 var _collision_avoidance_direction := 0.0
 var _collision_avoidance_exit_time := 0.0
 var _cached_player_characters: Array[Node3D] = []
 var _cached_missiles: Array[Node3D] = []
+var _hostile_aggro_scores: Dictionary = {}
 var _next_group_cache_refresh_time := 0.0
 
 
@@ -25,9 +25,9 @@ func _init(pilot: PlaneBotPilot) -> void:
 
 
 func set_follow_target(target: Node3D = null, use_killzone: bool = false) -> void:
-	_fallback_follow_target = target
-	_fallback_follow_target_uses_killzone = use_killzone
-	if not _follow_target_is_player:
+	_manual_follow_target = target
+	_manual_follow_target_uses_killzone = use_killzone
+	if not _follow_target_is_auto_hostile:
 		_set_active_follow_target(target, false, use_killzone)
 
 
@@ -46,7 +46,7 @@ func update_collision_threat() -> void:
 
 
 func update_follow_target_velocity(delta: float) -> void:
-	_update_player_target_acquisition(delta)
+	_update_hostile_target_acquisition(delta)
 	if not has_follow_target():
 		return
 
@@ -67,7 +67,7 @@ func has_follow_target() -> bool:
 		return true
 
 	_follow_target = null
-	_follow_target_is_player = false
+	_follow_target_is_auto_hostile = false
 	_follow_target_uses_killzone = false
 	_has_follow_target_sample = false
 	_follow_target_velocity = Vector3.ZERO
@@ -207,10 +207,22 @@ func get_follow_target_debug_label() -> String:
 	return identity
 
 
-func _set_active_follow_target(target: Node3D, target_is_player: bool, use_killzone: bool = false) -> void:
+func get_highest_aggro_debug_label() -> String:
+	var highest_target := _get_highest_aggro_target()
+	if highest_target == null:
+		return "none"
+
+	var identity := highest_target.name
+	var peer_id = highest_target.get("peer_id")
+	if peer_id != null:
+		identity = "%s #%d" % [identity, peer_id]
+	return "%s %.2f" % [identity, _get_aggro_score(highest_target)]
+
+
+func _set_active_follow_target(target: Node3D, target_is_auto_hostile: bool, use_killzone: bool = false) -> void:
 	_follow_target = target
-	_follow_target_is_player = target_is_player
-	_follow_target_uses_killzone = target_is_player or use_killzone
+	_follow_target_is_auto_hostile = target_is_auto_hostile
+	_follow_target_uses_killzone = target_is_auto_hostile or use_killzone
 	_follow_target_velocity = Vector3.ZERO
 	_has_follow_target_sample = false
 	if _follow_target != null:
@@ -319,46 +331,121 @@ func _get_follow_horizontal_closure_speed(horizontal_offset: Vector2) -> float:
 	return (plane_velocity - target_velocity).dot(line_direction)
 
 
-func _update_player_target_acquisition(delta: float) -> void:
-	_player_target_reacquire_timer -= delta
-	if _player_target_reacquire_timer > 0.0 and (_follow_target_is_player and has_follow_target()):
+func _update_hostile_target_acquisition(delta: float) -> void:
+	var hostile_target := _find_hostile_target(delta)
+	if hostile_target != null:
+		if hostile_target != _follow_target or not _follow_target_is_auto_hostile:
+			_set_active_follow_target(hostile_target, true)
 		return
 
-	_player_target_reacquire_timer = _pilot.PLAYER_TARGET_REACQUIRE_INTERVAL
-	var player_target := _find_player_target()
-	if player_target != null:
-		if player_target != _follow_target:
-			_set_active_follow_target(player_target, true)
+	if _has_decaying_auto_hostile_target():
 		return
 
-	if _follow_target_is_player:
-		_set_active_follow_target(_fallback_follow_target, false, _fallback_follow_target_uses_killzone)
+	if _follow_target_is_auto_hostile:
+		_set_active_follow_target(_manual_follow_target, false, _manual_follow_target_uses_killzone)
 
 
-func _find_player_target() -> Node3D:
-	var scene_tree := _pilot.get_tree()
-	if scene_tree == null or _pilot._plane == null:
+func _find_hostile_target(delta: float) -> Node3D:
+	if _pilot.get_tree() == null or _pilot._plane == null:
+		_hostile_aggro_scores.clear()
 		return null
 
 	_refresh_group_caches()
-	var best_target: Node3D
+	var aggro_radius := maxf(_pilot.hostile_aggro_radius, 0.0)
+	var aggro_radius_squared := aggro_radius * aggro_radius
+	var aggro_threshold := maxf(_pilot.hostile_aggro_threshold, 0.0)
+	var aggro_gain := maxf(_pilot.hostile_aggro_gain_per_second, 0.0)
+	var aggro_decay := maxf(_pilot.hostile_aggro_decay_per_second, 0.0)
+	var seen_hostiles: Dictionary = {}
+	var best_target: Node3D = null
+	var best_score := -INF
 	var best_distance_squared := INF
+
 	for candidate_node in _cached_player_characters:
-		if not is_instance_valid(candidate_node):
+		if not _is_valid_hostile_candidate(candidate_node):
 			continue
-		if candidate_node == _pilot._plane:
-			continue
-		if not _pilot._plane.is_hostile_to(candidate_node):
-			continue
-		if bool(candidate_node.get("is_shot_down")):
-			continue
+
+		var instance_id := candidate_node.get_instance_id()
+		seen_hostiles[instance_id] = true
 
 		var distance_squared := _pilot._frame_position.distance_squared_to(candidate_node.global_position)
-		if distance_squared < best_distance_squared:
-			best_distance_squared = distance_squared
+		var in_radius := aggro_radius > 0.0 and distance_squared <= aggro_radius_squared
+		var score := float(_hostile_aggro_scores.get(instance_id, 0.0))
+		if in_radius:
+			score = minf(score + aggro_gain * delta, aggro_threshold)
+		else:
+			score = maxf(score - aggro_decay * delta, 0.0)
+
+		if score <= 0.0:
+			_hostile_aggro_scores.erase(instance_id)
+		else:
+			_hostile_aggro_scores[instance_id] = score
+
+		var qualifies := in_radius if aggro_threshold <= 0.0 else score >= aggro_threshold
+		if not qualifies:
+			continue
+		if best_target == null or score > best_score or (is_equal_approx(score, best_score) and distance_squared < best_distance_squared):
 			best_target = candidate_node
+			best_score = score
+			best_distance_squared = distance_squared
+
+	var stale_hostile_ids := _hostile_aggro_scores.keys()
+	for instance_id_variant in stale_hostile_ids:
+		var instance_id := int(instance_id_variant)
+		if seen_hostiles.has(instance_id):
+			continue
+		var stale_score := maxf(float(_hostile_aggro_scores.get(instance_id, 0.0)) - aggro_decay * delta, 0.0)
+		if stale_score <= 0.0:
+			_hostile_aggro_scores.erase(instance_id)
+		else:
+			_hostile_aggro_scores[instance_id] = stale_score
 
 	return best_target
+
+
+func _has_decaying_auto_hostile_target() -> bool:
+	if not _follow_target_is_auto_hostile or not is_instance_valid(_follow_target):
+		return false
+	return float(_hostile_aggro_scores.get(_follow_target.get_instance_id(), 0.0)) > 0.0
+
+
+func _get_highest_aggro_target() -> Node3D:
+	var best_target: Node3D = null
+	var best_score := 0.0
+
+	for candidate_node in _cached_player_characters:
+		if not _is_valid_hostile_candidate(candidate_node):
+			continue
+		var score := _get_aggro_score(candidate_node)
+		if score <= 0.0:
+			continue
+		if best_target == null or score > best_score:
+			best_target = candidate_node
+			best_score = score
+
+	if best_target == null and _follow_target_is_auto_hostile and is_instance_valid(_follow_target):
+		if _get_aggro_score(_follow_target) > 0.0:
+			return _follow_target
+
+	return best_target
+
+
+func _get_aggro_score(target: Node3D) -> float:
+	if not is_instance_valid(target):
+		return 0.0
+	return float(_hostile_aggro_scores.get(target.get_instance_id(), 0.0))
+
+
+func _is_valid_hostile_candidate(candidate_node: Node3D) -> bool:
+	if not is_instance_valid(candidate_node):
+		return false
+	if candidate_node == _pilot._plane:
+		return false
+	if not _pilot._plane.is_hostile_to(candidate_node):
+		return false
+	if bool(candidate_node.get("is_shot_down")):
+		return false
+	return true
 
 
 func _is_bot_character(candidate: Node3D) -> bool:

@@ -40,10 +40,16 @@ The current spawn path:
 `PlaneBotSetup` then:
 
 - creates and attaches `PlaneBotPilot` on the authority side only
-- injects a fallback follow target when a static world marker is configured
 - passes player-killzone distance and tolerance into the pilot
+- optionally passes an explicit follow target when the configured node is a live character target
 
-The pilot can dynamically scan the scene for player aircraft. It searches the `player_character` group and selects the nearest non-bot plane. If no player plane is available, it falls back to the injected static target.
+The pilot starts with no hostile target by default. Each physics tick it scans the `player_character` group for hostile planes inside its aggro radius. Every hostile has an aggro score:
+
+- score grows while the hostile remains inside `hostile_aggro_radius`
+- score decays after the hostile leaves the radius or disappears from the candidate set
+- once a hostile reaches `hostile_aggro_threshold`, the bot adopts it as the current follow target
+
+This makes target pickup deliberate instead of instantly snapping to the nearest hostile.
 
 ## Visual Debug
 Bot debug visuals are controlled by the persistent display setting exposed in the options menu.
@@ -61,7 +67,7 @@ These visuals are diagnostic only. They do not affect bot state, flight physics,
 ## State Priority
 Each physics tick follows a fixed priority order.
 
-1. Refresh follow-target velocity and player acquisition.
+1. Refresh follow-target velocity and hostile aggro acquisition.
 2. Measure ground clearance.
 3. Avoid ground if clearance is unsafe.
 4. Avoid a closing mid-air collision if one is predicted.
@@ -141,7 +147,7 @@ This rule is symmetric. Two bots on a head-on course each break right, separatin
 The avoidance direction is latched once triggered and held for at least `COLLISION_AVOIDANCE_MIN_DURATION` seconds after the threat clears, preventing rapid flicker if planes oscillate around the detection threshold.
 
 ## Target Following
-When a player target exists, the bot does not aim at the player body. It computes a killzone point behind the target and chases that point.
+When a hostile target exists, the bot does not aim at the target body. It computes a killzone point behind the target and chases that point.
 
 The killzone point is derived from:
 
@@ -167,8 +173,8 @@ Throttle during target follow:
 
 The bot still steers toward the killzone altitude through pitch. Throttle is not held back just because altitude is not matched.
 
-## Static Fallback And Checkpoints
-If no player target is available, the injected static target can keep the bot active. The current idle behavior can also orbit configured checkpoint positions.
+## Explicit Targets And Checkpoints
+If a scene explicitly sets a follow target on the pilot, that manual target is still used until an auto-acquired hostile takes over. Without a hostile or manual target, the current idle behavior orbits configured checkpoint positions.
 
 Checkpoint orbit is a steering behavior:
 
@@ -240,6 +246,10 @@ All `@export` fields on `PlaneBotPilot` are set by `PlaneBotSetup` or the bot sc
 ### Target following
 | Export | Default | Unit | Role |
 |---|---|---|---|
+| `hostile_aggro_radius` | 2000 | m | Radius inside which hostile planes build aggro score. |
+| `hostile_aggro_threshold` | 1.0 | score | Score required before the bot auto-selects a hostile target. |
+| `hostile_aggro_gain_per_second` | 1.0 | score/s | Aggro growth rate while a hostile remains inside the radius. |
+| `hostile_aggro_decay_per_second` | 1.0 | score/s | Aggro decay rate after a hostile leaves the radius. |
 | `killzone_distance` | 250 | m | Distance behind the target where the bot aims to fly. |
 | `killzone_tolerance` | 150 | m | Radius of the killzone sphere. Inside this the bot aligns with the target rather than steering toward the point. |
 | `overshoot_closure_tolerance` | 0.5 | m/s | Closure speed below which throttle braking is not applied even when inside the brake zone. |

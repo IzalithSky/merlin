@@ -70,7 +70,6 @@ const CORRECTION_TURN_MIN_LATERAL_ANGLE_RAD := 0.08
 const CORRECTION_TURN_HYSTERESIS_RAD := 2.0 * PI / 180.0
 const WINGS_LEVEL_DEADBAND_RAD := PI / 180.0
 const MIN_DIRECTION_LENGTH_SQUARED := 0.000001
-const PLAYER_TARGET_REACQUIRE_INTERVAL := 0.5
 const GROUP_CACHE_REFRESH_INTERVAL := 0.25
 const GROUND_PROBE_EXCLUSION_REFRESH_INTERVAL := 1.0
 const GROUND_PROBE_SAFE_INTERVAL := 0.25
@@ -130,6 +129,10 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 @export var killzone_distance: float = 250.0
 @export var killzone_tolerance: float = 150.0
 @export var autocannon_fire_max_range: float = 650.0
+@export var hostile_aggro_radius: float = 1000.0
+@export var hostile_aggro_threshold: float = 30.0
+@export var hostile_aggro_gain_per_second: float = 1.0
+@export var hostile_aggro_decay_per_second: float = 1.0
 @export var avoid_missiles: bool = true
 @export var debug_bot_visuals_enabled := true
 # Throttled logging of the bank-to-turn pitch/roll command vs. orientation, to
@@ -263,6 +266,10 @@ func get_engagement_debug_snapshot() -> Dictionary:
 
 func get_follow_target_debug_label() -> String:
 	return _engagement.get_follow_target_debug_label()
+
+
+func get_highest_aggro_debug_label() -> String:
+	return _engagement.get_highest_aggro_debug_label()
 
 
 func _update_flight_controls(delta: float) -> void:

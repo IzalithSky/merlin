@@ -69,9 +69,11 @@ func update_visuals() -> void:
 
 func _get_bot_debug_label_text() -> String:
 	var target_text := _pilot.get_follow_target_debug_label()
-	return "BOT %s\nTGT %s\nSPD %.0f m/s  THR %+.2f\nROL %+.2f  PIT %+.2f" % [
+	var aggro_text := _pilot.get_highest_aggro_debug_label()
+	return "BOT %s\nTGT %s\nAGG %s\nSPD %.0f m/s  THR %+.2f\nROL %+.2f  PIT %+.2f" % [
 		_pilot.get_flight_state_name(),
 		target_text,
+		aggro_text,
 		_pilot._frame_speed,
 		_pilot._throttle_input,
 		_pilot._roll_input,

@@ -20,4 +20,5 @@ static func configure_plane(
 	var pilot = plane.ensure_bot_pilot()
 	pilot.killzone_distance = killzone_distance
 	pilot.killzone_tolerance = killzone_tolerance
-	pilot.set_follow_target(follow_target)
+	if follow_target != null and follow_target.is_in_group("player_character"):
+		pilot.set_follow_target(follow_target)

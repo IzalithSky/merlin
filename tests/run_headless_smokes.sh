@@ -19,6 +19,7 @@ run_script() {
 
 run_scene "res://tests/autocannon_smoke.tscn"
 run_scene "res://tests/bot_autocannon_smoke.tscn"
+run_scene "res://tests/bot_aggro_smoke.tscn"
 run_scene "res://tests/missile_hardpoint_smoke.tscn"
 run_script "res://tests/test_camera_detach.gd"
 run_script "res://tests/net_wire_smoke.gd"

@@ -108,6 +108,7 @@ features and one real multiplayer path:
 
 - `res://tests/autocannon_smoke.tscn`
 - `res://tests/bot_autocannon_smoke.tscn`
+- `res://tests/bot_aggro_smoke.tscn`
 - `res://tests/missile_hardpoint_smoke.tscn`
 - `res://tests/test_camera_detach.gd`
 - `res://tests/mp_host_smoke.gd` + `res://tests/mp_client_smoke.gd`
@@ -129,6 +130,7 @@ For the current structural split work, the most relevant fast subset is:
 
 - `res://tests/autocannon_smoke.tscn`
 - `res://tests/bot_autocannon_smoke.tscn`
+- `res://tests/bot_aggro_smoke.tscn`
 - `res://tests/missile_hardpoint_smoke.tscn`
 - `res://tests/test_camera_detach.gd`
 
