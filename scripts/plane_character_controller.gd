@@ -216,6 +216,7 @@ var _frame_air_speed_squared := 0.0
 var _frame_air_speed := 0.0
 var _frame_airflow_direction := Vector3.ZERO
 var _frame_dynamic_pressure := 0.0
+var _frame_local_angular_velocity := Vector3.ZERO
 var _positive_max_lift_aoa_deg := 15.0
 var _negative_max_lift_aoa_deg := -15.0
 var _sustained_aoa_surface: Dictionary = {}
@@ -400,7 +401,9 @@ func _update_physics_frame_cache() -> void:
 		if _frame_air_speed > 0.0:
 			_frame_airflow_direction = _frame_air_velocity_world / _frame_air_speed
 
-	_frame_air_velocity_local = _frame_body_basis.transposed() * _frame_air_velocity_world
+	var inverse_body_basis := _frame_body_basis.transposed()
+	_frame_air_velocity_local = inverse_body_basis * _frame_air_velocity_world
+	_frame_local_angular_velocity = inverse_body_basis * angular_velocity
 	_frame_dynamic_pressure = 0.5 * air_density * _frame_air_speed_squared
 
 
@@ -443,10 +446,6 @@ func _emit_local_input() -> void:
 
 func compute_control_state(_delta: float) -> void:
 	_flight_model.compute_control_state(_delta)
-
-
-func compute_aoa() -> void:
-	_flight_model.compute_aoa()
 
 
 func apply_thrust() -> void:
@@ -811,7 +810,7 @@ func get_frame_up_axis() -> Vector3:
 
 
 func get_local_angular_velocity() -> Vector3:
-	return _frame_body_basis.transposed() * angular_velocity
+	return _frame_local_angular_velocity
 
 
 func get_local_roll_rate() -> float:

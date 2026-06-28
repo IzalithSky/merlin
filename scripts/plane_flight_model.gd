@@ -12,10 +12,6 @@ func compute_control_state(delta: float) -> void:
 	_compute_control_state(delta)
 
 
-func compute_aoa() -> void:
-	_compute_aoa()
-
-
 func apply_thrust() -> void:
 	var thrust_force := _get_thrust_force_world()
 	if thrust_force.length_squared() <= 0.0:
@@ -246,8 +242,26 @@ func build_sustained_turn_rate_surface(
 ## surface builders (an aoa_deg or rate_deg_s grid over speed × gamma). Returns
 ## the value stored at the grid cell closest to the queried (speed, gamma_deg).
 func find_nearest_surface_value(surface: Dictionary, speed: float, gamma_deg: float) -> float:
-	var cell := find_nearest_surface_cell(surface, speed, gamma_deg)
-	return float(cell.get("value", 0.0))
+	# Resolve the grid cell inline rather than via find_nearest_surface_cell: this
+	# runs every physics frame for the sustain-turn limiter, and the cell variant
+	# allocates a Dictionary just to read one value.
+	var speed_values: PackedFloat32Array = surface.get("speed_values", PackedFloat32Array())
+	var gamma_values: PackedFloat32Array = surface.get("gamma_values", PackedFloat32Array())
+	var value_values: PackedFloat32Array = surface.get("value_values", PackedFloat32Array())
+	var speed_count := int(surface.get("speed_count", speed_values.size()))
+	if speed_values.is_empty() or gamma_values.is_empty() or value_values.is_empty() or speed_count <= 0:
+		return 0.0
+
+	var speed_index := _nearest_sorted_index(speed_values, speed)
+	var gamma_index := _nearest_sorted_index(gamma_values, gamma_deg)
+	if speed_index < 0 or gamma_index < 0:
+		return 0.0
+
+	var flat_index := gamma_index * speed_count + speed_index
+	if flat_index < 0 or flat_index >= value_values.size():
+		return 0.0
+
+	return value_values[flat_index]
 
 
 ## As find_nearest_surface_value, but returns the full cell: the resolved grid
@@ -424,12 +438,6 @@ func _compute_aoa() -> void:
 	_plane.sideslip_deg = rad_to_deg(atan2(flow_right, forward_plane_speed))
 
 
-func _get_gravity_force_world() -> Vector3:
-	var gravity_direction: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector")
-	var gravity_magnitude: float = ProjectSettings.get_setting("physics/3d/default_gravity")
-	return gravity_direction * gravity_magnitude * _plane.gravity_scale * _plane.mass
-
-
 func _get_thrust_force_world() -> Vector3:
 	var throttle := clampf((_plane.throttle_input + 1.0) * 0.5, 0.0, 1.0)
 	if throttle <= 0.0:
@@ -509,54 +517,6 @@ func _sample_aero_table(points: Array[Vector2], x_value: float) -> float:
 		return lerpf(left.y, right.y, t)
 
 	return points[last_index].y
-
-
-func _find_aero_table_segment_index(points: Array[Vector2], x_value: float) -> int:
-	if points.size() < 2:
-		return 0
-	var last_segment_index := points.size() - 2
-	if x_value <= points[0].x:
-		return 0
-	if x_value >= points[points.size() - 1].x:
-		return last_segment_index
-	for index in range(last_segment_index + 1):
-		if x_value <= points[index + 1].x:
-			return index
-	return last_segment_index
-
-
-func _advance_aero_table_segment_index(points: Array[Vector2], x_value: float, current_segment_index: int) -> int:
-	if points.size() < 2:
-		return 0
-	var last_segment_index := points.size() - 2
-	var segment_index := clampi(current_segment_index, 0, last_segment_index)
-	while segment_index < last_segment_index and x_value > points[segment_index + 1].x:
-		segment_index += 1
-	while segment_index > 0 and x_value < points[segment_index].x:
-		segment_index -= 1
-	return segment_index
-
-
-func _sample_aero_table_segment(points: Array[Vector2], x_value: float, segment_index: int) -> float:
-	if points.is_empty():
-		return 0.0
-	if points.size() == 1:
-		return points[0].y
-	if x_value <= points[0].x:
-		return points[0].y
-
-	var last_index := points.size() - 1
-	if x_value >= points[last_index].x:
-		return points[last_index].y
-
-	var left_index := clampi(segment_index, 0, last_index - 1)
-	var left := points[left_index]
-	var right := points[left_index + 1]
-	var span := right.x - left.x
-	if absf(span) <= _plane.TABLE_SORT_EPSILON:
-		return right.y
-	var t := (x_value - left.x) / span
-	return lerpf(left.y, right.y, t)
 
 
 func _get_turn_limited_pitch_input(raw_pitch_input: float) -> float:
@@ -895,17 +855,6 @@ func _get_instantaneous_load_factor(speed: float, weight: float, gravity: float,
 	return minf(lift_limit, control_limit)
 
 
-func _get_sustained_load_factor(
-	speed: float,
-	gamma_rad: float,
-	weight: float,
-	_max_aoa: float,
-	aoa_step: float,
-	aoa_sample_count: int
-) -> float:
-	return float(_get_sustained_turn_state(speed, gamma_rad, weight, _max_aoa, aoa_step, aoa_sample_count).get("load_factor", 0.0))
-
-
 func _get_sustained_turn_state(
 	speed: float,
 	gamma_rad: float,
@@ -975,83 +924,9 @@ func _solve_max_rate_from_torque(available_torque: float, linear_drag: float, qu
 	return (-linear_drag + sqrt(discriminant)) / (2.0 * quadratic_drag)
 
 
-func _get_current_bank_load_factor() -> float:
-	var local_world_up := _plane._frame_body_basis.transposed() * Vector3.UP
-	var bank_angle := atan2(local_world_up.x, local_world_up.y)
-	var bank_cosine := cos(bank_angle)
-	if bank_cosine <= 0.05:
-		return INF
-	return 1.0 / bank_cosine
-
-
 func _get_available_thrust_at_speed(speed: float) -> float:
 	var thrust_coefficient := maxf(_sample_aero_table(_plane.thrust_coefficient_table, speed), 0.0)
 	return _plane.max_thrust * thrust_coefficient
-
-
-func _get_drag_required_for_lift_at_speed(required_lift: float, speed: float) -> float:
-	var speed_squared := speed * speed
-	if speed_squared <= 0.001:
-		return -1.0
-	var dynamic_pressure := 0.5 * _plane.air_density * speed_squared
-	var lift_scale := dynamic_pressure * _plane.reference_area
-	if lift_scale <= 0.001:
-		return -1.0
-
-	var required_lift_coefficient := required_lift / lift_scale
-	if not _can_reach_lift_coefficient(required_lift_coefficient):
-		return -1.0
-
-	var required_aoa := _find_aoa_for_lift_coefficient(required_lift_coefficient)
-	if not is_finite(required_aoa):
-		return -1.0
-
-	var drag_coefficient := maxf(_sample_aero_table(_plane.drag_coefficient_table, required_aoa), 0.0)
-	var aerodynamic_drag := dynamic_pressure * _plane.reference_area * drag_coefficient
-	var extra_drag := (
-		_plane.reference_area * maxf(_plane.extra_linear_drag_linear_coefficient, 0.0) * speed +
-		_plane.reference_area * maxf(_plane.extra_linear_drag_quadratic_coefficient, 0.0) * speed_squared +
-		maxf(_plane._last_total_linear_damp, 0.0) * _plane.mass * speed
-	)
-	return aerodynamic_drag + extra_drag
-
-
-func _can_reach_lift_coefficient(target_lift_coefficient: float) -> bool:
-	if _plane.lift_coefficient_table.is_empty():
-		return false
-	var min_lift_coefficient := INF
-	var max_lift_coefficient := -INF
-	for point in _plane.lift_coefficient_table:
-		min_lift_coefficient = minf(min_lift_coefficient, point.y)
-		max_lift_coefficient = maxf(max_lift_coefficient, point.y)
-	return (
-		target_lift_coefficient >= min_lift_coefficient and
-		target_lift_coefficient <= max_lift_coefficient
-	)
-
-
-func _find_aoa_for_lift_coefficient(target_lift_coefficient: float) -> float:
-	if _plane.lift_coefficient_table.is_empty():
-		return INF
-	var best_aoa := INF
-	var best_abs_aoa := INF
-	for index in range(_plane.lift_coefficient_table.size() - 1):
-		var left := _plane.lift_coefficient_table[index]
-		var right := _plane.lift_coefficient_table[index + 1]
-		var min_lift := minf(left.y, right.y)
-		var max_lift := maxf(left.y, right.y)
-		if target_lift_coefficient < min_lift or target_lift_coefficient > max_lift:
-			continue
-		var lift_span := right.y - left.y
-		var candidate_aoa := left.x
-		if absf(lift_span) > _plane.TABLE_SORT_EPSILON:
-			var t := clampf((target_lift_coefficient - left.y) / lift_span, 0.0, 1.0)
-			candidate_aoa = lerpf(left.x, right.x, t)
-		var candidate_abs_aoa := absf(candidate_aoa)
-		if candidate_abs_aoa < best_abs_aoa:
-			best_abs_aoa = candidate_abs_aoa
-			best_aoa = candidate_aoa
-	return best_aoa
 
 
 func _limit_pitch_input_below_upper_aoa_limit(raw_pitch_input: float, upper_limit_deg: float, fade_degrees: float) -> float:

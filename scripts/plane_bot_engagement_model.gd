@@ -1,6 +1,10 @@
 class_name PlaneBotEngagementModel
 extends RefCounted
 
+# Sentinel return for _get_collision_threat: x < 0 means "no threat". Packed into
+# a Vector2 (value type) so the every-frame collision scan allocates nothing.
+const NO_COLLISION_THREAT := Vector2(-1.0, 0.0)
+
 var _pilot: PlaneBotPilot
 var _follow_target: Node3D
 var _manual_follow_target: Node3D
@@ -246,10 +250,10 @@ func _find_collision_threat() -> float:
 			continue
 		var other_vel := _get_node_velocity(other)
 
-		var threat_direction := _get_collision_threat_direction(other, other_vel, best_tca)
-		if threat_direction["detected"]:
-			best_tca = threat_direction["tca"]
-			best_direction = threat_direction["direction"]
+		var threat := _get_collision_threat(other, other_vel, best_tca)
+		if threat.x >= 0.0:
+			best_tca = threat.x
+			best_direction = threat.y
 
 	if _pilot.avoid_missiles:
 		for missile in _cached_missiles:
@@ -259,46 +263,43 @@ func _find_collision_threat() -> float:
 			if missile is RigidBody3D:
 				missile_vel = (missile as RigidBody3D).linear_velocity
 
-			var threat_direction := _get_collision_threat_direction(missile, missile_vel, best_tca)
-			if threat_direction["detected"]:
-				best_tca = threat_direction["tca"]
-				best_direction = threat_direction["direction"]
+			var threat := _get_collision_threat(missile, missile_vel, best_tca)
+			if threat.x >= 0.0:
+				best_tca = threat.x
+				best_direction = threat.y
 
 	return best_direction
 
 
-func _get_collision_threat_direction(other: Node3D, other_vel: Vector3, current_best_tca: float) -> Dictionary:
+# Returns Vector2(time_to_closest_approach, break_direction), or NO_COLLISION_THREAT
+# (x < 0) when there is no threat.
+func _get_collision_threat(other: Node3D, other_vel: Vector3, current_best_tca: float) -> Vector2:
 	if not is_instance_valid(other):
-		return {"detected": false}
+		return NO_COLLISION_THREAT
 
 	var offset := other.global_position - _pilot._frame_position
 	var distance := offset.length()
 	var rel_vel := other_vel - _pilot._frame_velocity
 	var closing_speed := rel_vel.length() if distance <= _pilot.MIN_DIRECTION_LENGTH_SQUARED else -offset.dot(rel_vel) / distance
 	if closing_speed < _pilot.COLLISION_AVOIDANCE_MIN_CLOSING_SPEED:
-		return {"detected": false}
+		return NO_COLLISION_THREAT
 
 	var rel_speed_sq := rel_vel.length_squared()
 	if rel_speed_sq <= _pilot.MIN_DIRECTION_LENGTH_SQUARED:
-		return {"detected": false}
+		return NO_COLLISION_THREAT
 	var tca := -offset.dot(rel_vel) / rel_speed_sq
 	if tca < 0.0 or tca > _pilot.COLLISION_AVOIDANCE_LOOKAHEAD or tca >= current_best_tca:
-		return {"detected": false}
+		return NO_COLLISION_THREAT
 
 	var cpa_offset := offset + rel_vel * tca
 	if cpa_offset.length() > _pilot.COLLISION_AVOIDANCE_RADIUS:
-		return {"detected": false}
+		return NO_COLLISION_THREAT
 
 	# Always break to the bot's own right (standard head-on avoidance). A fixed
 	# handedness makes two converging planes diverge to opposite global sides;
 	# choosing the side from the threat's bearing instead makes them mirror each
 	# other into the same global direction and still collide.
-	var direction := -1.0
-	return {
-		"detected": true,
-		"tca": tca,
-		"direction": direction,
-	}
+	return Vector2(tca, -1.0)
 
 
 func _get_node_velocity(body: Node3D) -> Vector3:
@@ -446,13 +447,6 @@ func _is_valid_hostile_candidate(candidate_node: Node3D) -> bool:
 	if bool(candidate_node.get("is_shot_down")):
 		return false
 	return true
-
-
-func _is_bot_character(candidate: Node3D) -> bool:
-	if not is_instance_valid(candidate):
-		return false
-	var plane := candidate as PlaneCharacter
-	return plane != null and plane.is_bot_controlled
 
 
 func _get_target_killzone_point(target: Node3D) -> Vector3:

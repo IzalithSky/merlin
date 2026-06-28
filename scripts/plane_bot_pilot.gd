@@ -1088,15 +1088,6 @@ func _get_turn_pull_pitch_target(turn_angle: float) -> float:
 	)
 
 
-func _get_correction_turn_pitch_target() -> float:
-	return _plane.get_rate_stabilized_input_for_desired_rate(
-		-CORRECTION_TURN_PITCH_DOWN_RATE,
-		_get_local_pitch_rate(),
-		TURN_PITCH_RATE_RESPONSE_GAIN,
-		-1.0
-	)
-
-
 func _get_turn_altitude_pitch_target(target_altitude: float) -> float:
 	if target_altitude >= INF:
 		return 0.0

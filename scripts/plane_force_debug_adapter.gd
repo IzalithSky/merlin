@@ -25,16 +25,28 @@ func update_renderer_state() -> void:
 	if _plane._force_debug_renderer == null:
 		return
 
-	var should_show := _plane.debug_force_vectors_enabled and _plane._is_simulated_locally()
+	# Disabled entirely: free the node so it stops consuming a tree slot and its
+	# per-frame work disappears. ensure_renderer() recreates it if re-enabled.
+	if not _plane.debug_force_vectors_enabled:
+		_plane._force_debug_renderer.queue_free()
+		_plane._force_debug_renderer = null
+		return
+
+	var should_show := _plane._is_simulated_locally()
 	_plane._force_debug_renderer.visible = should_show
 	if not should_show:
 		_plane._force_debug_renderer.clear_frame()
 
 
+func _is_rendering() -> bool:
+	return _plane._force_debug_renderer != null and _plane._force_debug_renderer.visible
+
+
 func begin_frame() -> void:
 	_plane.reset_debug_force_accumulators()
 
-	if _plane._force_debug_renderer == null:
+	# Skip all accumulation/mesh work unless the arrows are actually being drawn.
+	if not _is_rendering():
 		return
 
 	_plane._force_debug_renderer.begin_frame()
@@ -44,7 +56,7 @@ func begin_frame() -> void:
 
 
 func end_frame() -> void:
-	if _plane._force_debug_renderer == null:
+	if not _is_rendering():
 		return
 
 	_plane._force_debug_renderer.end_frame()
@@ -58,14 +70,14 @@ func clear_frame() -> void:
 
 
 func push_force(origin_world: Vector3, force_world: Vector3, color: Color) -> void:
-	if _plane._force_debug_renderer == null:
+	if not _is_rendering():
 		return
 
 	_plane._force_debug_renderer.push_force(origin_world, force_world, color)
 
 
 func push_torque(origin_world: Vector3, torque_world: Vector3, color: Color) -> void:
-	if _plane._force_debug_renderer == null:
+	if not _is_rendering():
 		return
 
 	_plane._force_debug_renderer.push_torque(origin_world, torque_world, color)
