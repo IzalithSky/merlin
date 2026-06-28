@@ -84,8 +84,6 @@ bot_team_ids = PackedInt32Array(1, 1, 2)
 
 [node name="level" type="Node3D" parent="."]
 
-[node name="BotFollowTarget" type="Marker3D" parent="level"]
-
 [node name="StaticBody3D" type="StaticBody3D" parent="level"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4000, 0, 4000)
 

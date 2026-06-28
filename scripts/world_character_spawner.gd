@@ -26,11 +26,11 @@ enum CharacterType {
 @export var late_join_spawn_min_radius := 300.0
 @export var late_join_spawn_max_radius := 600.0
 @export var character_type := CharacterType.PLANE
+@export var spawn_forward_speed: float = 100.0
 @export var bot_count := 1
 @export var bot_team_ids: PackedInt32Array = []
 @export var bot_spawn_radius := 2400.0
 @export var bot_parallel_separation: float = 1000.0
-@export var bot_follow_target_path: NodePath = NodePath("level/BotFollowTarget")
 @export var bot_player_killzone_distance := 250.0
 @export var bot_player_killzone_tolerance := 150.0
 @export var single_player_victory_score: int = 5
@@ -50,7 +50,6 @@ var _peer_spawn_states: Dictionary = {}
 var _bot_peer_ids: Dictionary = {}
 var _world_ready_peers: Dictionary = {}
 var _spawn_random := RandomNumberGenerator.new()
-var _bot_follow_target: Node3D
 var _local_plane_presentation
 var _server_aero_payload: Dictionary = {}
 var _client_aero_payload: Dictionary = {}
@@ -74,7 +73,6 @@ func _ready() -> void:
 	_local_plane_presentation = LOCAL_PLANE_PRESENTATION_BINDING.new(self)
 	_projectile_net.configure(self, _projectiles)
 	_health_net.configure(self)
-	_resolve_bot_follow_target()
 	_apply_lobby_bot_count_override()
 	DisplaySettings.settings_changed.connect(_on_display_settings_changed)
 
@@ -84,7 +82,13 @@ func _ready() -> void:
 
 		var spawn_state := _build_radial_spawn_state(0, 1)
 		_peer_spawn_states[1] = spawn_state
-		_spawn_character(1, true, spawn_state["character_position"], spawn_state["yaw"])
+		_spawn_character(
+			1,
+			true,
+			spawn_state["character_position"],
+			spawn_state["yaw"],
+			spawn_state["forward_speed"]
+		)
 		_spawn_single_player_bots(spawn_state)
 		_ensure_single_player_match_hud()
 		_setup_single_player_end_state_tracking()
@@ -205,12 +209,7 @@ func _spawn_bots(broadcast_to_clients: bool) -> void:
 		var bot_spawn_state := _build_bot_spawn_state(bot_index, resolved_bot_count)
 		_peer_spawn_states[bot_peer_id] = bot_spawn_state
 		_bot_peer_ids[bot_peer_id] = true
-		_spawn_character(
-			bot_peer_id,
-			false,
-			bot_spawn_state["character_position"],
-			bot_spawn_state["yaw"]
-		)
+		_spawn_character_from_state(bot_peer_id, false, bot_spawn_state)
 
 		if broadcast_to_clients and multiplayer.multiplayer_peer != null and multiplayer.is_server():
 			_broadcast_spawn_state(bot_peer_id, -1)
@@ -222,6 +221,7 @@ func _spawn_single_player_bots(player_spawn_state: Dictionary) -> void:
 
 	var player_pos: Vector3 = player_spawn_state["character_position"]
 	var player_yaw: float = player_spawn_state["yaw"]
+	var player_forward_speed: float = float(player_spawn_state.get("forward_speed", _get_spawn_forward_speed()))
 	var player_right := Vector3(cos(player_yaw), 0.0, -sin(player_yaw))
 
 	var resolved_bot_count: int = maxi(bot_count, 0)
@@ -231,18 +231,10 @@ func _spawn_single_player_bots(player_spawn_state: Dictionary) -> void:
 			continue
 
 		var bot_position := player_pos + player_right * bot_parallel_separation * float(bot_index + 1)
-		var bot_spawn_state := {"character_position": bot_position, "yaw": player_yaw}
+		var bot_spawn_state := _make_spawn_state(bot_position, player_yaw, player_forward_speed)
 		_peer_spawn_states[bot_peer_id] = bot_spawn_state
 		_bot_peer_ids[bot_peer_id] = true
-		_spawn_character(bot_peer_id, false, bot_position, player_yaw)
-
-
-func _resolve_bot_follow_target() -> void:
-	_bot_follow_target = null
-	if bot_follow_target_path.is_empty():
-		return
-
-	_bot_follow_target = get_node_or_null(bot_follow_target_path) as Node3D
+		_spawn_character_from_state(bot_peer_id, false, bot_spawn_state)
 
 
 func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
@@ -252,14 +244,10 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 	var bot_peer := _is_bot_peer(peer_id)
 	var bot_active := bot_peer and (multiplayer.multiplayer_peer == null or multiplayer.is_server())
 
-	if _bot_follow_target == null:
-		_resolve_bot_follow_target()
-
 	PLANE_BOT_SETUP.configure_plane(
 		character,
 		bot_peer,
 		bot_active,
-		_bot_follow_target,
 		bot_player_killzone_distance,
 		bot_player_killzone_tolerance
 	)
@@ -275,7 +263,13 @@ func _is_bot_peer(peer_id: int) -> bool:
 	return _bot_peer_ids.has(peer_id)
 
 
-func _spawn_character(peer_id: int, local_player: bool, character_position: Vector3, yaw: float) -> Node3D:
+func _spawn_character(
+	peer_id: int,
+	local_player: bool,
+	character_position: Vector3,
+	yaw: float,
+	forward_speed: float = 0.0
+) -> Node3D:
 	var existing := _characters.get_node_or_null(_character_name(peer_id)) as Node3D
 	if existing != null:
 		if character_type == CharacterType.PLANE:
@@ -302,8 +296,9 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	character.rotation.y = yaw
 	character.configure(peer_id, local_player)
 	_characters.add_child(character, true)
+	var spawn_velocity := Vector3.ZERO
 	if character is RigidBody3D:
-		(character as RigidBody3D).linear_velocity = -character.basis.z * 100.0
+		spawn_velocity = -(character as RigidBody3D).basis.z * maxf(forward_speed, 0.0)
 
 	if character_type == CharacterType.PLANE:
 		var plane := character
@@ -319,6 +314,11 @@ func _spawn_character(peer_id: int, local_player: bool, character_position: Vect
 	else:
 		var player_character := character
 		_set_character_local_binding(player_character, local_player)
+
+	if character is RigidBody3D:
+		var body := character as RigidBody3D
+		body.linear_velocity = spawn_velocity
+		body.sleeping = false
 	return character
 
 
@@ -423,9 +423,9 @@ func cl_apply_aero_tables(payload: Dictionary) -> void:
 
 
 @rpc("authority", "reliable")
-func spawn_character(peer_id: int, character_position: Vector3, yaw: float) -> void:
-	record_net_recv("spawn", [peer_id, character_position, yaw])
-	_spawn_character(peer_id, _is_local_peer(peer_id), character_position, yaw)
+func spawn_character(peer_id: int, character_position: Vector3, yaw: float, forward_speed: float) -> void:
+	record_net_recv("spawn", [peer_id, character_position, yaw, forward_speed])
+	_spawn_character(peer_id, _is_local_peer(peer_id), character_position, yaw, forward_speed)
 	_enforce_local_ownership()
 
 
@@ -515,21 +515,13 @@ func _spawn_peer_character_locally(peer_id: int) -> void:
 		return
 
 	var spawn_state: Dictionary = _peer_spawn_states[peer_id]
-	var character_position: Vector3 = spawn_state["character_position"]
-	var yaw: float = spawn_state["yaw"]
-	_spawn_character(peer_id, _is_local_peer(peer_id), character_position, yaw)
+	_spawn_character_from_state(peer_id, _is_local_peer(peer_id), spawn_state)
 
 
 func _sync_spawn_states_to_peer(target_peer_id: int) -> void:
 	for peer_id in _sorted_peer_ids():
 		var spawn_state: Dictionary = _peer_spawn_states[peer_id]
-		record_net_send("spawn", [peer_id, spawn_state["character_position"], spawn_state["yaw"]])
-		spawn_character.rpc_id(
-			target_peer_id,
-			peer_id,
-			spawn_state["character_position"],
-			spawn_state["yaw"]
-		)
+		_send_spawn_state_to_peer(target_peer_id, peer_id, spawn_state)
 	_health_net.sync_health_states_to_peer(target_peer_id)
 
 
@@ -539,13 +531,7 @@ func _broadcast_spawn_state(peer_id: int, excluded_peer_id: int) -> void:
 		if target_peer_id == excluded_peer_id or not _is_peer_world_ready(target_peer_id):
 			continue
 
-		record_net_send("spawn", [peer_id, spawn_state["character_position"], spawn_state["yaw"]])
-		spawn_character.rpc_id(
-			target_peer_id,
-			peer_id,
-			spawn_state["character_position"],
-			spawn_state["yaw"]
-		)
+		_send_spawn_state_to_peer(target_peer_id, peer_id, spawn_state)
 
 
 func _sorted_peer_ids() -> Array:
@@ -579,11 +565,7 @@ func _build_radial_spawn_state(index: int, player_count: int) -> Dictionary:
 		radius = 0.0
 	var spawn_origin := _get_spawn_origin()
 	var character_position := spawn_origin + Vector3(sin(angle) * radius, 0.0, cos(angle) * radius)
-
-	return {
-		"character_position": character_position,
-		"yaw": _yaw_towards(character_position, spawn_origin)
-	}
+	return _make_spawn_state(character_position, _yaw_towards(character_position, spawn_origin))
 
 
 func _build_late_join_spawn_state() -> Dictionary:
@@ -593,11 +575,7 @@ func _build_late_join_spawn_state() -> Dictionary:
 	var radius: float = _spawn_random.randf_range(min_radius, max_radius)
 	var spawn_origin := _get_spawn_origin()
 	var character_position := spawn_origin + Vector3(sin(angle) * radius, 0.0, cos(angle) * radius)
-
-	return {
-		"character_position": character_position,
-		"yaw": _yaw_towards(character_position, spawn_origin)
-	}
+	return _make_spawn_state(character_position, _yaw_towards(character_position, spawn_origin))
 
 
 func _build_bot_spawn_state(index: int, total_bots: int) -> Dictionary:
@@ -606,19 +584,41 @@ func _build_bot_spawn_state(index: int, total_bots: int) -> Dictionary:
 	var angle := TAU * float(index) / float(count)
 	var spawn_origin := _get_spawn_origin()
 	var bot_position := spawn_origin + Vector3(sin(angle) * radius, 0.0, cos(angle) * radius)
-
-	var target_position := spawn_origin
-	if _bot_follow_target != null:
-		target_position = _bot_follow_target.global_position
-
-	return {
-		"character_position": bot_position,
-		"yaw": _yaw_towards(bot_position, target_position)
-	}
+	return _make_spawn_state(bot_position, _yaw_towards(bot_position, spawn_origin))
 
 
 func _get_spawn_origin() -> Vector3:
 	return spawn_center + Vector3(0.0, spawn_height_offset, 0.0)
+
+
+func _make_spawn_state(character_position: Vector3, yaw: float, forward_speed: float = -1.0) -> Dictionary:
+	return {
+		"character_position": character_position,
+		"yaw": yaw,
+		"forward_speed": _get_spawn_forward_speed() if forward_speed < 0.0 else maxf(forward_speed, 0.0),
+	}
+
+
+func _get_spawn_forward_speed() -> float:
+	return maxf(spawn_forward_speed, 0.0)
+
+
+func _get_spawn_state_forward_speed(spawn_state: Dictionary) -> float:
+	return float(spawn_state.get("forward_speed", _get_spawn_forward_speed()))
+
+
+func _spawn_character_from_state(peer_id: int, local_player: bool, spawn_state: Dictionary) -> Node3D:
+	var character_position: Vector3 = spawn_state["character_position"]
+	var yaw: float = spawn_state["yaw"]
+	return _spawn_character(peer_id, local_player, character_position, yaw, _get_spawn_state_forward_speed(spawn_state))
+
+
+func _send_spawn_state_to_peer(target_peer_id: int, peer_id: int, spawn_state: Dictionary) -> void:
+	var character_position: Vector3 = spawn_state["character_position"]
+	var yaw: float = spawn_state["yaw"]
+	var forward_speed := _get_spawn_state_forward_speed(spawn_state)
+	record_net_send("spawn", [peer_id, character_position, yaw, forward_speed])
+	spawn_character.rpc_id(target_peer_id, peer_id, character_position, yaw, forward_speed)
 
 
 func _is_local_peer(peer_id: int) -> bool:

@@ -6,7 +6,6 @@ static func configure_plane(
 	plane: Node,
 	bot_peer: bool,
 	bot_active: bool,
-	follow_target: Node3D,
 	killzone_distance: float,
 	killzone_tolerance: float
 ) -> void:
@@ -20,5 +19,3 @@ static func configure_plane(
 	var pilot = plane.ensure_bot_pilot()
 	pilot.killzone_distance = killzone_distance
 	pilot.killzone_tolerance = killzone_tolerance
-	if follow_target != null and follow_target.is_in_group("player_character"):
-		pilot.set_follow_target(follow_target)
