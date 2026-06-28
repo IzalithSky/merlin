@@ -363,6 +363,8 @@ func _find_hostile_target(delta: float) -> Node3D:
 	var best_distance_squared := INF
 
 	for candidate_node in _cached_player_characters:
+		if not is_instance_valid(candidate_node):
+			continue
 		if not _is_valid_hostile_candidate(candidate_node):
 			continue
 
@@ -415,6 +417,8 @@ func _get_highest_aggro_target() -> Node3D:
 	var best_score := 0.0
 
 	for candidate_node in _cached_player_characters:
+		if not is_instance_valid(candidate_node):
+			continue
 		if not _is_valid_hostile_candidate(candidate_node):
 			continue
 		var score := _get_aggro_score(candidate_node)

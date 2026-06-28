@@ -104,8 +104,9 @@ launch, then applies constant thrust and guidance. It uses a proportional
 navigation variant: the steering direction is `(deviation + Δdeviation).normalized()`,
 where `deviation` is the vector to the target and `Δdeviation` is the
 frame-over-frame change (a crude lead term). This causes the missile to naturally
-lead the target rather than purely tail-chase. The missile always knows its
-target's exact position — there is no seeker cone or detection range.
+lead the target rather than purely tail-chase. The missile knows its target's
+exact position, but it drops the target if the target leaves the seeker cone
+(half-angle `seeker_cone_half_angle_deg` around the nose).
 
 ### Flight loop (per physics frame)
 
@@ -136,6 +137,7 @@ The current defaults live in `scripts/missile.gd`; this table documents behavior
 | `lateral_force` | Direct steering force perpendicular to current velocity. |
 | `torque_strength` | Angular response strength for guidance and stabilisation. |
 | `max_ang_vel_deg` | Hard angular-rate cap for turn authority. |
+| `seeker_cone_half_angle_deg` | Half-angle of the nose cone the target must stay within; the target is dropped if it leaves the cone. |
 | `max_lifetime` | Hard kill age regardless of target state. |
 | `proximity_radius` | Detonation trigger distance. |
 | `proximity_fuse_delay` | Post-launch arming delay. |
@@ -188,9 +190,10 @@ The launcher now uses the stable plane-component seam instead of string lookups:
 
 **Multiplayer**: in a networked session, clients send `sv_request_fire_missile`
 to the server instead of spawning locally. The server owns all missile
-simulation; clients receive spawn/despawn events only, then run a local visual
-replica seeded with the spawn transform, launch velocity, and locked target peer
-id. See `world_character_spawner.gd` and `missile_visual.gd`.
+simulation; clients receive spawn/despawn events only, then run a local replica
+(`Missile.init_replica`) seeded with the spawn transform, launch velocity, and
+locked target `(kind, id)`. See `world_character_spawner.gd` and
+`projectile_net_replicator.gd`.
 
 ---
 

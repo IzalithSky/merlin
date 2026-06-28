@@ -48,6 +48,7 @@ func init_replica(transform_value: Transform3D, velocity: Vector3, target_node: 
 	collision_mask = 0
 	contact_monitor = false
 	max_contacts_reported = 0
+	continuous_cd = false
 
 
 func _ready() -> void:
