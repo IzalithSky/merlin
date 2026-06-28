@@ -24,9 +24,6 @@ const SPEED_RECOVERY_TARGET_ABOVE_MAX_NADIR_BLEND := 0.15
 const SPEED_RECOVERY_PITCH_ANGLE_TO_RATE_GAIN := 1.2
 const SPEED_RECOVERY_PITCH_RATE_RESPONSE_GAIN := 0.75
 const SPEED_RECOVERY_MAX_DESIRED_PITCH_RATE := 1.4
-const SPEED_RECOVERY_YAW_ANGLE_TO_RATE_GAIN := 0.8
-const SPEED_RECOVERY_YAW_RATE_RESPONSE_GAIN := 0.5
-const SPEED_RECOVERY_MAX_DESIRED_YAW_RATE := 0.8
 const SPEED_RECOVERY_WINGS_LEVEL_MIN_FORWARD_SPEED := 60.0
 const SPEED_RECOVERY_WINGS_LEVEL_MAX_DIVE_ANGLE_DEG := 20.0
 const HALF_THROTTLE_INPUT := 0.0
@@ -65,9 +62,6 @@ const TURN_MIN_UNALIGNED_PULL_RATIO := 0.25
 # Max pitch authority the altitude-hold trim may add inside a bank-to-turn, so it
 # cannot overpower the turn pull (see _get_turn_altitude_pitch_target).
 const TURN_ALTITUDE_PITCH_LIMIT := 0.25
-const CORRECTION_TURN_PITCH_DOWN_RATE := 0.47
-const CORRECTION_TURN_MIN_LATERAL_ANGLE_RAD := 0.08
-const CORRECTION_TURN_HYSTERESIS_RAD := 2.0 * PI / 180.0
 const WINGS_LEVEL_DEADBAND_RAD := PI / 180.0
 const MIN_DIRECTION_LENGTH_SQUARED := 0.000001
 const GROUP_CACHE_REFRESH_INTERVAL := 0.25
@@ -123,7 +117,6 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 @export var ground_probe_distance: float = 1000.0
 @export var checkpoint_orbit_radius: float = 500.0
 @export var checkpoint_orbit_direction: float = 1.0
-@export var correction_turn_small_angle_deg: float = 6.0
 @export var overshoot_closure_tolerance: float = 0.5
 @export var overshoot_throttle_gain: float = 0.08
 @export var killzone_distance: float = 250.0
@@ -154,7 +147,6 @@ var _ground_clearance := INF
 var _terrain_ahead_distance := INF
 var _next_ground_probe_time := 0.0
 var _checkpoint_index := 0
-var _correction_turn_active := false
 var _turn_log_cooldown := 0.0
 var _debug_adapter
 var _engagement
@@ -467,10 +459,6 @@ func turn_toward_direction(
 	var direction := _get_safe_world_direction(desired_direction)
 	var local_direction := _frame_inverse_basis * direction
 	var turn_angle := _get_local_turn_angle(local_direction)
-	if _should_use_correction_turn(local_direction, turn_angle):
-		_apply_correction_turn(delta, local_direction, turn_angle, target_altitude, throttle_target, response_rate)
-		return
-
 	if turn_angle <= TURN_ANGLE_DEADBAND_RAD:
 		_apply_pitch_behavior(
 			delta,
@@ -480,27 +468,6 @@ func turn_toward_direction(
 		)
 		return
 
-	var roll_target := _get_lift_vector_roll_target(local_direction, turn_angle)
-	var pitch_target := _get_lift_aligned_pitch_target(turn_angle, target_altitude, local_direction)
-	_log_turn_command(delta, local_direction, turn_angle, target_altitude, roll_target, pitch_target)
-	_apply_control_behavior(
-		delta,
-		roll_target,
-		pitch_target,
-		0.0,
-		response_rate,
-		throttle_target
-	)
-
-
-func _apply_correction_turn(
-	delta: float,
-	local_direction: Vector3,
-	turn_angle: float,
-	target_altitude: float,
-	throttle_target: float,
-	response_rate: float
-) -> void:
 	var roll_target := _get_lift_vector_roll_target(local_direction, turn_angle)
 	var pitch_target := _get_lift_aligned_pitch_target(turn_angle, target_altitude, local_direction)
 	_log_turn_command(delta, local_direction, turn_angle, target_altitude, roll_target, pitch_target)
@@ -920,39 +887,6 @@ func _get_lift_vector_roll_target(local_direction: Vector3, turn_angle: float) -
 		return lift_vector_roll
 
 	return lerpf(lift_vector_roll, _get_wings_level_roll_target(), rollout)
-
-
-func _should_use_correction_turn(local_direction: Vector3, turn_angle: float) -> bool:
-	var threshold := deg_to_rad(maxf(correction_turn_small_angle_deg, 0.0))
-	if threshold <= 0.0:
-		_correction_turn_active = false
-		return false
-
-	if -local_direction.z <= 0.0:
-		_correction_turn_active = false
-		return false
-
-	var lateral_angle := absf(atan2(local_direction.x, -local_direction.z))
-	if lateral_angle < CORRECTION_TURN_MIN_LATERAL_ANGLE_RAD:
-		_correction_turn_active = false
-		return false
-
-	if absf(local_direction.y) > absf(local_direction.x):
-		_correction_turn_active = false
-		return false
-
-	if _correction_turn_active:
-		if turn_angle < threshold + CORRECTION_TURN_HYSTERESIS_RAD:
-			return true
-
-		_correction_turn_active = false
-		return false
-
-	if turn_angle < threshold:
-		_correction_turn_active = true
-		return true
-
-	return false
 
 
 func _get_wings_level_roll_target() -> float:
