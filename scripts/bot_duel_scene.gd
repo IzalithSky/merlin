@@ -1,8 +1,8 @@
 extends Node3D
 
-const WORLD_SCENE := preload("res://scenes/world_0.tscn")
+const WORLD_LEVEL_SCENE := preload("res://scenes/world_level.tscn")
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
-const PLANE_BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
+const PLANE_BOT_SETUP := preload("res://scripts/plane_bot_setup.gd")
 const BOT_DUEL_CAMERA_SCENE := preload("res://scenes/bot_duel_camera.tscn")
 const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 
@@ -20,7 +20,7 @@ const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applie
 func _ready() -> void:
 	if _has_display_settings():
 		DisplaySettings.settings_changed.connect(_on_display_settings_changed)
-	_import_level_and_env()
+	_spawn_level_and_env()
 
 	var bot_a := _spawn_bot("BotA", 1000000, Vector3(-bot_separation * 0.5, spawn_altitude, 0.0))
 	var bot_b := _spawn_bot("BotB", 1000001, Vector3(bot_separation * 0.5, spawn_altitude, 0.0))
@@ -29,10 +29,12 @@ func _ready() -> void:
 	_seed_forward_speed(bot_a)
 	_seed_forward_speed(bot_b)
 
-	var pilot_a := _attach_bot_pilot(bot_a)
-	var pilot_b := _attach_bot_pilot(bot_b)
-	pilot_a.call("set_follow_target", bot_b, true)
-	pilot_b.call("set_follow_target", bot_a, true)
+	var pilot_a := bot_a.get_node_or_null("PlaneBotPilot")
+	var pilot_b := bot_b.get_node_or_null("PlaneBotPilot")
+	if pilot_a != null:
+		pilot_a.call("set_follow_target", bot_b, true)
+	if pilot_b != null:
+		pilot_b.call("set_follow_target", bot_a, true)
 
 	if _has_display_settings():
 		DISPLAY_SETTINGS_APPLIER.apply_to_tree(_characters)
@@ -40,28 +42,8 @@ func _ready() -> void:
 	_spawn_camera(bot_a, bot_b)
 
 
-func _import_level_and_env() -> void:
-	var world := WORLD_SCENE.instantiate()
-	_detach_world_child(world, "level")
-	_detach_world_child(world, "env")
-	world.free()
-
-
-func _detach_world_child(world: Node, child_name: String) -> void:
-	var child := world.get_node_or_null(NodePath(child_name))
-	if child == null:
-		push_warning("Bot duel scene could not find world child: %s" % child_name)
-		return
-
-	world.remove_child(child)
-	_clear_owner_recursive(child)
-	add_child(child)
-
-
-func _clear_owner_recursive(node: Node) -> void:
-	node.owner = null
-	for child_node in node.get_children():
-		_clear_owner_recursive(child_node)
+func _spawn_level_and_env() -> void:
+	add_child(WORLD_LEVEL_SCENE.instantiate())
 
 
 func _spawn_bot(bot_name: String, peer_id: int, spawn_point: Vector3) -> RigidBody3D:
@@ -70,29 +52,23 @@ func _spawn_bot(bot_name: String, peer_id: int, spawn_point: Vector3) -> RigidBo
 	plane.position = spawn_point
 	if plane.has_method("configure"):
 		plane.call("configure", peer_id, false)
-	if plane.has_method("set_bot_controlled"):
-		plane.call("set_bot_controlled", true)
-
+	_configure_bot_pilot(plane)
 	_characters.add_child(plane)
 	return plane
 
 
-func _attach_bot_pilot(plane: RigidBody3D) -> Node:
-	var pilot := plane.get_node_or_null("PlaneBotPilot")
-	if pilot == null:
-		pilot = PLANE_BOT_PILOT_SCRIPT.new()
-		pilot.name = "PlaneBotPilot"
-		plane.add_child(pilot)
-
-	pilot.set("default_altitude", bot_default_altitude)
-	pilot.set("killzone_distance", bot_killzone_distance)
-	pilot.set("killzone_tolerance", bot_killzone_tolerance)
-	pilot.set("autocannon_fire_max_range", bot_autocannon_fire_max_range)
-	if _has_display_settings():
-		pilot.set("debug_bot_visuals_enabled", DisplaySettings.bot_debug_enabled)
-	if pilot.has_method("climb_to_altitude"):
-		pilot.call("climb_to_altitude", bot_default_altitude)
-	return pilot
+func _configure_bot_pilot(plane: RigidBody3D) -> Node:
+	return PLANE_BOT_SETUP.configure_plane(
+		plane,
+		true,
+		true,
+		bot_killzone_distance,
+		bot_killzone_tolerance,
+		bot_default_altitude,
+		bot_autocannon_fire_max_range,
+		DisplaySettings.bot_debug_enabled if _has_display_settings() else true,
+		0
+	)
 
 
 func _face_plane_at(plane: Node3D, target_point: Vector3) -> void:

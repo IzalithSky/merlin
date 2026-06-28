@@ -1,7 +1,6 @@
 class_name WorldCharacterSpawner
 extends Node3D
 
-const PLAYER_CHARACTER_SCENE := preload("res://scenes/player_character.tscn")
 const PLANE_CHARACTER_SCENE := preload("res://scenes/plane_character.tscn")
 const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applier.gd")
 const LOCAL_PLANE_PRESENTATION_BINDING := preload("res://scripts/local_plane_presentation_binding.gd")
@@ -15,17 +14,11 @@ const SINGLE_PLAYER_END_STATE_DELAY_SEC := 8.0
 const SINGLE_PLAYER_GAME_OVER_TITLE := "Game Over"
 const SINGLE_PLAYER_VICTORY_TITLE := "Victory"
 
-enum CharacterType {
-	CAMERA_CUBE,
-	PLANE,
-}
-
 @export var spawn_center := Vector3.ZERO
 @export var spawn_height_offset: float = 1500.0
 @export var spawn_radius := 480.0
 @export var late_join_spawn_min_radius := 300.0
 @export var late_join_spawn_max_radius := 600.0
-@export var character_type := CharacterType.PLANE
 @export var spawn_forward_speed: float = 100.0
 @export var bot_count := 1
 @export var bot_team_ids: PackedInt32Array = []
@@ -238,7 +231,7 @@ func _spawn_single_player_bots(player_spawn_state: Dictionary) -> void:
 
 
 func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
-	if character == null or character_type != CharacterType.PLANE:
+	if character == null:
 		return
 
 	var bot_peer := _is_bot_peer(peer_id)
@@ -272,54 +265,47 @@ func _spawn_character(
 ) -> Node3D:
 	var existing := _characters.get_node_or_null(_character_name(peer_id)) as Node3D
 	if existing != null:
-		if character_type == CharacterType.PLANE:
-			var existing_plane := existing
-			existing_plane.set_server_net_tick_hz(server_net_tick_hz)
-			existing_plane.configure(peer_id, local_player)
-			_set_character_local_binding(existing_plane, local_player)
-			_configure_bot_behavior(existing_plane, peer_id)
-			_register_lockable_target(existing_plane)
-			_health_net.bind_character(existing_plane, peer_id)
-			_apply_display_settings_to_character(existing_plane)
-			_apply_client_aero_tables_to_character(existing_plane)
-			if local_player:
-				_bind_local_plane_presentation(existing_plane)
-		else:
-			var existing_player := existing
-			existing_player.configure(peer_id, local_player)
-			_set_character_local_binding(existing_player, local_player)
+		_configure_character_identity(existing, peer_id, local_player)
+		_configure_spawned_character(existing, peer_id, local_player)
 		return existing
 
-	var character := _get_character_scene().instantiate() as Node3D
+	var character := PLANE_CHARACTER_SCENE.instantiate() as Node3D
 	character.name = _character_name(peer_id)
 	character.position = character_position
 	character.rotation.y = yaw
-	character.configure(peer_id, local_player)
+	_configure_character_identity(character, peer_id, local_player)
 	_characters.add_child(character, true)
 	var spawn_velocity := Vector3.ZERO
 	if character is RigidBody3D:
 		spawn_velocity = -(character as RigidBody3D).basis.z * maxf(forward_speed, 0.0)
 
-	if character_type == CharacterType.PLANE:
-		var plane := character
-		plane.set_server_net_tick_hz(server_net_tick_hz)
-		_set_character_local_binding(plane, local_player)
-		_configure_bot_behavior(plane, peer_id)
-		_register_lockable_target(plane)
-		_health_net.bind_character(plane, peer_id)
-		_apply_display_settings_to_character(plane)
-		_apply_client_aero_tables_to_character(plane)
-		if local_player:
-			_bind_local_plane_presentation(plane)
-	else:
-		var player_character := character
-		_set_character_local_binding(player_character, local_player)
+	_configure_spawned_character(character, peer_id, local_player)
 
 	if character is RigidBody3D:
 		var body := character as RigidBody3D
 		body.linear_velocity = spawn_velocity
 		body.sleeping = false
 	return character
+
+
+func _configure_character_identity(character: Node3D, peer_id: int, local_player: bool) -> void:
+	character.configure(peer_id, local_player)
+
+
+func _configure_spawned_character(character: Node3D, peer_id: int, local_player: bool) -> void:
+	_set_character_local_binding(character, local_player)
+	var plane := character as PlaneCharacter
+	if plane == null:
+		return
+
+	plane.set_server_net_tick_hz(server_net_tick_hz)
+	_configure_bot_behavior(plane, peer_id)
+	_register_lockable_target(plane)
+	_health_net.bind_character(plane, peer_id)
+	_apply_display_settings_to_character(plane)
+	_apply_client_aero_tables_to_character(plane)
+	if local_player:
+		_bind_local_plane_presentation(plane)
 
 
 func _despawn_character(peer_id: int) -> void:
@@ -670,12 +656,13 @@ func _enforce_local_ownership() -> void:
 		var local_player: bool = character_peer_id == local_peer_id
 		character.configure(character_peer_id, local_player)
 		_set_character_local_binding(character, local_player)
-		if character_type == CharacterType.PLANE:
-			character.set_server_net_tick_hz(server_net_tick_hz)
-			_configure_bot_behavior(character, character_peer_id)
+		var plane := character as PlaneCharacter
+		if plane != null:
+			plane.set_server_net_tick_hz(server_net_tick_hz)
+			_configure_bot_behavior(plane, character_peer_id)
 
-		if local_player and character_type == CharacterType.PLANE:
-			_bind_local_plane_presentation(character)
+		if local_player and plane != null:
+			_bind_local_plane_presentation(plane)
 
 	_update_local_plane_presentation_binding()
 
@@ -757,17 +744,9 @@ func _yaw_towards(character_position: Vector3, target_position: Vector3) -> floa
 	return atan2(-direction.x, -direction.z)
 
 
-func _get_character_scene() -> PackedScene:
-	match character_type:
-		CharacterType.PLANE:
-			return PLANE_CHARACTER_SCENE
-		_:
-			return PLAYER_CHARACTER_SCENE
-
-
 func _update_local_plane_presentation_binding() -> void:
 	var local_character := _find_local_character()
-	if character_type != CharacterType.PLANE or local_character == null:
+	if local_character == null:
 		_clear_local_plane_presentation_target()
 		return
 
@@ -934,9 +913,6 @@ func get_single_player_time_remaining_sec() -> float:
 
 
 func _bind_local_plane_presentation(character: Node3D) -> void:
-	if character_type != CharacterType.PLANE:
-		return
-
 	if _local_plane_presentation != null:
 		_local_plane_presentation.bind(character)
 
@@ -962,10 +938,6 @@ func _apply_client_aero_tables_to_character(character: Node) -> void:
 	var plane_character := character as PlaneCharacter
 	if plane_character != null:
 		plane_character.apply_aero_tables_payload(_client_aero_payload)
-
-
-func _has_property(object: Object, property_name: String) -> bool:
-	return DISPLAY_SETTINGS_APPLIER._has_property(object, property_name)
 
 
 func record_net_send(kind: String, payload: Variant) -> void:

@@ -41,6 +41,7 @@ func _ready() -> void:
 	ground_unit_id = _id_counter
 	_id_counter += 1
 	add_to_group("ground_unit")
+	set_physics_process(_has_simulation_authority())
 	_health = get_node_or_null("Health") as Health
 	if _health != null:
 		_health.shot_down.connect(_on_shot_down)
@@ -56,7 +57,7 @@ func _deferred_init() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if is_shot_down:
+	if is_shot_down or not _has_simulation_authority():
 		return
 	_scan_timer -= delta
 	if _scan_timer <= 0.0:
@@ -113,7 +114,7 @@ func _is_in_fire_envelope() -> bool:
 
 
 func _fire_aa_shot() -> void:
-	if _projectiles == null or not is_instance_valid(_projectiles):
+	if not _has_simulation_authority() or _projectiles == null or not is_instance_valid(_projectiles):
 		return
 	var target_vel := _get_target_velocity(_target)
 	var rel_pos := _target.global_position - global_position
@@ -137,7 +138,7 @@ func _fire_aa_shot() -> void:
 
 
 func _fire_sam() -> void:
-	if _projectiles == null or not is_instance_valid(_projectiles):
+	if not _has_simulation_authority() or _projectiles == null or not is_instance_valid(_projectiles):
 		return
 	var launch_pos := global_position + Vector3.UP * 3.0
 	var launch_tr := _get_launch_transform(launch_pos, _target.global_position)
@@ -189,7 +190,7 @@ func _get_target_velocity(target: Node3D) -> Vector3:
 
 
 func take_damage(amount: float) -> void:
-	if is_shot_down:
+	if is_shot_down or not _has_simulation_authority():
 		return
 	if _health != null:
 		_health.take_damage(amount)
@@ -233,3 +234,7 @@ func _find_target_registry() -> TargetRegistry:
 		if spawner != null and is_instance_valid(spawner):
 			return spawner.get_target_registry() as TargetRegistry
 	return get_tree().current_scene.get_node_or_null("TargetRegistry") as TargetRegistry
+
+
+func _has_simulation_authority() -> bool:
+	return multiplayer.multiplayer_peer == null or multiplayer.is_server()

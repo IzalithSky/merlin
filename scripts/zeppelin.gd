@@ -55,13 +55,15 @@ func _physics_process(delta: float) -> void:
 	global_position += _flight_velocity * delta
 	if _lockable != null:
 		_lockable.velocity = _flight_velocity
+	if not _has_simulation_authority():
+		return
 	if (point_b - global_position).dot(_flight_direction) <= 0.0:
 		_unregister_from_target_registry()
 		queue_free()
 
 
 func take_damage(amount: float) -> void:
-	if is_shot_down or _health == null:
+	if is_shot_down or _health == null or not _has_simulation_authority():
 		return
 	_health.take_damage(amount)
 
@@ -113,3 +115,7 @@ func _find_target_registry() -> TargetRegistry:
 		if spawner != null and is_instance_valid(spawner):
 			return spawner.get_target_registry() as TargetRegistry
 	return get_tree().current_scene.get_node_or_null("TargetRegistry") as TargetRegistry
+
+
+func _has_simulation_authority() -> bool:
+	return multiplayer.multiplayer_peer == null or multiplayer.is_server()
