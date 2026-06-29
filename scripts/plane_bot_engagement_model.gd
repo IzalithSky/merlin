@@ -219,7 +219,7 @@ func get_highest_aggro_debug_label() -> String:
 	var identity := highest_target.name
 	var peer_id = highest_target.get("peer_id")
 	if peer_id != null:
-		identity = "%s #%d" % [identity, peer_id]
+		identity = "#%d" % int(peer_id)
 	return "%s %.2f" % [identity, _get_aggro_score(highest_target)]
 
 

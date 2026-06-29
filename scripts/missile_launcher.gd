@@ -20,7 +20,7 @@ func _ready() -> void:
 		if _projectiles_container != null:
 			return
 
-	_projectiles_container = get_tree().current_scene.get_node_or_null("projectiles")
+	_projectiles_container = get_tree().current_scene.find_child("projectiles", true, false)
 	if _projectiles_container == null:
 		push_warning("MissileLauncher: no 'projectiles' node found in scene root; missiles will be added to scene root")
 		_projectiles_container = get_tree().current_scene

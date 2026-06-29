@@ -2,7 +2,12 @@ class_name Zeppelin
 extends RigidBody3D
 
 const FLAME_TRAIL_SCENE := preload("res://scenes/flame_trail.tscn")
+const POINT_A_UNSET := Vector3(100000000000000000000.0, 100000000000000000000.0, 100000000000000000000.0)
 
+enum FlightMode { HOVER, ONE_WAY, PATROL }
+
+@export var flight_mode: FlightMode = FlightMode.ONE_WAY
+@export var point_a: Vector3 = POINT_A_UNSET
 @export var point_b: Vector3 = Vector3(5000, 0, 0)
 @export var speed: float = 30.0
 @export var team_id: int = 0
@@ -16,6 +21,8 @@ static var _id_counter: int = 200
 
 var _flight_direction := Vector3.FORWARD
 var _flight_velocity := Vector3.ZERO
+var _flight_point_a := Vector3.ZERO
+var _flight_target := Vector3.ZERO
 var _health: Health = null
 var _lockable: Node = null
 var _rng := RandomNumberGenerator.new()
@@ -38,13 +45,9 @@ func _ready() -> void:
 	if _health != null:
 		_health.shot_down.connect(_on_shot_down)
 
-	var to_b := point_b - global_position
-	if to_b.length_squared() > 0.001:
-		_flight_direction = to_b.normalized()
-	_flight_velocity = _flight_direction * maxf(speed, 0.0)
-
-	var up_ref := Vector3.RIGHT if absf(_flight_direction.dot(Vector3.UP)) > 0.95 else Vector3.UP
-	global_transform = global_transform.looking_at(global_position + _flight_direction, up_ref)
+	global_position = _resolve_start_position()
+	_flight_point_a = global_position
+	_configure_flight()
 
 	call_deferred("_register_with_target_registry")
 
@@ -52,14 +55,24 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if is_shot_down:
 		return
+	if flight_mode == FlightMode.HOVER:
+		if _lockable != null:
+			_lockable.velocity = Vector3.ZERO
+		return
 	global_position += _flight_velocity * delta
 	if _lockable != null:
 		_lockable.velocity = _flight_velocity
 	if not _has_simulation_authority():
 		return
-	if (point_b - global_position).dot(_flight_direction) <= 0.0:
-		_unregister_from_target_registry()
-		queue_free()
+	if (_flight_target - global_position).dot(_flight_direction) > 0.0:
+		return
+	match flight_mode:
+		FlightMode.ONE_WAY:
+			_unregister_from_target_registry()
+			queue_free()
+		FlightMode.PATROL:
+			global_position = _flight_target
+			_set_flight_target(_flight_point_a if _flight_target == point_b else point_b)
 
 
 func take_damage(amount: float) -> void:
@@ -114,8 +127,40 @@ func _find_target_registry() -> TargetRegistry:
 		var spawner = spawner_nodes[0]
 		if spawner != null and is_instance_valid(spawner):
 			return spawner.get_target_registry() as TargetRegistry
-	return get_tree().current_scene.get_node_or_null("TargetRegistry") as TargetRegistry
+	return get_tree().current_scene.find_child("TargetRegistry", true, false) as TargetRegistry
 
 
 func _has_simulation_authority() -> bool:
 	return multiplayer.multiplayer_peer == null or multiplayer.is_server()
+
+
+func _resolve_start_position() -> Vector3:
+	if point_a != POINT_A_UNSET:
+		return point_a
+	return global_position
+
+
+func _configure_flight() -> void:
+	if flight_mode == FlightMode.HOVER:
+		_flight_direction = -global_transform.basis.z.normalized()
+		_flight_velocity = Vector3.ZERO
+		if _lockable != null:
+			_lockable.velocity = Vector3.ZERO
+		return
+	_set_flight_target(point_b)
+
+
+func _set_flight_target(target: Vector3) -> void:
+	_flight_target = target
+	var to_target := _flight_target - global_position
+	if to_target.length_squared() > 0.001:
+		_flight_direction = to_target.normalized()
+		_orient_to_direction(_flight_direction)
+		_flight_velocity = _flight_direction * maxf(speed, 0.0)
+		return
+	_flight_velocity = Vector3.ZERO
+
+
+func _orient_to_direction(direction: Vector3) -> void:
+	var up_ref := Vector3.RIGHT if absf(direction.dot(Vector3.UP)) > 0.95 else Vector3.UP
+	global_transform = global_transform.looking_at(global_position + direction, up_ref)

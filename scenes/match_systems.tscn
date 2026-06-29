@@ -1,0 +1,34 @@
+[gd_scene load_steps=7 format=4]
+
+[ext_resource type="Script" path="res://scripts/target_registry.gd" id="1_target_registry"]
+[ext_resource type="Script" path="res://scripts/projectile_net_replicator.gd" id="2_projectile_net"]
+[ext_resource type="Script" path="res://scripts/health_net_replicator.gd" id="3_health_net"]
+[ext_resource type="Script" path="res://scripts/world_character_spawner.gd" id="4_world_character_spawner"]
+[ext_resource type="Script" path="res://scripts/mission_controller.gd" id="5_mission_controller"]
+[ext_resource type="PackedScene" path="res://scenes/game_menu_ui.tscn" id="6_game_menu_ui"]
+
+[node name="MatchSystems" type="Node3D"]
+
+[node name="characters" type="Node3D" parent="."]
+
+[node name="projectiles" type="Node3D" parent="."]
+
+[node name="mobs" type="Node3D" parent="."]
+
+[node name="TargetRegistry" type="Node" parent="."]
+script = ExtResource("1_target_registry")
+
+[node name="ProjectileNetReplicator" type="Node" parent="."]
+script = ExtResource("2_projectile_net")
+
+[node name="HealthNetReplicator" type="Node" parent="."]
+script = ExtResource("3_health_net")
+
+[node name="WorldCharacterSpawner" type="Node3D" parent="."]
+script = ExtResource("4_world_character_spawner")
+bot_team_ids = PackedInt32Array(1, 1, 2)
+
+[node name="MissionController" type="Node3D" parent="."]
+script = ExtResource("5_mission_controller")
+
+[node name="ui" parent="." instance=ExtResource("6_game_menu_ui")]

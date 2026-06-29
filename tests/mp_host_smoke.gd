@@ -56,7 +56,7 @@ func _process(delta: float) -> bool:
 		world.net_metrics_print_summary = true
 		_net_metrics_enabled = true
 
-	var characters := world.get_node_or_null("characters")
+	var characters := world.find_child("characters", true, false)
 	if characters == null:
 		return false
 
@@ -125,7 +125,7 @@ func _debug_status() -> void:
 	var lobby := get_root().get_node("Lobby")
 	var child_names: Array[String] = []
 	if current_scene != null:
-		var characters := current_scene.get_node_or_null("characters")
+		var characters := current_scene.find_child("characters", true, false)
 		if characters != null:
 			for child in characters.get_children():
 				child_names.append(child.name)

@@ -1,15 +1,37 @@
 extends Node
 
 signal lobby_state_changed(players: Dictionary)
-signal session_options_changed(is_game_in_progress: bool, allow_join_in_progress: bool, bot_count: int, trails_enabled: bool)
+signal session_options_changed(
+	is_game_in_progress: bool,
+	allow_join_in_progress: bool,
+	bot_count: int,
+	trails_enabled: bool,
+	mission_mode: String,
+	multiplayer_player_limit: int
+)
 signal status_changed(message: String)
 
 const DEFAULT_ADDRESS := "127.0.0.1"
 const DEFAULT_PORT := 8910
 const MAX_CLIENTS := 16
+const DEFAULT_MULTIPLAYER_PLAYER_LIMIT := 8
 const LOBBY_SCENE := "res://scenes/lobby.tscn"
 const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 const WORLD_SCENE := "res://scenes/world_0.tscn"
+const MATCH_SYSTEMS_SCENE := preload("res://scenes/match_systems.tscn")
+const DEFAULT_MISSION_CONFIG_PATH := "res://data/missions/default.json"
+const FFA_MISSION_CONFIG_PATH := "res://data/missions/ffa.json"
+const COOP_MISSION_CONFIG_PATH := "res://data/missions/coop.json"
+const MISSION_MODE_FFA := "ffa"
+const MISSION_MODE_COOP := "coop"
+const MISSION_MODE_LABELS := {
+	MISSION_MODE_FFA: "Free For All",
+	MISSION_MODE_COOP: "Co-op Mission",
+}
+const MISSION_MODE_CONFIG_PATHS := {
+	MISSION_MODE_FFA: FFA_MISSION_CONFIG_PATH,
+	MISSION_MODE_COOP: COOP_MISSION_CONFIG_PATH,
+}
 
 var last_error := ""
 var is_multiplayer_session := false
@@ -17,6 +39,9 @@ var is_game_in_progress := false
 var allow_join_in_progress := false
 var bot_count := 3
 var trails_enabled := true
+var mission_mode := MISSION_MODE_FFA
+var mission_player_limit := -1
+var multiplayer_player_limit := DEFAULT_MULTIPLAYER_PLAYER_LIMIT
 var players: Dictionary = {}
 var _received_join_rejection := false
 var _rejected_peers: Dictionary = {}
@@ -51,6 +76,9 @@ func host(port: int = DEFAULT_PORT) -> Error:
 	allow_join_in_progress = false
 	bot_count = 1
 	trails_enabled = true
+	mission_mode = MISSION_MODE_FFA
+	mission_player_limit = _load_mission_player_limit(mission_mode)
+	multiplayer_player_limit = DEFAULT_MULTIPLAYER_PLAYER_LIMIT
 	last_error = ""
 	players.clear()
 	_set_player(1, "Host", false)
@@ -90,6 +118,9 @@ func disconnect_session() -> void:
 	allow_join_in_progress = false
 	bot_count = 3
 	trails_enabled = true
+	mission_mode = MISSION_MODE_FFA
+	mission_player_limit = -1
+	multiplayer_player_limit = DEFAULT_MULTIPLAYER_PLAYER_LIMIT
 	players.clear()
 	_emit_lobby_state()
 	_emit_session_options()
@@ -133,6 +164,42 @@ func set_bot_count(value: int) -> void:
 	_broadcast_session_options()
 
 
+func set_mission_mode(value: String) -> void:
+	if not is_server_peer():
+		return
+	if not MISSION_MODE_CONFIG_PATHS.has(value):
+		return
+	var resolved_mission_player_limit := _load_mission_player_limit(value)
+	if resolved_mission_player_limit >= 0 and players.size() > resolved_mission_player_limit:
+		last_error = "Selected mission supports up to %d players." % resolved_mission_player_limit
+		_emit_status()
+		return
+	mission_mode = value
+	mission_player_limit = resolved_mission_player_limit
+	if mission_player_limit >= 0:
+		multiplayer_player_limit = mini(multiplayer_player_limit, mission_player_limit)
+	last_error = ""
+	_broadcast_session_options()
+	_emit_status()
+
+
+func set_multiplayer_player_limit(value: int) -> void:
+	if not is_server_peer():
+		return
+	var max_limit := MAX_CLIENTS
+	if mission_player_limit >= 0:
+		max_limit = mini(max_limit, mission_player_limit)
+	var resolved_limit := clampi(value, 1, max_limit)
+	if resolved_limit < players.size():
+		last_error = "Lobby player limit cannot be below current player count."
+		_emit_status()
+		return
+	multiplayer_player_limit = resolved_limit
+	last_error = ""
+	_broadcast_session_options()
+	_emit_status()
+
+
 func set_trails_enabled(value: bool) -> void:
 	if not is_server_peer():
 		return
@@ -146,6 +213,10 @@ func start_game() -> Error:
 		last_error = "Only the host can start the game."
 		_emit_status()
 		return ERR_UNAUTHORIZED
+	if players.size() > get_effective_player_limit():
+		last_error = "Lobby has %d players but selected limits allow %d." % [players.size(), get_effective_player_limit()]
+		_emit_status()
+		return ERR_INVALID_PARAMETER
 
 	is_game_in_progress = true
 	_broadcast_session_options()
@@ -187,6 +258,9 @@ func _on_server_disconnected() -> void:
 
 func _on_peer_connected(peer_id: int) -> void:
 	if not is_server_peer():
+		return
+	if _is_lobby_full():
+		_reject_peer(peer_id, "Lobby is full.")
 		return
 
 	if is_game_in_progress and not allow_join_in_progress:
@@ -230,7 +304,14 @@ func _broadcast_lobby_state() -> void:
 
 func _broadcast_session_options() -> void:
 	_emit_session_options()
-	sync_session_options.rpc(is_game_in_progress, allow_join_in_progress, bot_count, trails_enabled)
+	sync_session_options.rpc(
+		is_game_in_progress,
+		allow_join_in_progress,
+		bot_count,
+		trails_enabled,
+		mission_mode,
+		multiplayer_player_limit
+	)
 
 
 func _emit_lobby_state() -> void:
@@ -238,7 +319,14 @@ func _emit_lobby_state() -> void:
 
 
 func _emit_session_options() -> void:
-	session_options_changed.emit(is_game_in_progress, allow_join_in_progress, bot_count, trails_enabled)
+	session_options_changed.emit(
+		is_game_in_progress,
+		allow_join_in_progress,
+		bot_count,
+		trails_enabled,
+		mission_mode,
+		multiplayer_player_limit
+	)
 
 
 func _emit_status() -> void:
@@ -247,6 +335,61 @@ func _emit_status() -> void:
 
 func _load_world_scene() -> void:
 	get_tree().change_scene_to_file(WORLD_SCENE)
+
+
+func compose_world_scene(world_root: Node) -> void:
+	if world_root == null or not is_instance_valid(world_root):
+		return
+	if world_root.find_child("WorldCharacterSpawner", true, false) != null:
+		return
+
+	var match_systems := MATCH_SYSTEMS_SCENE.instantiate()
+	var controller := match_systems.get_node_or_null("MissionController")
+	if controller != null and controller.has_method("set_mission_config_path"):
+		controller.call("set_mission_config_path", _resolve_mission_config_path())
+	world_root.add_child(match_systems, true)
+
+
+func _resolve_mission_config_path() -> String:
+	if multiplayer.multiplayer_peer == null:
+		return DEFAULT_MISSION_CONFIG_PATH
+	return String(MISSION_MODE_CONFIG_PATHS.get(mission_mode, FFA_MISSION_CONFIG_PATH))
+
+
+func list_mission_modes() -> Array[Dictionary]:
+	return [
+		{"id": MISSION_MODE_FFA, "label": MISSION_MODE_LABELS[MISSION_MODE_FFA]},
+		{"id": MISSION_MODE_COOP, "label": MISSION_MODE_LABELS[MISSION_MODE_COOP]},
+	]
+
+
+func get_mission_mode_max_players() -> int:
+	if mission_player_limit < 0:
+		return MAX_CLIENTS
+	return clampi(mission_player_limit, 1, MAX_CLIENTS)
+
+
+func get_effective_player_limit() -> int:
+	if mission_player_limit < 0:
+		return clampi(multiplayer_player_limit, 1, MAX_CLIENTS)
+	return mini(clampi(multiplayer_player_limit, 1, MAX_CLIENTS), clampi(mission_player_limit, 1, MAX_CLIENTS))
+
+
+func _load_mission_player_limit(mode: String) -> int:
+	var mission_config_path := String(MISSION_MODE_CONFIG_PATHS.get(mode, ""))
+	if mission_config_path.is_empty() or not FileAccess.file_exists(mission_config_path):
+		return -1
+	var file := FileAccess.open(mission_config_path, FileAccess.READ)
+	if file == null:
+		return -1
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not parsed is Dictionary:
+		return -1
+	return int((parsed as Dictionary).get("player_limit", -1))
+
+
+func _is_lobby_full() -> bool:
+	return players.size() >= get_effective_player_limit()
 
 
 func _broadcast_begin_game() -> void:
@@ -277,6 +420,9 @@ func request_lobby_sync() -> void:
 		return
 
 	var sender_id := multiplayer.get_remote_sender_id()
+	if not players.has(sender_id) and _is_lobby_full():
+		_reject_peer(sender_id, "Lobby is full.")
+		return
 
 	if is_game_in_progress and not allow_join_in_progress:
 		_reject_peer(sender_id, "Game already in progress.")
@@ -285,7 +431,15 @@ func request_lobby_sync() -> void:
 	if not players.has(sender_id):
 		_set_player(sender_id, "Player %d" % sender_id, false)
 
-	sync_session_options.rpc_id(sender_id, is_game_in_progress, allow_join_in_progress, bot_count, trails_enabled)
+	sync_session_options.rpc_id(
+		sender_id,
+		is_game_in_progress,
+		allow_join_in_progress,
+		bot_count,
+		trails_enabled,
+		mission_mode,
+		multiplayer_player_limit
+	)
 	sync_lobby_state.rpc_id(sender_id, players)
 	_broadcast_lobby_state()
 
@@ -309,11 +463,21 @@ func sync_lobby_state(server_players: Dictionary) -> void:
 
 
 @rpc("authority", "reliable")
-func sync_session_options(server_is_game_in_progress: bool, server_allow_join_in_progress: bool, server_bot_count: int, server_trails_enabled: bool) -> void:
+func sync_session_options(
+	server_is_game_in_progress: bool,
+	server_allow_join_in_progress: bool,
+	server_bot_count: int,
+	server_trails_enabled: bool,
+	server_mission_mode: String,
+	server_multiplayer_player_limit: int
+) -> void:
 	is_game_in_progress = server_is_game_in_progress
 	allow_join_in_progress = server_allow_join_in_progress
 	bot_count = maxi(server_bot_count, 0)
 	trails_enabled = server_trails_enabled
+	mission_mode = String(server_mission_mode)
+	mission_player_limit = _load_mission_player_limit(mission_mode)
+	multiplayer_player_limit = clampi(server_multiplayer_player_limit, 1, MAX_CLIENTS)
 	_emit_session_options()
 
 
