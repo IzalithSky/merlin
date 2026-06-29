@@ -45,7 +45,7 @@ func _process(delta: float) -> bool:
 	if world == null or world.name != "world":
 		return false
 
-	var characters := world.get_node_or_null("characters")
+	var characters := world.find_child("characters", true, false)
 	if characters == null:
 		return false
 
@@ -91,7 +91,7 @@ func _debug_status() -> void:
 	var child_names: Array[String] = []
 	var hp_value := -1.0
 	if current_scene != null:
-		var characters := current_scene.get_node_or_null("characters")
+		var characters := current_scene.find_child("characters", true, false)
 		if characters != null:
 			for child in characters.get_children():
 				child_names.append(child.name)

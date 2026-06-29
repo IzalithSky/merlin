@@ -88,7 +88,7 @@ func show_end_state(title: String) -> void:
 func _on_restart_pressed() -> void:
 	_reset_end_state_lock()
 	_set_open(false)
-	get_tree().reload_current_scene()
+	get_node("/root/Lobby").start_single_player()
 
 
 func _on_main_menu_pressed() -> void:

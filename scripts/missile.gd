@@ -205,7 +205,7 @@ func _find_target_registry() -> TargetRegistry:
 	var current_scene := get_tree().current_scene
 	if current_scene == null:
 		return null
-	return current_scene.get_node_or_null("TargetRegistry") as TargetRegistry
+	return current_scene.find_child("TargetRegistry", true, false) as TargetRegistry
 
 
 func _exit_tree() -> void:

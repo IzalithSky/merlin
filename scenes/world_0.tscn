@@ -1,59 +1,9 @@
-[gd_scene load_steps=10 format=4 uid="uid://dj47wc5nnm06h"]
+[gd_scene load_steps=3 format=4 uid="uid://dj47wc5nnm06h"]
 
-[ext_resource type="Script" path="res://scripts/world_character_spawner.gd" id="3_fhkym"]
-[ext_resource type="PackedScene" path="res://scenes/game_menu_ui.tscn" id="4_game_menu_ui"]
+[ext_resource type="Script" path="res://scripts/world_session_root.gd" id="1_world_session_root"]
 [ext_resource type="PackedScene" path="res://scenes/world_level.tscn" id="5_world_level"]
-[ext_resource type="Script" path="res://scripts/projectile_net_replicator.gd" id="7_projectile_net"]
-[ext_resource type="Script" path="res://scripts/health_net_replicator.gd" id="8_health_net"]
-[ext_resource type="Script" path="res://scripts/target_registry.gd" id="9_target_registry"]
-[ext_resource type="PackedScene" path="res://scenes/ground_aa_unit.tscn" id="10_aa"]
-[ext_resource type="PackedScene" path="res://scenes/ground_sam_unit.tscn" id="11_sam"]
-[ext_resource type="PackedScene" path="res://scenes/zeppelin.tscn" id="12_zep"]
 
 [node name="world" type="Node3D"]
-script = ExtResource("3_fhkym")
-bot_team_ids = PackedInt32Array(1, 1, 2)
+script = ExtResource("1_world_session_root")
 
 [node name="WorldLevel" parent="." instance=ExtResource("5_world_level")]
-
-[node name="characters" type="Node3D" parent="."]
-
-[node name="projectiles" type="Node3D" parent="."]
-
-[node name="TargetRegistry" type="Node" parent="."]
-script = ExtResource("9_target_registry")
-
-[node name="ProjectileNetReplicator" type="Node" parent="."]
-script = ExtResource("7_projectile_net")
-
-[node name="HealthNetReplicator" type="Node" parent="."]
-script = ExtResource("8_health_net")
-
-[node name="ui" parent="." instance=ExtResource("4_game_menu_ui")]
-
-[node name="ground_units" type="Node3D" parent="."]
-
-[node name="AA_1" parent="ground_units" instance=ExtResource("10_aa")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1500, 0, 1500)
-
-[node name="AA_2" parent="ground_units" instance=ExtResource("10_aa")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2000, 0, 800)
-
-[node name="AA_3" parent="ground_units" instance=ExtResource("10_aa")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 400, 0, -2200)
-
-[node name="SAM_1" parent="ground_units" instance=ExtResource("11_sam")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -800, 0, -1800)
-
-[node name="SAM_2" parent="ground_units" instance=ExtResource("11_sam")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2800, 0, -400)
-
-[node name="zeppelins" type="Node3D" parent="."]
-
-[node name="Zeppelin_1" parent="zeppelins" instance=ExtResource("12_zep")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4000, 600, 0)
-point_b = Vector3(4000, 600, 0)
-
-[node name="Zeppelin_2" parent="zeppelins" instance=ExtResource("12_zep")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 500, -3500)
-point_b = Vector3(0, 500, 3500)

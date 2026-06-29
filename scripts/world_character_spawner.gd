@@ -32,12 +32,13 @@ const SINGLE_PLAYER_VICTORY_TITLE := "Victory"
 @export var packet_budget_pkts_per_sec: float = 35.0
 @export var net_metrics_enabled := false
 @export var net_metrics_print_summary := false
-@onready var _characters: Node3D = $characters
-@onready var _projectiles: Node3D = $projectiles
-@onready var _target_registry = $TargetRegistry
-@onready var _projectile_net = $ProjectileNetReplicator
-@onready var _health_net = $HealthNetReplicator
-@onready var _game_menu: CanvasLayer = $ui
+@onready var _systems_root: Node = get_parent()
+@onready var _characters: Node3D = _systems_root.get_node("characters") as Node3D
+@onready var _projectiles: Node3D = _systems_root.get_node("projectiles") as Node3D
+@onready var _target_registry = _systems_root.get_node("TargetRegistry")
+@onready var _projectile_net = _systems_root.get_node("ProjectileNetReplicator")
+@onready var _health_net = _systems_root.get_node("HealthNetReplicator")
+@onready var _game_menu: CanvasLayer = _systems_root.get_node("ui") as CanvasLayer
 
 var _peer_spawn_states: Dictionary = {}
 var _bot_peer_ids: Dictionary = {}
@@ -59,6 +60,7 @@ var _single_player_score := 0
 var _single_player_time_remaining_sec := 0.0
 var _single_player_tracked_hostiles: Dictionary = {}
 var _bot_team_overrides: Dictionary = {}
+var _session_started := false
 
 
 func _ready() -> void:
@@ -70,32 +72,47 @@ func _ready() -> void:
 	_apply_lobby_bot_count_override()
 	DisplaySettings.settings_changed.connect(_on_display_settings_changed)
 
-	if multiplayer.multiplayer_peer == null:
-		if bot_count < 1:
-			bot_count = 1
-
-		var spawn_state := _build_radial_spawn_state(0, 1)
-		_peer_spawn_states[1] = spawn_state
-		_spawn_character(
-			1,
-			true,
-			spawn_state["character_position"],
-			spawn_state["yaw"],
-			spawn_state["forward_speed"]
-		)
-		_spawn_single_player_bots(spawn_state)
-		_ensure_single_player_match_hud()
-		_setup_single_player_end_state_tracking()
-		return
-
-	if multiplayer.is_server():
+	if multiplayer.multiplayer_peer != null and multiplayer.is_server():
 		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 		_world_ready_peers[multiplayer.get_unique_id()] = true
-		_register_initial_peers()
-		_spawn_registered_characters_locally()
-		_spawn_bots(true)
-	else:
+	elif multiplayer.multiplayer_peer != null:
 		call_deferred("_request_world_sync")
+
+
+func begin_default_session() -> void:
+	if _session_started:
+		return
+	_session_started = true
+
+	if multiplayer.multiplayer_peer == null:
+		_begin_single_player_session()
+		return
+	if multiplayer.is_server():
+		_begin_server_session()
+
+
+func _begin_single_player_session() -> void:
+	if bot_count < 1:
+		bot_count = 1
+
+	var spawn_state := _build_radial_spawn_state(0, 1)
+	_peer_spawn_states[1] = spawn_state
+	_spawn_character(
+		1,
+		true,
+		spawn_state["character_position"],
+		spawn_state["yaw"],
+		spawn_state["forward_speed"]
+	)
+	_spawn_single_player_bots(spawn_state)
+	_ensure_single_player_match_hud()
+	_setup_single_player_end_state_tracking()
+
+
+func _begin_server_session() -> void:
+	_register_initial_peers()
+	_spawn_registered_characters_locally()
+	_spawn_bots(true)
 
 
 func _process(delta: float) -> void:
@@ -809,7 +826,7 @@ func _find_local_character() -> Node3D:
 func _ensure_single_player_match_hud() -> void:
 	if _single_player_match_hud == null:
 		_single_player_match_hud = SINGLE_PLAYER_MATCH_HUD_SCENE.instantiate()
-		add_child(_single_player_match_hud)
+		_systems_root.add_child(_single_player_match_hud)
 
 	if _single_player_match_hud.has_method("set_world_spawner"):
 		_single_player_match_hud.call("set_world_spawner", self)

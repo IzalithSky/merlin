@@ -4,7 +4,8 @@ extends Node3D
 func _ready() -> void:
 	await get_tree().create_timer(0.1).timeout
 
-	var plane := $World.get_node_or_null("characters/PlayerCharacter_1") as Node3D
+	var characters := $World.find_child("characters", true, false)
+	var plane := null if characters == null else characters.get_node_or_null("PlayerCharacter_1") as Node3D
 	_assert(plane != null, "missing plane")
 
 	var launcher := plane.get_node_or_null("MissileLauncher") as Node

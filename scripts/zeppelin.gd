@@ -127,7 +127,7 @@ func _find_target_registry() -> TargetRegistry:
 		var spawner = spawner_nodes[0]
 		if spawner != null and is_instance_valid(spawner):
 			return spawner.get_target_registry() as TargetRegistry
-	return get_tree().current_scene.get_node_or_null("TargetRegistry") as TargetRegistry
+	return get_tree().current_scene.find_child("TargetRegistry", true, false) as TargetRegistry
 
 
 func _has_simulation_authority() -> bool:

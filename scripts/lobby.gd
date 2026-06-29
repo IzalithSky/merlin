@@ -10,6 +10,9 @@ const MAX_CLIENTS := 16
 const LOBBY_SCENE := "res://scenes/lobby.tscn"
 const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 const WORLD_SCENE := "res://scenes/world_0.tscn"
+const MATCH_SYSTEMS_SCENE := preload("res://scenes/match_systems.tscn")
+const DEFAULT_MISSION_CONFIG_PATH := "res://data/missions/default.json"
+const FFA_MISSION_CONFIG_PATH := "res://data/missions/ffa.json"
 
 var last_error := ""
 var is_multiplayer_session := false
@@ -247,6 +250,25 @@ func _emit_status() -> void:
 
 func _load_world_scene() -> void:
 	get_tree().change_scene_to_file(WORLD_SCENE)
+
+
+func compose_world_scene(world_root: Node) -> void:
+	if world_root == null or not is_instance_valid(world_root):
+		return
+	if world_root.find_child("WorldCharacterSpawner", true, false) != null:
+		return
+
+	var match_systems := MATCH_SYSTEMS_SCENE.instantiate()
+	var controller := match_systems.get_node_or_null("MissionMobController")
+	if controller != null and controller.has_method("set_mission_config_path"):
+		controller.call("set_mission_config_path", _resolve_mission_config_path())
+	world_root.add_child(match_systems, true)
+
+
+func _resolve_mission_config_path() -> String:
+	if multiplayer.multiplayer_peer == null:
+		return DEFAULT_MISSION_CONFIG_PATH
+	return FFA_MISSION_CONFIG_PATH
 
 
 func _broadcast_begin_game() -> void:

@@ -9,10 +9,10 @@ func _ready() -> void:
 
 	await get_tree().create_timer(0.5).timeout
 
-	var spawner := world_root
+	var spawner := world_root.find_child("WorldCharacterSpawner", true, false)
 	_assert(spawner != null, "expected world spawner")
 
-	var characters := spawner.get_node_or_null("characters")
+	var characters := world_root.find_child("characters", true, false)
 	_assert(characters != null, "expected characters container")
 
 	var bot_speeds: Array[float] = []
