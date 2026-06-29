@@ -303,11 +303,13 @@ func _bootstrap_players() -> void:
 	if player_specs.is_empty():
 		_spawner.begin_default_session()
 		return
-	_spawner.begin_server_session_from_player_specs(player_specs)
+	_spawner.begin_server_session_from_player_specs(player_specs, false)
+	for index in range(mini(player_specs.size(), _get_multiplayer_player_peer_ids().size())):
+		_apply_player_spec_to_character(_get_multiplayer_player_peer_ids()[index], player_specs[index])
 
 
 func _bootstrap_mobs() -> void:
-	if multiplayer.multiplayer_peer != null:
+	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
 		return
 	clear_mobs()
 	var raw_mobs: Variant = _mission_config.get("mobs", [])
@@ -366,6 +368,18 @@ func _parse_player_spec(spec: Dictionary) -> Dictionary:
 		"yaw": float(spec.get("yaw", 0.0)),
 		"speed": float(spec.get("speed", DEFAULT_PLANE_SPEED)),
 	}
+
+
+func _get_multiplayer_player_peer_ids() -> Array[int]:
+	var peer_ids: Array[int] = []
+	if multiplayer.multiplayer_peer == null:
+		return peer_ids
+	var raw_peer_ids: Array = multiplayer.get_peers()
+	raw_peer_ids.append(multiplayer.get_unique_id())
+	raw_peer_ids.sort()
+	for raw_peer_id in raw_peer_ids:
+		peer_ids.append(int(raw_peer_id))
+	return peer_ids
 
 
 func _build_player_spawn_state(spec: Dictionary) -> Dictionary:

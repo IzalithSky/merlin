@@ -139,7 +139,43 @@ theme_override_font_sizes/font_size = 17
 button_pressed = true
 text = "Show energy trail"
 
+[node name="MissionModeRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="MissionModeLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox/MissionModeRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "Mission Type"
+
+[node name="MissionModeOption" type="OptionButton" parent="CenterContainer/Panel/Margin/VBox/MissionModeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 0)
+layout_mode = 2
+
+[node name="MultiplayerPlayerLimitRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="MultiplayerPlayerLimitLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox/MultiplayerPlayerLimitRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "Player Limit"
+
+[node name="MultiplayerPlayerLimitSpinBox" type="SpinBox" parent="CenterContainer/Panel/Margin/VBox/MultiplayerPlayerLimitRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+size_flags_horizontal = 1
+min_value = 1.0
+max_value = 16.0
+step = 1.0
+value = 8.0
+
 [node name="BotCountRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 16
 

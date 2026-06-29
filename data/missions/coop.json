@@ -1,6 +1,6 @@
 {
-  "name": "default",
-  "player_limit": 1,
+  "name": "coop",
+  "player_limit": 4,
   "required_score": 6,
   "mission_time_limit_sec": 240,
   "areas": {
@@ -11,20 +11,31 @@
   },
   "players": [
     {
+      "position": [-1500, 1500, 2000],
+      "team": 1,
+      "yaw": 0.0,
+      "speed": 100
+    },
+    {
       "position": [-500, 1500, 2000],
+      "team": 1,
+      "yaw": 0.0,
+      "speed": 100
+    },
+    {
+      "position": [500, 1500, 2000],
+      "team": 1,
+      "yaw": 0.0,
+      "speed": 100
+    },
+    {
+      "position": [1500, 1500, 2000],
       "team": 1,
       "yaw": 0.0,
       "speed": 100
     }
   ],
   "mobs": [
-    {
-      "type": "plane_bot",
-      "team": 1,
-      "position": [500, 1500, 2000],
-      "yaw": 0.0,
-      "speed": 100
-    },
     {
       "type": "plane_bot",
       "team": 2,

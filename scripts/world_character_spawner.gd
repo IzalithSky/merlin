@@ -93,13 +93,14 @@ func begin_single_player_session_from_state(spawn_state: Dictionary, spawn_legac
 		_spawn_single_player_bots(spawn_state)
 
 
-func begin_server_session_from_player_specs(player_specs: Array[Dictionary]) -> void:
+func begin_server_session_from_player_specs(player_specs: Array[Dictionary], spawn_legacy_bots: bool = true) -> void:
 	if _session_started:
 		return
 	_session_started = true
 	_register_initial_peers(player_specs)
 	_spawn_registered_characters_locally()
-	_spawn_bots(true)
+	if spawn_legacy_bots:
+		_spawn_bots(true)
 
 
 func _process(delta: float) -> void:
