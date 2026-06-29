@@ -382,15 +382,10 @@ func get_effective_player_limit() -> int:
 
 func _load_mission_player_limit(mode: String) -> int:
 	var mission_config_path := String(MISSION_MODE_CONFIG_PATHS.get(mode, ""))
-	if mission_config_path.is_empty() or not FileAccess.file_exists(mission_config_path):
+	var config := MISSION_CONTROLLER_SCRIPT.read_mission_config_file(mission_config_path)
+	if config.is_empty():
 		return -1
-	var file := FileAccess.open(mission_config_path, FileAccess.READ)
-	if file == null:
-		return -1
-	var parsed: Variant = JSON.parse_string(file.get_as_text())
-	if not parsed is Dictionary:
-		return -1
-	return int((parsed as Dictionary).get("player_limit", -1))
+	return int(config.get("player_limit", -1))
 
 
 func _is_lobby_full() -> bool:

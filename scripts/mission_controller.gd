@@ -249,16 +249,6 @@ func spawn_from_spec(spec: Dictionary) -> Array[Node]:
 	return nodes
 
 
-func spawn_player(peer_id: int, spawn_position: Vector3, yaw := 0.0, speed := DEFAULT_PLANE_SPEED) -> Node:
-	if not _has_spawn_authority():
-		return null
-	if _spawner == null:
-		_spawner = _find_spawner()
-	if _spawner == null:
-		return null
-	return _spawner.spawn_player_character(peer_id, spawn_position, yaw, speed)
-
-
 func spawn_ground_unit(type_id: String, team: int, xz: Vector2, overrides := {}) -> Node:
 	if not _has_spawn_authority():
 		return null
@@ -345,14 +335,6 @@ func clear_mobs() -> void:
 		child.queue_free()
 
 
-func get_mobs() -> Array[Node]:
-	var nodes: Array[Node] = []
-	for node in _spawned_nodes:
-		if node != null and is_instance_valid(node):
-			nodes.append(node)
-	return nodes
-
-
 func _apply_world_level_randomization() -> void:
 	var randomization := _get_lobby_world_level_randomization()
 	if randomization.is_empty():
@@ -428,21 +410,10 @@ func random_point_in_area(area: Variant) -> Vector3:
 
 
 func _read_json(path: String) -> Dictionary:
-	if not FileAccess.file_exists(path):
-		push_error("Mission file not found: %s." % path)
-		return {}
-
-	var file := FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		push_error("Could not open mission file %s (error %s)." % [path, FileAccess.get_open_error()])
-		return {}
-
-	var parsed: Variant = JSON.parse_string(file.get_as_text())
-	if not parsed is Dictionary:
-		push_error("Mission file is not a Dictionary JSON payload: %s." % path)
-		return {}
-
-	return (parsed as Dictionary).duplicate(true)
+	var config := read_mission_config_file(path)
+	if config.is_empty():
+		push_error("Could not read mission file: %s." % path)
+	return config
 
 
 func _bootstrap_players() -> void:
@@ -459,8 +430,9 @@ func _bootstrap_players() -> void:
 		_spawner.begin_default_session()
 		return
 	_spawner.begin_server_session_from_player_specs(player_specs, false)
-	for index in range(mini(player_specs.size(), _get_multiplayer_player_peer_ids().size())):
-		_apply_player_spec_to_character(_get_multiplayer_player_peer_ids()[index], player_specs[index])
+	var peer_ids := _get_multiplayer_player_peer_ids()
+	for index in range(mini(player_specs.size(), peer_ids.size())):
+		_apply_player_spec_to_character(peer_ids[index], player_specs[index])
 
 
 func _bootstrap_mobs() -> void:

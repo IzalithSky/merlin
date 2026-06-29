@@ -805,44 +805,6 @@ func _find_local_character() -> Node3D:
 	return null
 
 
-func is_single_player_session() -> bool:
-	var controller: Node = _find_mission_controller()
-	return controller != null and controller.is_single_player_session()
-
-
-func get_single_player_score() -> int:
-	var controller: Node = _find_mission_controller()
-	if controller == null:
-		return 0
-	return controller.get_single_player_score()
-
-
-func get_single_player_victory_score() -> int:
-	var controller: Node = _find_mission_controller()
-	if controller == null:
-		return 0
-	return controller.get_single_player_victory_score()
-
-
-func has_single_player_time_limit() -> bool:
-	var controller: Node = _find_mission_controller()
-	return controller != null and controller.has_single_player_time_limit()
-
-
-func get_single_player_time_remaining_sec() -> float:
-	var controller: Node = _find_mission_controller()
-	if controller == null:
-		return 0.0
-	return controller.get_single_player_time_remaining_sec()
-
-
-func _find_mission_controller() -> Node:
-	var nodes := get_tree().get_nodes_in_group("mission_controller")
-	if nodes.is_empty():
-		return null
-	return nodes[0]
-
-
 func _bind_local_plane_presentation(character: Node3D) -> void:
 	if _local_plane_presentation != null:
 		_local_plane_presentation.bind(character)
