@@ -5,8 +5,9 @@ const SAVE_VERSION := 5
 
 # Named presets. Built-ins ship in the project (read-only); user presets are
 # saved snapshots. The active config above (SAVE_PATH) is what the game flies.
-const BUILTIN_PRESETS_DIR := "res://data/presets"
-const USER_PRESETS_DIR := "user://presets"
+const BUILTIN_PRESETS_DIR := "res://data/aircrafts"
+const USER_PRESETS_DIR := "user://aircrafts"
+const LEGACY_USER_PRESETS_DIR := "user://presets"
 const DEFAULT_PRESET_ID := "default"
 const SOURCE_BUILTIN := "builtin"
 const SOURCE_USER := "user"
@@ -27,6 +28,7 @@ const PARAM_SPECS: Array[Dictionary] = [
 
 
 static func load_payload() -> Dictionary:
+	_ensure_preset_storage_layout()
 	# The active config the game flies. On a fresh machine (no user file yet),
 	# fall back to the built-in default preset.
 	var payload := _read_json(SAVE_PATH)
@@ -54,6 +56,7 @@ static func _read_json(path: String) -> Dictionary:
 
 
 static func preset_path(source: String, id: String) -> String:
+	_ensure_preset_storage_layout()
 	var dir := BUILTIN_PRESETS_DIR if source == SOURCE_BUILTIN else USER_PRESETS_DIR
 	return "%s/%s.json" % [dir, id]
 
@@ -75,6 +78,7 @@ static func sanitize_id(name: String) -> String:
 
 
 static func list_presets() -> Array[Dictionary]:
+	_ensure_preset_storage_layout()
 	var entries: Array[Dictionary] = []
 	_append_preset_entries(entries, SOURCE_BUILTIN, BUILTIN_PRESETS_DIR)
 	_append_preset_entries(entries, SOURCE_USER, USER_PRESETS_DIR)
@@ -98,6 +102,7 @@ static func _append_preset_entries(entries: Array[Dictionary], source: String, d
 
 
 static func save_user_preset(display_name: String, payload: Dictionary) -> Dictionary:
+	_ensure_preset_storage_layout()
 	var id := sanitize_id(display_name)
 	if id.is_empty():
 		push_error("Cannot save preset with empty name.")
@@ -123,10 +128,47 @@ static func save_user_preset(display_name: String, payload: Dictionary) -> Dicti
 
 
 static func delete_user_preset(id: String) -> Error:
+	_ensure_preset_storage_layout()
 	var path := preset_path(SOURCE_USER, id)
 	if not FileAccess.file_exists(path):
 		return ERR_FILE_NOT_FOUND
 	return DirAccess.remove_absolute(path)
+
+
+static func _ensure_preset_storage_layout() -> void:
+	if not DirAccess.dir_exists_absolute(USER_PRESETS_DIR):
+		DirAccess.make_dir_recursive_absolute(USER_PRESETS_DIR)
+	_migrate_legacy_user_presets()
+
+
+static func _migrate_legacy_user_presets() -> void:
+	if not DirAccess.dir_exists_absolute(LEGACY_USER_PRESETS_DIR):
+		return
+
+	var legacy_dir := DirAccess.open(LEGACY_USER_PRESETS_DIR)
+	if legacy_dir == null:
+		return
+
+	var file_names := legacy_dir.get_files()
+	file_names.sort()
+	for file_name in file_names:
+		if not file_name.ends_with(".json"):
+			continue
+		var legacy_path := "%s/%s" % [LEGACY_USER_PRESETS_DIR, file_name]
+		var migrated_path := "%s/%s" % [USER_PRESETS_DIR, file_name]
+		if FileAccess.file_exists(migrated_path):
+			continue
+		var move_error := DirAccess.rename_absolute(legacy_path, migrated_path)
+		if move_error != OK:
+			push_error("Could not migrate user aircraft preset %s to %s (error %s)." % [legacy_path, migrated_path, move_error])
+
+	var remaining_json := false
+	for file_name in legacy_dir.get_files():
+		if file_name.ends_with(".json"):
+			remaining_json = true
+			break
+	if not remaining_json:
+		DirAccess.remove_absolute(LEGACY_USER_PRESETS_DIR)
 
 
 static func save_payload(payload: Dictionary) -> Error:

@@ -58,6 +58,7 @@ var _single_player_rules_active := false
 var _single_player_score := 0
 var _single_player_time_remaining_sec := 0.0
 var _single_player_tracked_hostiles: Dictionary = {}
+var _bot_team_overrides: Dictionary = {}
 
 
 func _ready() -> void:
@@ -247,6 +248,9 @@ func _configure_bot_behavior(character: Node3D, peer_id: int) -> void:
 
 	if bot_peer and character.has_method("apply_default_aero_tables"):
 		character.call("apply_default_aero_tables")
+	if bot_peer and _bot_team_overrides.has(peer_id):
+		character.team_id = int(_bot_team_overrides[peer_id])
+		return
 	var bot_index := peer_id - BOT_PEER_ID_BASE
 	if bot_peer and bot_index >= 0 and bot_index < bot_team_ids.size():
 		character.team_id = bot_team_ids[bot_index]
@@ -319,6 +323,7 @@ func _despawn_character(peer_id: int) -> void:
 	if character != null:
 		_unregister_lockable_target(character)
 		character.queue_free()
+	_bot_team_overrides.erase(peer_id)
 
 	if is_local_character:
 		_clear_local_plane_presentation_target()
@@ -597,6 +602,42 @@ func _spawn_character_from_state(peer_id: int, local_player: bool, spawn_state: 
 	var character_position: Vector3 = spawn_state["character_position"]
 	var yaw: float = spawn_state["yaw"]
 	return _spawn_character(peer_id, local_player, character_position, yaw, _get_spawn_state_forward_speed(spawn_state))
+
+
+func spawn_player_character(
+	peer_id: int,
+	character_position: Vector3,
+	yaw: float,
+	forward_speed: float = 100.0
+) -> Node3D:
+	_bot_peer_ids.erase(peer_id)
+	_bot_team_overrides.erase(peer_id)
+	var spawn_state := _make_spawn_state(character_position, yaw, forward_speed)
+	_peer_spawn_states[peer_id] = spawn_state
+	var character := _spawn_character_from_state(peer_id, _is_local_peer(peer_id), spawn_state)
+	_enforce_local_ownership()
+	return character
+
+
+func spawn_bot_character(
+	character_position: Vector3,
+	yaw: float,
+	team_id: int,
+	forward_speed: float = 100.0
+) -> Node3D:
+	var peer_id := _allocate_bot_peer_id()
+	_bot_peer_ids[peer_id] = true
+	_bot_team_overrides[peer_id] = team_id
+	var spawn_state := _make_spawn_state(character_position, yaw, forward_speed)
+	_peer_spawn_states[peer_id] = spawn_state
+	return _spawn_character_from_state(peer_id, false, spawn_state)
+
+
+func _allocate_bot_peer_id() -> int:
+	var peer_id := BOT_PEER_ID_BASE
+	while _peer_spawn_states.has(peer_id) or _bot_peer_ids.has(peer_id):
+		peer_id += 1
+	return peer_id
 
 
 func _send_spawn_state_to_peer(target_peer_id: int, peer_id: int, spawn_state: Dictionary) -> void:
