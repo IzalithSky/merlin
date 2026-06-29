@@ -125,18 +125,30 @@ func spawn_ground_unit(type_id: String, team: int, xz: Vector2, overrides := {})
 	return node
 
 
-func spawn_zeppelin(team: int, spawn_position: Vector3, overrides := {}) -> Node:
+func spawn_zeppelin(team: int, point_a: Vector3, point_b: Variant = null, overrides := {}) -> Node:
 	if not _has_spawn_authority() or _mobs == null:
 		return null
 
 	var node := ZEPPELIN_SCENE.instantiate() as Node3D
 	if node == null:
 		return null
-	node.global_position = _clamp_air_position_above_terrain(spawn_position)
+	var resolved_point_a := _clamp_air_position_above_terrain(point_a)
+	node.global_position = resolved_point_a
 	if _has_property(node, "team_id"):
 		node.set("team_id", team)
 	if _has_property(node, "speed") and not overrides.has("speed"):
 		node.set("speed", DEFAULT_ZEPPELIN_SPEED)
+	if _has_property(node, "point_a"):
+		node.set("point_a", resolved_point_a)
+	if point_b == null:
+		if _has_property(node, "flight_mode"):
+			node.set("flight_mode", Zeppelin.FlightMode.HOVER)
+	else:
+		var resolved_point_b := _clamp_air_position_above_terrain(point_b as Vector3)
+		if _has_property(node, "point_b"):
+			node.set("point_b", resolved_point_b)
+		if _has_property(node, "flight_mode"):
+			node.set("flight_mode", Zeppelin.FlightMode.ONE_WAY)
 	_apply_overrides(node, overrides)
 	_mobs.add_child(node, true)
 	return node
@@ -350,12 +362,21 @@ func _get_spec_overrides(spec: Dictionary) -> Dictionary:
 func _spawn_air_mob(type_id: String, spec: Dictionary, spawn_position: Vector3) -> Node:
 	var team := int(spec.get("team", 0))
 	var overrides := _get_spec_overrides(spec)
-	var clamped_position := _clamp_air_position_above_terrain(spawn_position)
 	match type_id:
 		"zeppelin":
 			if not overrides.has("speed") and spec.has("speed"):
 				overrides["speed"] = float(spec.get("speed", DEFAULT_ZEPPELIN_SPEED))
-			return spawn_zeppelin(team, clamped_position, overrides)
+			var point_a: Vector3 = spawn_position
+			if spec.has("a"):
+				var raw_point_a: Variant = _parse_vector3(spec.get("a"))
+				if raw_point_a != null:
+					point_a = raw_point_a as Vector3
+			var point_b: Variant = null
+			if spec.has("b"):
+				var raw_point_b: Variant = _parse_vector3(spec.get("b"))
+				if raw_point_b != null:
+					point_b = raw_point_b as Vector3
+			return spawn_zeppelin(team, point_a, point_b, overrides)
 	return null
 
 
