@@ -23,6 +23,7 @@ var _spawner: WorldCharacterSpawner = null
 var _bootstrapped := false
 var _mission_config: Dictionary = {}
 var _rng := RandomNumberGenerator.new()
+var _spawned_nodes: Array[Node] = []
 @onready var _mobs: Node3D = get_node_or_null("../mobs") as Node3D
 
 
@@ -90,6 +91,14 @@ func spawn_from_spec(spec: Dictionary) -> Array[Node]:
 				nodes.append(air_node)
 			continue
 
+		if type_id == "plane_bot":
+			var yaw := float(spec.get("yaw", 0.0))
+			var speed := float(spec.get("speed", DEFAULT_PLANE_SPEED))
+			var bot_node := spawn_plane_bot(int(spec.get("team", 0)), spawn_position as Vector3, yaw, speed, _get_spec_overrides(spec))
+			if bot_node != null:
+				nodes.append(bot_node)
+			continue
+
 		push_error("Mission mob type '%s' is not implemented yet." % type_id)
 		break
 	return nodes
@@ -117,11 +126,12 @@ func spawn_ground_unit(type_id: String, team: int, xz: Vector2, overrides := {})
 	var node := (GROUND_MOB_SCENES[type_id] as PackedScene).instantiate() as Node3D
 	if node == null:
 		return null
-	node.global_position = Vector3(xz.x, 0.0, xz.y)
+	node.position = Vector3(xz.x, 0.0, xz.y)
 	if _has_property(node, "team_id"):
 		node.set("team_id", team)
 	_apply_overrides(node, overrides)
 	_mobs.add_child(node, true)
+	_track_spawned_node(node)
 	return node
 
 
@@ -133,7 +143,7 @@ func spawn_zeppelin(team: int, point_a: Vector3, point_b: Variant = null, overri
 	if node == null:
 		return null
 	var resolved_point_a := _clamp_air_position_above_terrain(point_a)
-	node.global_position = resolved_point_a
+	node.position = resolved_point_a
 	if _has_property(node, "team_id"):
 		node.set("team_id", team)
 	if _has_property(node, "speed") and not overrides.has("speed"):
@@ -151,22 +161,50 @@ func spawn_zeppelin(team: int, point_a: Vector3, point_b: Variant = null, overri
 			node.set("flight_mode", Zeppelin.FlightMode.ONE_WAY)
 	_apply_overrides(node, overrides)
 	_mobs.add_child(node, true)
+	_track_spawned_node(node)
+	return node
+
+
+func spawn_plane_bot(
+	team: int,
+	spawn_position: Vector3,
+	yaw := 0.0,
+	speed := DEFAULT_PLANE_SPEED,
+	overrides := {}
+) -> Node:
+	if not _has_spawn_authority():
+		return null
+	if _spawner == null:
+		_spawner = _find_spawner()
+	if _spawner == null:
+		return null
+
+	var node := _spawner.spawn_bot_character(spawn_position, yaw, team, speed)
+	if node == null:
+		return null
+	_apply_overrides(node, overrides)
+	_track_spawned_node(node)
 	return node
 
 
 func clear_mobs() -> void:
+	for node in _spawned_nodes:
+		if node != null and is_instance_valid(node):
+			node.queue_free()
+	_spawned_nodes.clear()
 	if _mobs == null:
 		return
 	for child in _mobs.get_children():
+		if child == null or not is_instance_valid(child):
+			continue
 		child.queue_free()
 
 
 func get_mobs() -> Array[Node]:
-	if _mobs == null:
-		return []
 	var nodes: Array[Node] = []
-	for child in _mobs.get_children():
-		nodes.append(child)
+	for node in _spawned_nodes:
+		if node != null and is_instance_valid(node):
+			nodes.append(node)
 	return nodes
 
 
@@ -182,6 +220,7 @@ func _bootstrap_default_session() -> void:
 		load_mission_file(mission_config_path)
 	_bootstrapped = true
 	_bootstrap_players()
+	_bootstrap_mobs()
 
 
 func _find_spawner() -> WorldCharacterSpawner:
@@ -233,7 +272,8 @@ func _bootstrap_players() -> void:
 		if player_specs.is_empty():
 			_spawner.begin_default_session()
 			return
-		_spawner.begin_single_player_session_from_state(_build_player_spawn_state(player_specs[0]))
+		_spawner.begin_single_player_session_from_state(_build_player_spawn_state(player_specs[0]), false)
+		_apply_player_spec_to_character(1, player_specs[0])
 		return
 
 	if player_specs.is_empty():
@@ -242,9 +282,25 @@ func _bootstrap_players() -> void:
 	_spawner.begin_server_session_from_player_specs(player_specs)
 
 
+func _bootstrap_mobs() -> void:
+	if multiplayer.multiplayer_peer != null:
+		return
+	clear_mobs()
+	var raw_mobs: Variant = _mission_config.get("mobs", [])
+	if not raw_mobs is Array:
+		return
+	for mob_variant in raw_mobs:
+		if not mob_variant is Dictionary:
+			push_error("Mission mob entry must be a Dictionary.")
+			continue
+		spawn_from_spec(mob_variant as Dictionary)
+
+
 func _resolve_spec_position(spec: Dictionary) -> Variant:
 	if spec.has("position"):
 		return _parse_vector3(spec.get("position"))
+	if spec.has("a"):
+		return _parse_vector3(spec.get("a"))
 	if spec.has("area"):
 		var area_position := random_point_in_area(spec.get("area"))
 		if area_position == Vector3.ZERO and _parse_area(spec.get("area")).is_empty():
@@ -282,6 +338,7 @@ func _parse_player_spec(spec: Dictionary) -> Dictionary:
 
 	return {
 		"position": spawn_position,
+		"team": int(spec.get("team", 1)),
 		"yaw": float(spec.get("yaw", 0.0)),
 		"speed": float(spec.get("speed", DEFAULT_PLANE_SPEED)),
 	}
@@ -400,6 +457,22 @@ func _apply_overrides(node: Node, overrides: Dictionary) -> void:
 			push_error("Override '%s' is not a property on %s." % [String(key), node.name])
 			continue
 		node.set(String(key), overrides[key])
+
+
+func _track_spawned_node(node: Node) -> void:
+	if node == null:
+		return
+	_spawned_nodes.append(node)
+
+
+func _apply_player_spec_to_character(peer_id: int, spec: Dictionary) -> void:
+	if _spawner == null:
+		return
+	var character := _spawner.get_character(peer_id)
+	if character == null:
+		return
+	if spec.has("team") and _has_property(character, "team_id"):
+		character.set("team_id", int(spec.get("team", 1)))
 
 
 func _has_property(node: Object, property_name: String) -> bool:

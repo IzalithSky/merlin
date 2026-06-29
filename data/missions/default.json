@@ -1,11 +1,84 @@
 {
   "name": "default",
+  "areas": {
+    "battlefield": {
+      "center": [0, 0, 0],
+      "size": [6000, 6000, 6000]
+    }
+  },
   "players": [
     {
-      "position": [0, 1500, 480],
+      "position": [-500, 1500, 2000],
+      "team": 1,
       "yaw": 0.0,
       "speed": 100
     }
   ],
-  "mobs": []
+  "mobs": [
+    {
+      "type": "plane_bot",
+      "team": 1,
+      "position": [500, 1500, 2000],
+      "yaw": 0.0,
+      "speed": 100
+    },
+    {
+      "type": "plane_bot",
+      "team": 2,
+      "position": [-500, 1500, -2000],
+      "yaw": 3.1415927,
+      "speed": 100
+    },
+    {
+      "type": "plane_bot",
+      "team": 2,
+      "position": [500, 1500, -2000],
+      "yaw": 3.1415927,
+      "speed": 100
+    },
+    {
+      "type": "zeppelin",
+      "team": 2,
+      "a": [-2500, 700, -800],
+      "b": [2500, 700, -800],
+      "speed": 30
+    },
+    {
+      "type": "zeppelin",
+      "team": 2,
+      "a": [-2500, 700, 800],
+      "b": [2500, 700, 800],
+      "speed": 30
+    },
+    {
+      "type": "ground_aa",
+      "team": 2,
+      "position": [-1500, 0, -500]
+    },
+    {
+      "type": "ground_aa",
+      "team": 2,
+      "position": [0, 0, -800]
+    },
+    {
+      "type": "ground_aa",
+      "team": 2,
+      "position": [1500, 0, -500]
+    },
+    {
+      "type": "ground_sam",
+      "team": 2,
+      "position": [-1500, 0, -1800]
+    },
+    {
+      "type": "ground_sam",
+      "team": 2,
+      "position": [0, 0, -2200]
+    },
+    {
+      "type": "ground_sam",
+      "team": 2,
+      "position": [1500, 0, -1800]
+    }
+  ]
 }

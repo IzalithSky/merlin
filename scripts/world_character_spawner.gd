@@ -89,7 +89,7 @@ func begin_default_session() -> void:
 		begin_server_session_from_player_specs([])
 
 
-func begin_single_player_session_from_state(spawn_state: Dictionary) -> void:
+func begin_single_player_session_from_state(spawn_state: Dictionary, spawn_legacy_bots: bool = true) -> void:
 	if _session_started:
 		return
 	_session_started = true
@@ -104,7 +104,8 @@ func begin_single_player_session_from_state(spawn_state: Dictionary) -> void:
 		spawn_state["yaw"],
 		spawn_state["forward_speed"]
 	)
-	_spawn_single_player_bots(spawn_state)
+	if spawn_legacy_bots:
+		_spawn_single_player_bots(spawn_state)
 	_ensure_single_player_match_hud()
 	_setup_single_player_end_state_tracking()
 
