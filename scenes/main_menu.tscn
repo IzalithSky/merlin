@@ -181,6 +181,51 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "Exit"
 
+[node name="MissionSelectPanel" type="PanelContainer" parent="CenterContainer"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(460, 560)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
+
+[node name="Margin" type="MarginContainer" parent="CenterContainer/MissionSelectPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 40
+theme_override_constants/margin_top = 34
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 34
+
+[node name="VBox" type="VBoxContainer" parent="CenterContainer/MissionSelectPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Title" type="Label" parent="CenterContainer/MissionSelectPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.835294, 0.968627, 1, 1)
+theme_override_font_sizes/font_size = 30
+text = "Select Mission"
+horizontal_alignment = 1
+
+[node name="MissionSelectHint" type="Label" parent="CenterContainer/MissionSelectPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.545098, 0.721569, 0.760784, 1)
+theme_override_font_sizes/font_size = 14
+text = "Solo mission"
+horizontal_alignment = 1
+
+[node name="MissionButtonList" type="VBoxContainer" parent="CenterContainer/MissionSelectPanel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="MissionBackButton" type="Button" parent="CenterContainer/MissionSelectPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Back"
+
 [node name="OptionsPanel" parent="CenterContainer" unique_id=571673206 instance=ExtResource("2_options_panel")]
 unique_name_in_owner = true
 visible = false

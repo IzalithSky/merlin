@@ -49,8 +49,16 @@ func _ready() -> void:
 
 
 func _deferred_init() -> void:
-	_snap_to_terrain()
 	var tree := get_tree()
+	# Wait one physics step so a randomized terrain transform is live in the
+	# physics server before the snap raycast samples it; otherwise the unit
+	# snaps to the pre-randomization terrain height and ends up buried.
+	if tree != null:
+		await tree.physics_frame
+		if not is_inside_tree():
+			return
+	_snap_to_terrain()
+	tree = get_tree()
 	if tree != null:
 		_projectiles = tree.current_scene.find_child("projectiles", true, false)
 	_register_with_target_registry()

@@ -1,0 +1,94 @@
+{
+  "name": "siege",
+  "player_limit": 4,
+  "required_score": 10,
+  "mission_time_limit_sec": 360,
+  "terrain": {
+    "randomize": true,
+    "grid_size": 10000
+  },
+  "areas": {
+    "patrol": {
+      "min": [-2600, 1200, -2600],
+      "max": [2600, 1900, -1200]
+    }
+  },
+  "players": [
+    {
+      "position": [-900, 1500, 2600],
+      "team": 1,
+      "yaw": 0.0,
+      "speed": 110
+    },
+    {
+      "position": [-300, 1500, 2600],
+      "team": 1,
+      "yaw": 0.0,
+      "speed": 110
+    },
+    {
+      "position": [300, 1500, 2600],
+      "team": 1,
+      "yaw": 0.0,
+      "speed": 110
+    },
+    {
+      "position": [900, 1500, 2600],
+      "team": 1,
+      "yaw": 0.0,
+      "speed": 110
+    }
+  ],
+  "mobs": [
+    {
+      "type": "plane_bot",
+      "team": 2,
+      "count": 2,
+      "area": "patrol",
+      "yaw": 3.1415927,
+      "speed": 110
+    },
+    {
+      "type": "zeppelin",
+      "team": 2,
+      "a": [-2800, 800, -1500],
+      "b": [2800, 800, -1500],
+      "speed": 28
+    },
+    {
+      "type": "zeppelin",
+      "team": 2,
+      "position": [0, 950, -2700]
+    },
+    {
+      "type": "ground_sam",
+      "team": 2,
+      "position": [-1800, 0, -2400]
+    },
+    {
+      "type": "ground_sam",
+      "team": 2,
+      "position": [0, 0, -2800]
+    },
+    {
+      "type": "ground_sam",
+      "team": 2,
+      "position": [1800, 0, -2400]
+    },
+    {
+      "type": "ground_aa",
+      "team": 2,
+      "position": [-900, 0, -1900]
+    },
+    {
+      "type": "ground_aa",
+      "team": 2,
+      "position": [900, 0, -1900]
+    },
+    {
+      "type": "ground_aa",
+      "team": 2,
+      "position": [0, 0, -1500]
+    }
+  ]
+}

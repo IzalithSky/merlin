@@ -19,6 +19,9 @@ const BOT_CHASE_DEBUG_SCENE := "res://scenes/bot_chase_debug.tscn"
 @onready var _menu_panel: Control = $CenterContainer/Panel
 @onready var _options_panel: Control = %OptionsPanel
 @onready var _keybindings_panel: Control = %KeybindingsPanel
+@onready var _mission_select_panel: Control = %MissionSelectPanel
+@onready var _mission_button_list: VBoxContainer = %MissionButtonList
+@onready var _mission_back_button: Button = %MissionBackButton
 @onready var _lobby: Node = get_node("/root/Lobby")
 
 
@@ -37,6 +40,8 @@ func _ready() -> void:
 	_options_panel.connect("back_requested", Callable(self, "_on_options_back_requested"))
 	_options_panel.connect("keybindings_requested", Callable(self, "_on_keybindings_requested"))
 	_keybindings_panel.connect("back_requested", Callable(self, "_on_keybindings_back_requested"))
+	_mission_back_button.pressed.connect(_on_mission_back_requested)
+	_populate_mission_select()
 	_address_edit.text = _lobby.DEFAULT_ADDRESS
 	_status_label.text = _lobby.last_error
 	_set_options_open(false)
@@ -51,6 +56,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if _options_panel.visible:
 			_on_options_back_requested()
+			get_viewport().set_input_as_handled()
+			return
+		if _mission_select_panel.visible:
+			_on_mission_back_requested()
 			get_viewport().set_input_as_handled()
 
 
@@ -86,7 +95,41 @@ func _on_preset_selected(index: int) -> void:
 
 
 func _on_new_game_pressed() -> void:
-	_lobby.start_single_player()
+	_set_mission_select_open(true)
+
+
+func _populate_mission_select() -> void:
+	for child in _mission_button_list.get_children():
+		child.queue_free()
+	for mission: Dictionary in _lobby.list_single_player_missions():
+		var button := Button.new()
+		button.text = String(mission.get("label", ""))
+		button.custom_minimum_size = Vector2(0, 48)
+		button.add_theme_font_size_override("font_size", 20)
+		button.pressed.connect(_on_mission_chosen.bind(String(mission.get("id", ""))))
+		_mission_button_list.add_child(button)
+
+
+func _on_mission_chosen(mission_id: String) -> void:
+	_lobby.start_single_player(mission_id)
+
+
+func _on_mission_back_requested() -> void:
+	_set_mission_select_open(false)
+	_new_game_button.grab_focus()
+
+
+func _set_mission_select_open(open: bool) -> void:
+	_menu_panel.visible = not open
+	_mission_select_panel.visible = open
+	_options_panel.visible = false
+	_keybindings_panel.visible = false
+	if not open:
+		return
+	for child in _mission_button_list.get_children():
+		if child is Button:
+			(child as Button).grab_focus()
+			return
 
 
 func _on_bot_duel_pressed() -> void:
@@ -146,6 +189,7 @@ func _set_options_open(open: bool) -> void:
 	_menu_panel.visible = not open
 	_options_panel.visible = open
 	_keybindings_panel.visible = false
+	_mission_select_panel.visible = false
 
 	if open and _options_panel.has_method("focus_first"):
 		_options_panel.call("focus_first")

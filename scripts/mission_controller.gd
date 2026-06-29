@@ -361,6 +361,13 @@ func _bootstrap_default_session() -> void:
 		return
 	_bootstrapped = true
 	_bootstrap_players()
+	# Let the randomized terrain transform reach the physics server before mobs
+	# spawn, so the zeppelin terrain clamp samples the live surface (otherwise it
+	# clamps against the pre-randomization height and zeppelins fly underground).
+	if get_tree() != null:
+		await get_tree().physics_frame
+		if not is_inside_tree():
+			return
 	_bootstrap_mobs()
 	if multiplayer.multiplayer_peer == null:
 		_ensure_single_player_match_hud()

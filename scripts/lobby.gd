@@ -29,10 +29,14 @@ const MISSION_MODE_LABELS := {
 	MISSION_MODE_FFA: "Free For All",
 	MISSION_MODE_COOP: "Co-op Mission",
 }
-const MISSION_MODE_CONFIG_PATHS := {
-	MISSION_MODE_FFA: FFA_MISSION_CONFIG_PATH,
-	MISSION_MODE_COOP: COOP_MISSION_CONFIG_PATH,
-}
+const SINGLE_PLAYER_MISSION_DEFS: Array[Dictionary] = [
+	{"id": "default", "label": "Combined Arms", "path": "res://data/missions/default.json"},
+	{"id": "interceptor", "label": "Interceptor", "path": "res://data/missions/interceptor.json"},
+]
+const COOP_MISSION_DEFS: Array[Dictionary] = [
+	{"id": "coop", "label": "Assault", "path": "res://data/missions/coop.json"},
+	{"id": "siege", "label": "Siege", "path": "res://data/missions/siege.json"},
+]
 
 var last_error := ""
 var is_multiplayer_session := false
@@ -41,6 +45,8 @@ var allow_join_in_progress := false
 var bot_count := 3
 var trails_enabled := true
 var mission_mode := MISSION_MODE_FFA
+var single_player_mission_id := "default"
+var coop_mission_id := "coop"
 var mission_player_limit := -1
 var multiplayer_player_limit := DEFAULT_MULTIPLAYER_PLAYER_LIMIT
 var players: Dictionary = {}
@@ -57,8 +63,10 @@ func _ready() -> void:
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
 
 
-func start_single_player() -> void:
+func start_single_player(mission_id := "") -> void:
 	disconnect_session()
+	if not mission_id.is_empty() and _is_known_single_player_mission(mission_id):
+		single_player_mission_id = mission_id
 	last_error = ""
 	_resolve_current_mission_world_level_randomization()
 	get_tree().change_scene_to_file(WORLD_SCENE)
@@ -80,7 +88,8 @@ func host(port: int = DEFAULT_PORT) -> Error:
 	bot_count = 1
 	trails_enabled = true
 	mission_mode = MISSION_MODE_FFA
-	mission_player_limit = _load_mission_player_limit(mission_mode)
+	coop_mission_id = "coop"
+	mission_player_limit = _mission_player_limit_for_mode(mission_mode)
 	multiplayer_player_limit = DEFAULT_MULTIPLAYER_PLAYER_LIMIT
 	last_error = ""
 	players.clear()
@@ -122,6 +131,7 @@ func disconnect_session() -> void:
 	bot_count = 3
 	trails_enabled = true
 	mission_mode = MISSION_MODE_FFA
+	coop_mission_id = "coop"
 	mission_player_limit = -1
 	multiplayer_player_limit = DEFAULT_MULTIPLAYER_PLAYER_LIMIT
 	players.clear()
@@ -171,9 +181,9 @@ func set_bot_count(value: int) -> void:
 func set_mission_mode(value: String) -> void:
 	if not is_server_peer():
 		return
-	if not MISSION_MODE_CONFIG_PATHS.has(value):
+	if not MISSION_MODE_LABELS.has(value):
 		return
-	var resolved_mission_player_limit := _load_mission_player_limit(value)
+	var resolved_mission_player_limit := _mission_player_limit_for_mode(value)
 	if resolved_mission_player_limit >= 0 and players.size() > resolved_mission_player_limit:
 		last_error = "Selected mission supports up to %d players." % resolved_mission_player_limit
 		_emit_status()
@@ -182,6 +192,26 @@ func set_mission_mode(value: String) -> void:
 	mission_player_limit = resolved_mission_player_limit
 	if mission_player_limit >= 0:
 		multiplayer_player_limit = mini(multiplayer_player_limit, mission_player_limit)
+	last_error = ""
+	_broadcast_session_options()
+	_emit_status()
+
+
+func set_coop_mission(value: String) -> void:
+	if not is_server_peer():
+		return
+	if not _is_known_coop_mission(value):
+		return
+	var resolved_mission_player_limit := _mission_player_limit_for_path(_coop_mission_path(value))
+	if mission_mode == MISSION_MODE_COOP and resolved_mission_player_limit >= 0 and players.size() > resolved_mission_player_limit:
+		last_error = "Selected mission supports up to %d players." % resolved_mission_player_limit
+		_emit_status()
+		return
+	coop_mission_id = value
+	if mission_mode == MISSION_MODE_COOP:
+		mission_player_limit = resolved_mission_player_limit
+		if mission_player_limit >= 0:
+			multiplayer_player_limit = mini(multiplayer_player_limit, mission_player_limit)
 	last_error = ""
 	_broadcast_session_options()
 	_emit_status()
@@ -315,6 +345,7 @@ func _broadcast_session_options() -> void:
 		bot_count,
 		trails_enabled,
 		mission_mode,
+		coop_mission_id,
 		multiplayer_player_limit
 	)
 
@@ -357,8 +388,33 @@ func compose_world_scene(world_root: Node) -> void:
 
 func _resolve_mission_config_path() -> String:
 	if multiplayer.multiplayer_peer == null:
-		return DEFAULT_MISSION_CONFIG_PATH
-	return String(MISSION_MODE_CONFIG_PATHS.get(mission_mode, FFA_MISSION_CONFIG_PATH))
+		return _single_player_mission_path(single_player_mission_id)
+	if mission_mode == MISSION_MODE_COOP:
+		return _coop_mission_path(coop_mission_id)
+	return FFA_MISSION_CONFIG_PATH
+
+
+func _single_player_mission_path(id: String) -> String:
+	return _mission_def_path(SINGLE_PLAYER_MISSION_DEFS, id, DEFAULT_MISSION_CONFIG_PATH)
+
+
+func _coop_mission_path(id: String) -> String:
+	return _mission_def_path(COOP_MISSION_DEFS, id, COOP_MISSION_CONFIG_PATH)
+
+
+func _mission_def_path(defs: Array, id: String, fallback: String) -> String:
+	for mission_def: Dictionary in defs:
+		if String(mission_def.get("id", "")) == id:
+			return String(mission_def.get("path", fallback))
+	return fallback
+
+
+func _is_known_single_player_mission(id: String) -> bool:
+	return not _mission_def_path(SINGLE_PLAYER_MISSION_DEFS, id, "").is_empty()
+
+
+func _is_known_coop_mission(id: String) -> bool:
+	return not _mission_def_path(COOP_MISSION_DEFS, id, "").is_empty()
 
 
 func list_mission_modes() -> Array[Dictionary]:
@@ -366,6 +422,14 @@ func list_mission_modes() -> Array[Dictionary]:
 		{"id": MISSION_MODE_FFA, "label": MISSION_MODE_LABELS[MISSION_MODE_FFA]},
 		{"id": MISSION_MODE_COOP, "label": MISSION_MODE_LABELS[MISSION_MODE_COOP]},
 	]
+
+
+func list_single_player_missions() -> Array[Dictionary]:
+	return SINGLE_PLAYER_MISSION_DEFS.duplicate(true)
+
+
+func list_coop_missions() -> Array[Dictionary]:
+	return COOP_MISSION_DEFS.duplicate(true)
 
 
 func get_mission_mode_max_players() -> int:
@@ -380,9 +444,16 @@ func get_effective_player_limit() -> int:
 	return mini(clampi(multiplayer_player_limit, 1, MAX_CLIENTS), clampi(mission_player_limit, 1, MAX_CLIENTS))
 
 
-func _load_mission_player_limit(mode: String) -> int:
-	var mission_config_path := String(MISSION_MODE_CONFIG_PATHS.get(mode, ""))
-	var config := MISSION_CONTROLLER_SCRIPT.read_mission_config_file(mission_config_path)
+func _mission_player_limit_for_mode(mode: String) -> int:
+	if mode == MISSION_MODE_COOP:
+		return _mission_player_limit_for_path(_coop_mission_path(coop_mission_id))
+	if mode == MISSION_MODE_FFA:
+		return _mission_player_limit_for_path(FFA_MISSION_CONFIG_PATH)
+	return -1
+
+
+func _mission_player_limit_for_path(path: String) -> int:
+	var config := MISSION_CONTROLLER_SCRIPT.read_mission_config_file(path)
 	if config.is_empty():
 		return -1
 	return int(config.get("player_limit", -1))
@@ -438,6 +509,7 @@ func request_lobby_sync() -> void:
 		bot_count,
 		trails_enabled,
 		mission_mode,
+		coop_mission_id,
 		multiplayer_player_limit
 	)
 	sync_lobby_state.rpc_id(sender_id, players)
@@ -469,6 +541,7 @@ func sync_session_options(
 	server_bot_count: int,
 	server_trails_enabled: bool,
 	server_mission_mode: String,
+	server_coop_mission_id: String,
 	server_multiplayer_player_limit: int
 ) -> void:
 	is_game_in_progress = server_is_game_in_progress
@@ -476,7 +549,8 @@ func sync_session_options(
 	bot_count = maxi(server_bot_count, 0)
 	trails_enabled = server_trails_enabled
 	mission_mode = String(server_mission_mode)
-	mission_player_limit = _load_mission_player_limit(mission_mode)
+	coop_mission_id = String(server_coop_mission_id)
+	mission_player_limit = _mission_player_limit_for_mode(mission_mode)
 	multiplayer_player_limit = clampi(server_multiplayer_player_limit, 1, MAX_CLIENTS)
 	_emit_session_options()
 

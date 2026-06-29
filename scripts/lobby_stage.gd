@@ -10,6 +10,8 @@ const AERO_TABLES_STORE := preload("res://scripts/plane_aero_tables_store.gd")
 @onready var _join_in_progress_check: CheckButton = %JoinInProgressCheck
 @onready var _energy_trail_check: CheckButton = %EnergyTrailCheck
 @onready var _mission_mode_option: OptionButton = %MissionModeOption
+@onready var _coop_mission_row: HBoxContainer = %CoopMissionRow
+@onready var _coop_mission_option: OptionButton = %CoopMissionOption
 @onready var _multiplayer_player_limit_spin_box: SpinBox = %MultiplayerPlayerLimitSpinBox
 @onready var _bot_count_row: HBoxContainer = %BotCountRow
 @onready var _bot_count_spin_box: SpinBox = %BotCountSpinBox
@@ -28,6 +30,8 @@ func _ready() -> void:
 	_energy_trail_check.toggled.connect(_on_energy_trail_toggled)
 	_populate_mission_mode_option()
 	_mission_mode_option.item_selected.connect(_on_mission_mode_selected)
+	_populate_coop_mission_option()
+	_coop_mission_option.item_selected.connect(_on_coop_mission_selected)
 	_multiplayer_player_limit_spin_box.value_changed.connect(_on_multiplayer_player_limit_changed)
 	_bot_count_spin_box.value_changed.connect(_on_bot_count_changed)
 	_populate_preset_option()
@@ -80,6 +84,7 @@ func _update_players(players: Dictionary) -> void:
 	_join_in_progress_check.disabled = not _lobby.is_server_peer()
 	_energy_trail_check.disabled = not _lobby.is_server_peer()
 	_mission_mode_option.disabled = not _lobby.is_server_peer()
+	_coop_mission_option.disabled = not _lobby.is_server_peer()
 	_multiplayer_player_limit_spin_box.editable = _lobby.is_server_peer()
 	_bot_count_spin_box.editable = _lobby.is_server_peer()
 
@@ -96,6 +101,8 @@ func _update_session_options(
 	_energy_trail_check.set_pressed_no_signal(trails_enabled)
 	_bot_count_spin_box.set_value_no_signal(bot_count)
 	_select_mission_mode(mission_mode)
+	_select_coop_mission(_lobby.coop_mission_id)
+	_coop_mission_row.visible = mission_mode == _lobby.MISSION_MODE_COOP
 	_multiplayer_player_limit_spin_box.max_value = _lobby.get_mission_mode_max_players()
 	_multiplayer_player_limit_spin_box.set_value_no_signal(multiplayer_player_limit)
 	_bot_count_row.visible = mission_mode == _lobby.MISSION_MODE_FFA
@@ -175,6 +182,27 @@ func _on_bot_count_changed(value: float) -> void:
 func _on_mission_mode_selected(index: int) -> void:
 	var mission_mode := String(_mission_mode_option.get_item_metadata(index))
 	_lobby.set_mission_mode(mission_mode)
+
+
+func _populate_coop_mission_option() -> void:
+	_coop_mission_option.clear()
+	var index := 0
+	for coop_mission: Dictionary in _lobby.list_coop_missions():
+		_coop_mission_option.add_item(String(coop_mission.get("label", "")))
+		_coop_mission_option.set_item_metadata(index, String(coop_mission.get("id", "")))
+		index += 1
+
+
+func _select_coop_mission(coop_mission_id: String) -> void:
+	for index in range(_coop_mission_option.item_count):
+		if String(_coop_mission_option.get_item_metadata(index)) != coop_mission_id:
+			continue
+		_coop_mission_option.select(index)
+		return
+
+
+func _on_coop_mission_selected(index: int) -> void:
+	_lobby.set_coop_mission(String(_coop_mission_option.get_item_metadata(index)))
 
 
 func _on_multiplayer_player_limit_changed(value: float) -> void:

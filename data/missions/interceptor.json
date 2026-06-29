@@ -1,0 +1,41 @@
+{
+  "name": "interceptor",
+  "player_limit": 1,
+  "required_score": 4,
+  "mission_time_limit_sec": 180,
+  "terrain": {
+    "randomize": true,
+    "grid_size": 10000
+  },
+  "areas": {
+    "enemy_air": {
+      "center": [0, 1800, -2600],
+      "size": [4000, 900, 1400]
+    }
+  },
+  "players": [
+    {
+      "position": [0, 1600, 2600],
+      "team": 1,
+      "yaw": 0.0,
+      "speed": 120
+    }
+  ],
+  "mobs": [
+    {
+      "type": "plane_bot",
+      "team": 1,
+      "position": [350, 1600, 2500],
+      "yaw": 0.0,
+      "speed": 120
+    },
+    {
+      "type": "plane_bot",
+      "team": 2,
+      "count": 4,
+      "area": "enemy_air",
+      "yaw": 3.1415927,
+      "speed": 110
+    }
+  ]
+}

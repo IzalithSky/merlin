@@ -23,9 +23,15 @@ Mission files live in `data/missions/`.
 
 Current examples:
 
-- `data/missions/default.json`
+- `data/missions/default.json` (single-player: "Combined Arms")
+- `data/missions/interceptor.json` (single-player: "Interceptor", air-only, area-spawned enemies + wingman)
 - `data/missions/ffa.json`
-- `data/missions/coop.json`
+- `data/missions/coop.json` (co-op: "Assault")
+- `data/missions/siege.json` (co-op: "Siege", ground-heavy, up to 4 players)
+
+The lobby owns the mission catalog (`SINGLE_PLAYER_MISSION_DEFS`, `COOP_MISSION_DEFS`).
+Single-player missions are picked in the main-menu mission submenu; co-op missions are
+picked from the lobby mission dropdown shown in co-op mode.
 
 ## Top-Level Params
 
