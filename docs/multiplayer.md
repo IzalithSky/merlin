@@ -14,13 +14,16 @@ For Merlin, the baseline should be:
 1. Main menu starts or joins a session.
 2. A `Lobby` autoload owns connection state.
 3. The server loads the game scene for all peers.
-4. Each peer loads the same terrain/environment locally.
+4. Each peer loads the same terrain/environment locally, using the terrain
+   randomization descriptor chosen by the host for that game.
 5. The server spawns one controlled aircraft/player rig per peer.
 6. Clients send input intent to the server.
 7. The server simulates important gameplay state.
 8. The server replicates aircraft state back to clients.
 
 Do not replicate static terrain, sky, lighting, or level assets over the network.
+The host may replicate small descriptors, such as the world-level grid cell and
+quarter-turn rotation, so every peer places local terrain collision identically.
 Every peer should load those from local project resources.
 
 ## Godot Multiplayer Model

@@ -19,6 +19,7 @@ const LOBBY_SCENE := "res://scenes/lobby.tscn"
 const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 const WORLD_SCENE := "res://scenes/world_0.tscn"
 const MATCH_SYSTEMS_SCENE := preload("res://scenes/match_systems.tscn")
+const WORLD_SESSION_ROOT_SCRIPT := preload("res://scripts/world_session_root.gd")
 const DEFAULT_MISSION_CONFIG_PATH := "res://data/missions/default.json"
 const FFA_MISSION_CONFIG_PATH := "res://data/missions/ffa.json"
 const COOP_MISSION_CONFIG_PATH := "res://data/missions/coop.json"
@@ -45,6 +46,7 @@ var multiplayer_player_limit := DEFAULT_MULTIPLAYER_PLAYER_LIMIT
 var players: Dictionary = {}
 var _received_join_rejection := false
 var _rejected_peers: Dictionary = {}
+var _world_level_randomization: Dictionary = {}
 
 
 func _ready() -> void:
@@ -58,6 +60,7 @@ func _ready() -> void:
 func start_single_player() -> void:
 	disconnect_session()
 	last_error = ""
+	_roll_world_level_randomization()
 	get_tree().change_scene_to_file(WORLD_SCENE)
 
 
@@ -122,6 +125,7 @@ func disconnect_session() -> void:
 	mission_player_limit = -1
 	multiplayer_player_limit = DEFAULT_MULTIPLAYER_PLAYER_LIMIT
 	players.clear()
+	_world_level_randomization.clear()
 	_emit_lobby_state()
 	_emit_session_options()
 
@@ -219,6 +223,7 @@ func start_game() -> Error:
 		return ERR_INVALID_PARAMETER
 
 	is_game_in_progress = true
+	_roll_world_level_randomization()
 	_broadcast_session_options()
 	_load_world_scene()
 	get_tree().process_frame.connect(_broadcast_begin_game, CONNECT_ONE_SHOT)
@@ -396,7 +401,7 @@ func _broadcast_begin_game() -> void:
 	if not is_server_peer():
 		return
 
-	begin_game.rpc()
+	begin_game.rpc(get_world_level_randomization())
 
 
 func _disconnect_peer(peer_id: int) -> void:
@@ -444,7 +449,7 @@ func request_lobby_sync() -> void:
 	_broadcast_lobby_state()
 
 	if is_game_in_progress:
-		begin_game.rpc_id(sender_id)
+		begin_game.rpc_id(sender_id, get_world_level_randomization())
 
 
 @rpc("any_peer", "reliable")
@@ -482,7 +487,11 @@ func sync_session_options(
 
 
 @rpc("authority", "reliable")
-func begin_game() -> void:
+func begin_game(world_level_randomization: Dictionary = {}) -> void:
+	if not world_level_randomization.is_empty():
+		_world_level_randomization = WORLD_SESSION_ROOT_SCRIPT.normalize_world_level_randomization(world_level_randomization)
+	elif _world_level_randomization.is_empty():
+		_roll_world_level_randomization()
 	_load_world_scene()
 
 
@@ -494,3 +503,13 @@ func reject_join(reason: String) -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	get_tree().change_scene_to_file(MAIN_MENU_SCENE)
 	_emit_status()
+
+
+func get_world_level_randomization() -> Dictionary:
+	if _world_level_randomization.is_empty():
+		_roll_world_level_randomization()
+	return _world_level_randomization.duplicate(true)
+
+
+func _roll_world_level_randomization() -> void:
+	_world_level_randomization = WORLD_SESSION_ROOT_SCRIPT.make_random_world_level_randomization()

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=4]
+
+[ext_resource type="Script" path="res://tests/world_level_randomizer_smoke.gd" id="1_script"]
+
+[node name="WorldLevelRandomizerSmoke" type="Node3D"]
+script = ExtResource("1_script")
