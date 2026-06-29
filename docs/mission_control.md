@@ -34,9 +34,27 @@ Current examples:
 - `required_score`: single-player victory score. `0` disables score victory.
 - `mission_time_limit_sec`: single-player timer. `0` disables timer.
 - `seed`: optional RNG seed for area-based random spawns.
+- `terrain`: optional world-level terrain placement config.
 - `areas`: named spawn volumes.
 - `players`: ordered player spawn specs.
 - `mobs`: mission mob specs.
+
+## Terrain
+
+`terrain` controls which horizontal terrain grid square is moved to world origin
+before mission entities spawn.
+
+Supported fields:
+
+- `randomize`: boolean. When `true`, omitted `square` and `rotation` are randomized.
+- `grid_size`: square size in world units, default `10000`.
+- `square`: optional `[x, y]` grid index, or `{ "x": 0, "y": 0 }`.
+- `rotation`: optional quarter-turn rotation. Use `0`, `90`, `180`, `270`, or quarter indices `0`-`3`.
+
+Defaults:
+
+- If `randomize` is `true`, omitted `square` picks a non-edge square and omitted `rotation` picks a random quarter-turn.
+- If `randomize` is `false` or absent, omitted `square` and `rotation` resolve to `0`.
 
 ## Areas
 

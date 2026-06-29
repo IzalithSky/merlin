@@ -11,6 +11,7 @@ const TERRAIN_ROTATION_STEP_RAD := PI * 0.5
 const RANDOMIZATION_CELL_X_KEY := "cell_x"
 const RANDOMIZATION_CELL_Z_KEY := "cell_z"
 const RANDOMIZATION_ROTATION_QUARTER_KEY := "rotation_quarter"
+const RANDOMIZATION_GRID_SIZE_KEY := "grid_size"
 const DEBUG_GRID_NODE_NAME := "WorldLevelGridDebug"
 const DEBUG_GRID_LINES_NODE_NAME := "GridLines"
 const DEBUG_GRID_HEIGHT_OFFSET := 250.0
@@ -21,7 +22,6 @@ const DEBUG_GRID_SELECTED_COLOR := Color(1.0, 0.82, 0.08, 1.0)
 const DEBUG_GRID_LABEL_COLOR := Color(0.72, 0.95, 1.0, 0.7)
 const DEBUG_GRID_SELECTED_LABEL_COLOR := Color(1.0, 0.9, 0.25, 1.0)
 
-@export var randomize_world_level_location := true
 @export var debug_show_world_level_grid := false
 
 var _net_metrics_enabled := false
@@ -46,39 +46,7 @@ var net_metrics_print_summary: bool:
 			spawner.net_metrics_print_summary = value
 
 func _ready() -> void:
-	var world_level_randomization := _apply_world_level_randomization()
-	if debug_show_world_level_grid:
-		_build_world_level_debug_grid(world_level_randomization)
 	call_deferred("_compose_match_systems")
-
-
-static func make_random_world_level_randomization() -> Dictionary:
-	var rng := RandomNumberGenerator.new()
-	rng.randomize()
-	return {
-		RANDOMIZATION_CELL_X_KEY: rng.randi_range(TERRAIN_GRID_INNER_MIN_INDEX, TERRAIN_GRID_INNER_MAX_INDEX),
-		RANDOMIZATION_CELL_Z_KEY: rng.randi_range(TERRAIN_GRID_INNER_MIN_INDEX, TERRAIN_GRID_INNER_MAX_INDEX),
-		RANDOMIZATION_ROTATION_QUARTER_KEY: rng.randi_range(0, TERRAIN_ROTATION_QUARTER_COUNT - 1),
-	}
-
-
-static func normalize_world_level_randomization(value: Dictionary) -> Dictionary:
-	return {
-		RANDOMIZATION_CELL_X_KEY: clampi(
-			int(value.get(RANDOMIZATION_CELL_X_KEY, TERRAIN_GRID_INNER_MIN_INDEX)),
-			TERRAIN_GRID_INNER_MIN_INDEX,
-			TERRAIN_GRID_INNER_MAX_INDEX
-		),
-		RANDOMIZATION_CELL_Z_KEY: clampi(
-			int(value.get(RANDOMIZATION_CELL_Z_KEY, TERRAIN_GRID_INNER_MIN_INDEX)),
-			TERRAIN_GRID_INNER_MIN_INDEX,
-			TERRAIN_GRID_INNER_MAX_INDEX
-		),
-		RANDOMIZATION_ROTATION_QUARTER_KEY: posmod(
-			int(value.get(RANDOMIZATION_ROTATION_QUARTER_KEY, 0)),
-			TERRAIN_ROTATION_QUARTER_COUNT
-		),
-	}
 
 
 func _compose_match_systems() -> void:
@@ -94,28 +62,27 @@ func _compose_match_systems() -> void:
 		spawner.net_metrics_print_summary = _net_metrics_print_summary
 
 
-func _apply_world_level_randomization() -> Dictionary:
-	if not randomize_world_level_location:
-		return {}
-
+func apply_world_level_randomization(randomization: Dictionary) -> void:
 	var terrain_node := get_node_or_null(WORLD_LEVEL_TERRAIN_PATH) as Node3D
 	var mesh_node := get_node_or_null(WORLD_LEVEL_TERRAIN_MESH_PATH) as MeshInstance3D
 	if terrain_node == null or mesh_node == null:
 		push_warning("World level terrain randomization skipped: terrain nodes were not found.")
-		return {}
+		return
 	if mesh_node.mesh == null:
 		push_warning("World level terrain randomization skipped: terrain mesh was not found.")
-		return {}
+		return
 
-	var randomization := _get_world_level_randomization()
 	var terrain_aabb := mesh_node.mesh.get_aabb()
-	var cell_x := int(randomization[RANDOMIZATION_CELL_X_KEY])
-	var cell_z := int(randomization[RANDOMIZATION_CELL_Z_KEY])
-	var rotation_quarter := int(randomization[RANDOMIZATION_ROTATION_QUARTER_KEY])
+	var grid_size := _get_randomization_grid_size(randomization)
+	var grid_cell_count_x := _get_grid_cell_count(terrain_aabb.size.x, grid_size)
+	var grid_cell_count_z := _get_grid_cell_count(terrain_aabb.size.z, grid_size)
+	var cell_x := clampi(int(randomization.get(RANDOMIZATION_CELL_X_KEY, 0)), 0, maxi(grid_cell_count_x - 1, 0))
+	var cell_z := clampi(int(randomization.get(RANDOMIZATION_CELL_Z_KEY, 0)), 0, maxi(grid_cell_count_z - 1, 0))
+	var rotation_quarter := posmod(int(randomization.get(RANDOMIZATION_ROTATION_QUARTER_KEY, 0)), TERRAIN_ROTATION_QUARTER_COUNT)
 	var mesh_cell_center := Vector3(
-		terrain_aabb.position.x + (float(cell_x) + 0.5) * TERRAIN_GRID_CELL_SIZE,
+		terrain_aabb.position.x + (float(cell_x) + 0.5) * grid_size,
 		0.0,
-		terrain_aabb.position.z + (float(cell_z) + 0.5) * TERRAIN_GRID_CELL_SIZE
+		terrain_aabb.position.z + (float(cell_z) + 0.5) * grid_size
 	)
 	var mesh_to_terrain := terrain_node.global_transform.affine_inverse() * mesh_node.global_transform
 	var terrain_cell_center := mesh_to_terrain * mesh_cell_center
@@ -124,16 +91,8 @@ func _apply_world_level_randomization() -> Dictionary:
 		terrain_rotation,
 		Vector3.ZERO - terrain_rotation * terrain_cell_center
 	)
-	return randomization
-
-
-func _get_world_level_randomization() -> Dictionary:
-	var lobby := get_node_or_null("/root/Lobby")
-	if lobby != null and lobby.has_method("get_world_level_randomization"):
-		var value: Variant = lobby.call("get_world_level_randomization")
-		if value is Dictionary:
-			return normalize_world_level_randomization(value as Dictionary)
-	return make_random_world_level_randomization()
+	if debug_show_world_level_grid:
+		_build_world_level_debug_grid(randomization)
 
 
 func _build_world_level_debug_grid(randomization: Dictionary) -> void:
@@ -147,6 +106,9 @@ func _build_world_level_debug_grid(randomization: Dictionary) -> void:
 		existing_debug_grid.queue_free()
 
 	var terrain_aabb := mesh_node.mesh.get_aabb()
+	var grid_size := _get_randomization_grid_size(randomization)
+	var grid_cell_count_x := _get_grid_cell_count(terrain_aabb.size.x, grid_size)
+	var grid_cell_count_z := _get_grid_cell_count(terrain_aabb.size.z, grid_size)
 	var grid_y := terrain_aabb.position.y + terrain_aabb.size.y + DEBUG_GRID_HEIGHT_OFFSET
 	var debug_root := Node3D.new()
 	debug_root.name = DEBUG_GRID_NODE_NAME
@@ -162,15 +124,17 @@ func _build_world_level_debug_grid(randomization: Dictionary) -> void:
 
 	var grid_mesh := ImmediateMesh.new()
 	grid_mesh.surface_begin(Mesh.PRIMITIVE_LINES, line_material)
-	for grid_index in range(TERRAIN_GRID_CELL_COUNT + 1):
-		var local_x := terrain_aabb.position.x + float(grid_index) * TERRAIN_GRID_CELL_SIZE
-		var local_z := terrain_aabb.position.z + float(grid_index) * TERRAIN_GRID_CELL_SIZE
+	for grid_index in range(grid_cell_count_x + 1):
+		var local_x := terrain_aabb.position.x + float(grid_index) * grid_size
 		_append_debug_grid_line(
 			grid_mesh,
 			mesh_node.global_transform * Vector3(local_x, grid_y, terrain_aabb.position.z),
 			mesh_node.global_transform * Vector3(local_x, grid_y, terrain_aabb.position.z + terrain_aabb.size.z),
 			DEBUG_GRID_LINE_COLOR
 		)
+
+	for grid_index in range(grid_cell_count_z + 1):
+		var local_z := terrain_aabb.position.z + float(grid_index) * grid_size
 		_append_debug_grid_line(
 			grid_mesh,
 			mesh_node.global_transform * Vector3(terrain_aabb.position.x, grid_y, local_z),
@@ -179,7 +143,7 @@ func _build_world_level_debug_grid(randomization: Dictionary) -> void:
 		)
 
 	if not randomization.is_empty():
-		_append_debug_selected_cell(grid_mesh, mesh_node.global_transform, terrain_aabb, grid_y, randomization)
+		_append_debug_selected_cell(grid_mesh, mesh_node.global_transform, terrain_aabb, grid_y, grid_size, randomization)
 	grid_mesh.surface_end()
 
 	var grid_lines := MeshInstance3D.new()
@@ -197,14 +161,15 @@ func _append_debug_selected_cell(
 	mesh_global_transform: Transform3D,
 	terrain_aabb: AABB,
 	grid_y: float,
+	grid_size: float,
 	randomization: Dictionary
 ) -> void:
 	var cell_x := int(randomization[RANDOMIZATION_CELL_X_KEY])
 	var cell_z := int(randomization[RANDOMIZATION_CELL_Z_KEY])
-	var min_x := terrain_aabb.position.x + float(cell_x) * TERRAIN_GRID_CELL_SIZE
-	var max_x := min_x + TERRAIN_GRID_CELL_SIZE
-	var min_z := terrain_aabb.position.z + float(cell_z) * TERRAIN_GRID_CELL_SIZE
-	var max_z := min_z + TERRAIN_GRID_CELL_SIZE
+	var min_x := terrain_aabb.position.x + float(cell_x) * grid_size
+	var max_x := min_x + grid_size
+	var min_z := terrain_aabb.position.z + float(cell_z) * grid_size
+	var max_z := min_z + grid_size
 	var corner_a := mesh_global_transform * Vector3(min_x, grid_y, min_z)
 	var corner_b := mesh_global_transform * Vector3(max_x, grid_y, min_z)
 	var corner_c := mesh_global_transform * Vector3(max_x, grid_y, max_z)
@@ -232,13 +197,16 @@ func _add_debug_grid_labels(
 	var selected_x := int(randomization.get(RANDOMIZATION_CELL_X_KEY, -1))
 	var selected_z := int(randomization.get(RANDOMIZATION_CELL_Z_KEY, -1))
 	var rotation_deg := int(randomization.get(RANDOMIZATION_ROTATION_QUARTER_KEY, 0)) * 90
-	for cell_x in range(TERRAIN_GRID_CELL_COUNT):
-		for cell_z in range(TERRAIN_GRID_CELL_COUNT):
+	var grid_size := _get_randomization_grid_size(randomization)
+	var grid_cell_count_x := _get_grid_cell_count(terrain_aabb.size.x, grid_size)
+	var grid_cell_count_z := _get_grid_cell_count(terrain_aabb.size.z, grid_size)
+	for cell_x in range(grid_cell_count_x):
+		for cell_z in range(grid_cell_count_z):
 			var is_selected := cell_x == selected_x and cell_z == selected_z
 			var label_position := mesh_global_transform * Vector3(
-				terrain_aabb.position.x + (float(cell_x) + 0.5) * TERRAIN_GRID_CELL_SIZE,
+				terrain_aabb.position.x + (float(cell_x) + 0.5) * grid_size,
 				grid_y,
-				terrain_aabb.position.z + (float(cell_z) + 0.5) * TERRAIN_GRID_CELL_SIZE
+				terrain_aabb.position.z + (float(cell_z) + 0.5) * grid_size
 			)
 			var label_text := "x:%d y:%d" % [cell_x, cell_z]
 			if is_selected:
@@ -259,3 +227,11 @@ func _add_debug_grid_label(debug_root: Node3D, text: String, label_position: Vec
 	label.outline_modulate = Color.BLACK
 	label.name = "CellLabel"
 	debug_root.add_child(label)
+
+
+func _get_randomization_grid_size(randomization: Dictionary) -> float:
+	return maxf(float(randomization.get(RANDOMIZATION_GRID_SIZE_KEY, TERRAIN_GRID_CELL_SIZE)), 1.0)
+
+
+func _get_grid_cell_count(axis_size: float, grid_size: float) -> int:
+	return maxi(int(floor(axis_size / grid_size)), 1)

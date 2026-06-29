@@ -19,7 +19,7 @@ const LOBBY_SCENE := "res://scenes/lobby.tscn"
 const MAIN_MENU_SCENE := "res://scenes/main_menu.tscn"
 const WORLD_SCENE := "res://scenes/world_0.tscn"
 const MATCH_SYSTEMS_SCENE := preload("res://scenes/match_systems.tscn")
-const WORLD_SESSION_ROOT_SCRIPT := preload("res://scripts/world_session_root.gd")
+const MISSION_CONTROLLER_SCRIPT := preload("res://scripts/mission_controller.gd")
 const DEFAULT_MISSION_CONFIG_PATH := "res://data/missions/default.json"
 const FFA_MISSION_CONFIG_PATH := "res://data/missions/ffa.json"
 const COOP_MISSION_CONFIG_PATH := "res://data/missions/coop.json"
@@ -60,7 +60,7 @@ func _ready() -> void:
 func start_single_player() -> void:
 	disconnect_session()
 	last_error = ""
-	_roll_world_level_randomization()
+	_resolve_current_mission_world_level_randomization()
 	get_tree().change_scene_to_file(WORLD_SCENE)
 
 
@@ -223,7 +223,7 @@ func start_game() -> Error:
 		return ERR_INVALID_PARAMETER
 
 	is_game_in_progress = true
-	_roll_world_level_randomization()
+	_resolve_current_mission_world_level_randomization()
 	_broadcast_session_options()
 	_load_world_scene()
 	get_tree().process_frame.connect(_broadcast_begin_game, CONNECT_ONE_SHOT)
@@ -489,9 +489,9 @@ func sync_session_options(
 @rpc("authority", "reliable")
 func begin_game(world_level_randomization: Dictionary = {}) -> void:
 	if not world_level_randomization.is_empty():
-		_world_level_randomization = WORLD_SESSION_ROOT_SCRIPT.normalize_world_level_randomization(world_level_randomization)
+		_world_level_randomization = world_level_randomization.duplicate(true)
 	elif _world_level_randomization.is_empty():
-		_roll_world_level_randomization()
+		_resolve_current_mission_world_level_randomization()
 	_load_world_scene()
 
 
@@ -506,10 +506,13 @@ func reject_join(reason: String) -> void:
 
 
 func get_world_level_randomization() -> Dictionary:
-	if _world_level_randomization.is_empty():
-		_roll_world_level_randomization()
 	return _world_level_randomization.duplicate(true)
 
 
-func _roll_world_level_randomization() -> void:
-	_world_level_randomization = WORLD_SESSION_ROOT_SCRIPT.make_random_world_level_randomization()
+func set_world_level_randomization(randomization: Dictionary) -> void:
+	_world_level_randomization = randomization.duplicate(true)
+
+
+func _resolve_current_mission_world_level_randomization() -> void:
+	var config := MISSION_CONTROLLER_SCRIPT.read_mission_config_file(_resolve_mission_config_path())
+	_world_level_randomization = MISSION_CONTROLLER_SCRIPT.resolve_world_level_randomization(config)

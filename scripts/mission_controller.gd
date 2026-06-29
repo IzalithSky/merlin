@@ -8,6 +8,18 @@ const SINGLE_PLAYER_END_STATE_DELAY_SEC := 8.0
 const SINGLE_PLAYER_GAME_OVER_TITLE := "Game Over"
 const SINGLE_PLAYER_VICTORY_TITLE := "Victory"
 const TERRAIN_RAY_HEIGHT := 5000.0
+const DEFAULT_TERRAIN_GRID_SIZE := 10000.0
+const DEFAULT_TERRAIN_AXIS_SIZE := 120000.0
+const TERRAIN_CONFIG_KEY := "terrain"
+const TERRAIN_RANDOMIZE_KEY := "randomize"
+const TERRAIN_GRID_SIZE_KEY := "grid_size"
+const TERRAIN_SQUARE_KEY := "square"
+const TERRAIN_ROTATION_KEY := "rotation"
+const TERRAIN_RANDOMIZATION_CELL_X_KEY := "cell_x"
+const TERRAIN_RANDOMIZATION_CELL_Z_KEY := "cell_z"
+const TERRAIN_RANDOMIZATION_ROTATION_QUARTER_KEY := "rotation_quarter"
+const TERRAIN_RANDOMIZATION_GRID_SIZE_KEY := "grid_size"
+const TERRAIN_ROTATION_QUARTER_COUNT := 4
 const GROUND_AA_SCENE := preload("res://scenes/ground_aa_unit.tscn")
 const GROUND_SAM_SCENE := preload("res://scenes/ground_sam_unit.tscn")
 const ZEPPELIN_SCENE := preload("res://scenes/zeppelin.tscn")
@@ -77,6 +89,118 @@ func load_mission(config: Dictionary) -> void:
 		_rng.seed = int(_mission_config["seed"])
 	else:
 		_rng.randomize()
+
+
+static func read_mission_config_file(path: String) -> Dictionary:
+	if path.is_empty() or not FileAccess.file_exists(path):
+		return {}
+
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return {}
+
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if not parsed is Dictionary:
+		return {}
+
+	return (parsed as Dictionary).duplicate(true)
+
+
+static func resolve_world_level_randomization(config: Dictionary) -> Dictionary:
+	var terrain_config := _get_terrain_config(config)
+	var should_randomize := bool(terrain_config.get(TERRAIN_RANDOMIZE_KEY, false))
+	var grid_size := maxf(float(terrain_config.get(TERRAIN_GRID_SIZE_KEY, DEFAULT_TERRAIN_GRID_SIZE)), 1.0)
+	var grid_cell_count := maxi(int(floor(DEFAULT_TERRAIN_AXIS_SIZE / grid_size)), 1)
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+
+	return {
+		TERRAIN_RANDOMIZATION_CELL_X_KEY: _resolve_terrain_square_axis(
+			terrain_config,
+			0,
+			should_randomize,
+			grid_cell_count,
+			rng
+		),
+		TERRAIN_RANDOMIZATION_CELL_Z_KEY: _resolve_terrain_square_axis(
+			terrain_config,
+			1,
+			should_randomize,
+			grid_cell_count,
+			rng
+		),
+		TERRAIN_RANDOMIZATION_ROTATION_QUARTER_KEY: _resolve_terrain_rotation_quarter(
+			terrain_config,
+			should_randomize,
+			rng
+		),
+		TERRAIN_RANDOMIZATION_GRID_SIZE_KEY: grid_size,
+	}
+
+
+static func _get_terrain_config(config: Dictionary) -> Dictionary:
+	var terrain_config: Variant = config.get(TERRAIN_CONFIG_KEY, {})
+	if terrain_config is Dictionary:
+		return (terrain_config as Dictionary).duplicate(true)
+	return {}
+
+
+static func _resolve_terrain_square_axis(
+	terrain_config: Dictionary,
+	axis_index: int,
+	should_randomize: bool,
+	grid_cell_count: int,
+	rng: RandomNumberGenerator
+) -> int:
+	var square_axis: Variant = _get_terrain_square_axis(terrain_config, axis_index)
+	if square_axis != null:
+		return clampi(int(square_axis), 0, maxi(grid_cell_count - 1, 0))
+	if should_randomize:
+		return _random_inner_terrain_cell(grid_cell_count, rng)
+	return 0
+
+
+static func _get_terrain_square_axis(terrain_config: Dictionary, axis_index: int) -> Variant:
+	if not terrain_config.has(TERRAIN_SQUARE_KEY):
+		return null
+
+	var square: Variant = terrain_config.get(TERRAIN_SQUARE_KEY)
+	if square is Array:
+		var parts: Array = square
+		if parts.size() > axis_index:
+			return int(parts[axis_index])
+		return null
+
+	if square is Dictionary:
+		var key := "x" if axis_index == 0 else "y"
+		var square_dict := square as Dictionary
+		if square_dict.has(key):
+			return int(square_dict[key])
+
+	return null
+
+
+static func _random_inner_terrain_cell(grid_cell_count: int, rng: RandomNumberGenerator) -> int:
+	if grid_cell_count <= 2:
+		return rng.randi_range(0, maxi(grid_cell_count - 1, 0))
+	return rng.randi_range(1, grid_cell_count - 2)
+
+
+static func _resolve_terrain_rotation_quarter(
+	terrain_config: Dictionary,
+	should_randomize: bool,
+	rng: RandomNumberGenerator
+) -> int:
+	if terrain_config.has(TERRAIN_ROTATION_KEY):
+		var raw_rotation: Variant = terrain_config.get(TERRAIN_ROTATION_KEY)
+		if raw_rotation != null:
+			var rotation_value := int(raw_rotation)
+			if absi(rotation_value) <= 3:
+				return posmod(rotation_value, TERRAIN_ROTATION_QUARTER_COUNT)
+			return posmod(roundi(float(rotation_value) / 90.0), TERRAIN_ROTATION_QUARTER_COUNT)
+	if should_randomize:
+		return rng.randi_range(0, TERRAIN_ROTATION_QUARTER_COUNT - 1)
+	return 0
 
 
 func spawn_from_spec(spec: Dictionary) -> Array[Node]:
@@ -229,16 +353,30 @@ func get_mobs() -> Array[Node]:
 	return nodes
 
 
+func _apply_world_level_randomization() -> void:
+	var randomization := _get_lobby_world_level_randomization()
+	if randomization.is_empty():
+		randomization = resolve_world_level_randomization(_mission_config)
+		_set_lobby_world_level_randomization(randomization)
+
+	var world_root := _systems_root.get_parent()
+	if world_root == null or not world_root.has_method("apply_world_level_randomization"):
+		return
+	world_root.call("apply_world_level_randomization", randomization)
+
+
 func _bootstrap_default_session() -> void:
 	if _bootstrapped:
 		return
+	if not mission_config_path.is_empty():
+		load_mission_file(mission_config_path)
+	_apply_world_level_randomization()
 	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
+		_bootstrapped = true
 		return
 	_spawner = _find_spawner()
 	if _spawner == null:
 		return
-	if not mission_config_path.is_empty():
-		load_mission_file(mission_config_path)
 	_bootstrapped = true
 	_bootstrap_players()
 	_bootstrap_mobs()
@@ -257,6 +395,23 @@ func _find_spawner() -> WorldCharacterSpawner:
 	if nodes.is_empty():
 		return null
 	return nodes[0] as WorldCharacterSpawner
+
+
+func _get_lobby_world_level_randomization() -> Dictionary:
+	var lobby := get_node_or_null("/root/Lobby")
+	if lobby == null or not lobby.has_method("get_world_level_randomization"):
+		return {}
+	var value: Variant = lobby.call("get_world_level_randomization")
+	if value is Dictionary:
+		return (value as Dictionary).duplicate(true)
+	return {}
+
+
+func _set_lobby_world_level_randomization(randomization: Dictionary) -> void:
+	var lobby := get_node_or_null("/root/Lobby")
+	if lobby == null or not lobby.has_method("set_world_level_randomization"):
+		return
+	lobby.call("set_world_level_randomization", randomization)
 
 
 func random_point_in_area(area: Variant) -> Vector3:

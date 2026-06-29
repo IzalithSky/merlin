@@ -1,6 +1,10 @@
 {
   "name": "ffa",
   "player_limit": -1,
+  "terrain": {
+    "randomize": true,
+    "grid_size": 10000
+  },
   "players": [],
   "mobs": []
 }

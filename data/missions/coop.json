@@ -3,6 +3,10 @@
   "player_limit": 4,
   "required_score": 6,
   "mission_time_limit_sec": 240,
+  "terrain": {
+    "randomize": true,
+    "grid_size": 10000
+  },
   "areas": {
     "battlefield": {
       "center": [0, 0, 0],

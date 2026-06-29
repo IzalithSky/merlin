@@ -1,10 +1,9 @@
-[gd_scene format=3 uid="uid://dj47wc5nnm06h"]
+[gd_scene load_steps=3 format=4 uid="uid://dj47wc5nnm06h"]
 
-[ext_resource type="Script" uid="uid://c6bot75u1hrmn" path="res://scripts/world_session_root.gd" id="1_world_session_root"]
-[ext_resource type="PackedScene" uid="uid://ba6ss0i4o7jsl" path="res://scenes/world_level.tscn" id="5_world_level"]
+[ext_resource type="Script" path="res://scripts/world_session_root.gd" id="1_world_session_root"]
+[ext_resource type="PackedScene" path="res://scenes/world_level.tscn" id="5_world_level"]
 
-[node name="world" type="Node3D" unique_id=134583587]
+[node name="world" type="Node3D"]
 script = ExtResource("1_world_session_root")
-debug_show_world_level_grid = true
 
-[node name="WorldLevel" parent="." unique_id=846475199 instance=ExtResource("5_world_level")]
+[node name="WorldLevel" parent="." instance=ExtResource("5_world_level")]
