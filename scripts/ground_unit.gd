@@ -119,8 +119,6 @@ func _fire_aa_shot() -> void:
 	var target_vel := _get_target_velocity(_target)
 	var rel_pos := _target.global_position - global_position
 	var aim_dir := Autocannon._compute_intercept_direction(
-		global_position,
-		_target.global_position,
 		rel_pos,
 		target_vel,
 		aa_bullet_speed

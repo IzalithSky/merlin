@@ -492,8 +492,6 @@ func _should_fire_autocannon(target: Node3D) -> bool:
 	var relative_position := target.global_position - _pilot._frame_position
 	var relative_velocity := target_velocity - plane_velocity
 	var raw_direction: Vector3 = Autocannon._compute_intercept_direction(
-		_pilot._frame_position,
-		target.global_position,
 		relative_position,
 		relative_velocity,
 		autocannon.bullet_speed

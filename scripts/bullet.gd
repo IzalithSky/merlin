@@ -56,9 +56,6 @@ func initialize_launch(spawn_position: Vector3, launch_velocity: Vector3) -> voi
 
 
 func _physics_process(_delta: float) -> void:
-	if linear_velocity.length_squared() > 0.000001:
-		look_at(global_position + linear_velocity.normalized(), Vector3.UP)
-
 	if global_position.distance_to(_origin) > max_range:
 		if _is_replica:
 			return

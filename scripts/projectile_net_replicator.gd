@@ -13,7 +13,7 @@ var _active_missiles: Dictionary = {}
 var _remote_missiles: Dictionary = {}
 var _next_bullet_id: int = 0
 var _active_bullets: Dictionary = {}
-var _active_bullet_visuals: Dictionary = {}
+var _remote_bullets: Dictionary = {}
 var _gun_cooldowns: Dictionary = {}
 var _missile_cooldowns: Dictionary = {}
 
@@ -126,7 +126,7 @@ func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_peer_id:
 	bullet.damage = autocannon.damage
 	_projectiles.add_child(bullet)
 	var launch_velocity: Vector3 = aim_direction * autocannon.bullet_speed + plane.linear_velocity
-	bullet.initialize_launch(autocannon.get_and_advance_launch_position(plane), launch_velocity)
+	bullet.initialize_launch(autocannon.get_launch_position(plane), launch_velocity)
 
 	var bullet_id := _next_bullet_id
 	_next_bullet_id += 1
@@ -140,8 +140,8 @@ func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_peer_id:
 
 	for peer_id in multiplayer.get_peers():
 		if _spawner.is_peer_world_ready(peer_id):
-			_spawner.record_net_send("projectile", [bullet_id, bullet.global_position, bullet.linear_velocity])
-			cl_spawn_bullet.rpc_id(peer_id, bullet_id, bullet.global_position, bullet.linear_velocity)
+			_spawner.record_net_send("projectile", [bullet_id, firing_peer_id, bullet.global_position, bullet.linear_velocity])
+			cl_spawn_bullet.rpc_id(peer_id, bullet_id, firing_peer_id, bullet.global_position, bullet.linear_velocity)
 
 
 func _resolve_autocannon_target(plane: Node3D, target_peer_id: int) -> Node3D:
@@ -261,15 +261,31 @@ func cl_spawn_missile(missile_id: int, transform_value: Transform3D, velocity: V
 
 
 @rpc("authority", "call_remote", "reliable", 0)
-func cl_spawn_bullet(bullet_id: int, pos: Vector3, velocity: Vector3) -> void:
+func cl_spawn_bullet(bullet_id: int, firing_peer_id: int, pos: Vector3, velocity: Vector3) -> void:
 	if multiplayer.is_server():
 		return
 
-	_spawner.record_net_recv("projectile", [bullet_id, pos, velocity])
+	_spawner.record_net_recv("projectile", [bullet_id, firing_peer_id, pos, velocity])
 	var bullet := BULLET_SCENE.instantiate() as Bullet
 	_projectiles.add_child(bullet)
-	bullet.init_replica(pos, velocity)
-	_active_bullet_visuals[bullet_id] = bullet
+	bullet.init_replica(_client_muzzle_position(firing_peer_id, pos), velocity)
+	_remote_bullets[bullet_id] = bullet
+
+
+# Place the visual replica at the firing plane's locally-rendered muzzle
+# (interpolated for remote planes, predicted for the local player) so bullets
+# emanate from the visible gun instead of the server's authoritative position,
+# which the client renders ~REMOTE_INTERPOLATION_DELAY behind. Velocity stays
+# server-authoritative, so aim/lead is unchanged. Falls back to the server
+# position if the firing plane isn't resolvable on this client.
+func _client_muzzle_position(firing_peer_id: int, fallback: Vector3) -> Vector3:
+	var plane: Node3D = _spawner.get_character(firing_peer_id)
+	if plane == null or not is_instance_valid(plane):
+		return fallback
+	var autocannon = plane.get_autocannon_component()
+	if autocannon == null or not is_instance_valid(autocannon):
+		return fallback
+	return autocannon.get_launch_position(plane)
 
 
 @rpc("authority", "reliable")
@@ -316,7 +332,7 @@ func cl_despawn_bullet(bullet_id: int, hit: bool, pos: Vector3) -> void:
 		return
 
 	_spawner.record_net_recv("projectile", [bullet_id, hit, pos])
-	var visual = _active_bullet_visuals.get(bullet_id)
+	var visual = _remote_bullets.get(bullet_id)
 	if visual != null and is_instance_valid(visual):
 		visual.despawn(pos, hit)
-	_active_bullet_visuals.erase(bullet_id)
+	_remote_bullets.erase(bullet_id)

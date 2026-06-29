@@ -6,7 +6,7 @@ The autocannon is a short-range, hits-by-contact weapon built from four layers:
 
 1. **Fire control** in `scripts/autocannon.gd`
 2. **Authoritative projectile simulation** in `scripts/bullet.gd`
-3. **Client-side visual replication** in `scripts/bullet_visual.gd`
+3. **Client-side visual replication** via collision-disabled `Bullet` replicas (`Bullet.init_replica()`)
 4. **Bot fire gating** in `scripts/plane_bot_pilot.gd`
 
 The system is **server authoritative** in multiplayer:
@@ -103,10 +103,8 @@ That means:
 | File | Role |
 |---|---|
 | `scripts/autocannon.gd` | fire control, cooldown, lead solve, local fire path |
-| `scripts/bullet.gd` | real bullet simulation and hit processing |
-| `scripts/bullet_visual.gd` | client visual-only bullet replica |
-| `scenes/bullet.tscn` | real bullet physics body and mesh setup |
-| `scenes/bullet_visual.tscn` | visual-only bullet scene |
+| `scripts/bullet.gd` | real bullet simulation, hit processing, and client replicas |
+| `scenes/bullet.tscn` | bullet physics body and mesh setup (used for real and replica) |
 | `scripts/world_character_spawner.gd` | server fire authority and spawn/despawn replication |
 | `scripts/plane_bot_pilot.gd` | bot fire gating |
 | `scripts/bot_duel_scene.gd` | duel-scene bot autocannon overrides |
@@ -322,42 +320,20 @@ This scene sets the real projectile physics model.
 
 ---
 
-## `scripts/bullet_visual.gd`
+## Client bullet replicas
 
-This is the client-only straight-line visual counterpart to `Bullet`.
+Clients do not run the authoritative bullet. On `cl_spawn_bullet` they
+instantiate `scenes/bullet.tscn` and call `Bullet.init_replica(pos, velocity)`,
+which disables collision and contact monitoring and flies the round in a
+straight line from the replicated spawn state. On `cl_despawn_bullet` they call
+`Bullet.despawn(pos, hit)` to play the impact effect and let the trail linger.
 
-## Constants
-
-| Name | Meaning |
-|---|---|
-| `TRAIL_SCENE` | Packed scene used for the visual trail. |
-
-## Exports
-
-| Export | Default | Meaning |
-|---|---|---|
-| `trail_lifespan` | `0.05` | Lifetime of trail segments while visual is alive. |
-| `trail_ttl_after_death` | `0.5` | How long the trail lingers after despawn. |
-
-## Runtime state
-
-| Variable | Meaning |
-|---|---|
-| `_velocity` | Straight-line velocity replicated from the server. |
-| `_trail` | Spawned trail instance. |
-
-## Functions
-
-| Function | Meaning |
-|---|---|
-| `init(pos, vel)` | Initializes replicated spawn position and velocity. |
-| `_process(delta)` | Moves the visual in a straight line and keeps it aligned to velocity. |
-| `despawn(hit_pos)` | Moves to final position, lets the trail linger, then frees. |
-| `_spawn_trail()` | Creates the visual trail. |
+See the `scripts/bullet.gd` section above for the replica entry points
+(`init_replica`, `despawn`).
 
 ---
 
-## Multiplayer hooks in `scripts/world_character_spawner.gd`
+## Multiplayer hooks in `scripts/projectile_net_replicator.gd`
 
 ## Server-side state
 
@@ -367,7 +343,7 @@ This is the client-only straight-line visual counterpart to `Bullet`.
 | `_gun_cooldowns` | Per-peer authoritative cooldown timers. |
 | `_active_bullets` | Server-owned real bullets by bullet id. |
 | `_next_bullet_id` | Monotonic bullet id counter for replication. |
-| `_active_bullet_visuals` | Client-side visual replicas by bullet id. |
+| `_remote_bullets` | Client-side bullet replicas by bullet id. |
 
 ## Important functions
 

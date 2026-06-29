@@ -13,12 +13,13 @@ const BULLET_SCENE := preload("res://scenes/bullet.tscn")
 
 var _cooldown_remaining: float = 0.0
 var _projectiles_container: Node = null
+var _projectile_net: Node = null
 
 
 func _ready() -> void:
-	var projectile_net = _find_projectile_net()
-	if projectile_net != null:
-		_projectiles_container = projectile_net.get_projectiles_container()
+	_projectile_net = _resolve_projectile_net()
+	if _projectile_net != null:
+		_projectiles_container = _projectile_net.get_projectiles_container()
 		if _projectiles_container != null:
 			return
 
@@ -35,7 +36,7 @@ func _process(delta: float) -> void:
 	var plane := get_parent() as Node3D
 	if plane == null or not is_instance_valid(plane):
 		return
-	if plane == null or not plane.is_in_group("plane_character") or not _is_local_player(plane):
+	if not plane.is_in_group("plane_character") or not _is_local_player(plane):
 		return
 	if plane.is_shot_down:
 		return
@@ -64,40 +65,39 @@ func _try_fire(plane: Node3D) -> void:
 		if desired_target.is_in_group("plane_character"):
 			target_peer_id = desired_target.peer_id
 
-	var aim_direction := compute_aim_direction(
-		plane,
-		desired_target,
-		bullet_speed,
-		lead_cone_half_angle_deg
-	)
-
 	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
-		var projectile_net = _find_projectile_net()
+		var projectile_net = _get_projectile_net()
 		if projectile_net != null:
 			var spawner = WorldCharacterSpawner.find_in_tree(self)
 			if spawner != null:
 				spawner.record_net_send("projectile", [multiplayer.get_unique_id(), target_peer_id])
 			projectile_net.sv_request_fire_autocannon.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
 		else:
-			_fire_local(plane, aim_direction)
+			_fire_local(plane, desired_target)
 	elif multiplayer.multiplayer_peer != null and multiplayer.is_server():
-		var projectile_net = _find_projectile_net()
+		var projectile_net = _get_projectile_net()
 		var firing_peer_id = plane.peer_id
 		if projectile_net != null:
 			projectile_net.fire_autocannon(plane, firing_peer_id, target_peer_id)
 		else:
-			_fire_local(plane, aim_direction)
+			_fire_local(plane, desired_target)
 	else:
-		var projectile_net = _find_projectile_net()
+		var projectile_net = _get_projectile_net()
 		if projectile_net != null:
 			projectile_net.fire_autocannon(plane, plane.peer_id, target_peer_id)
 		else:
-			_fire_local(plane, aim_direction)
+			_fire_local(plane, desired_target)
 
 	_cooldown_remaining = fire_cooldown
 
 
-func _fire_local(plane: Node3D, aim_direction: Vector3) -> void:
+func _fire_local(plane: Node3D, desired_target: Node3D) -> void:
+	var aim_direction := compute_aim_direction(
+		plane,
+		desired_target,
+		bullet_speed,
+		lead_cone_half_angle_deg
+	)
 	var bullet = BULLET_SCENE.instantiate()
 	bullet.shooter = plane
 	bullet.damage = damage
@@ -106,10 +106,10 @@ func _fire_local(plane: Node3D, aim_direction: Vector3) -> void:
 	if plane is RigidBody3D:
 		inherited_velocity = (plane as RigidBody3D).linear_velocity
 	var launch_velocity := aim_direction * bullet_speed + inherited_velocity
-	bullet.initialize_launch(get_and_advance_launch_position(plane), launch_velocity)
+	bullet.initialize_launch(get_launch_position(plane), launch_velocity)
 
 
-func get_and_advance_launch_position(plane: Node3D) -> Vector3:
+func get_launch_position(plane: Node3D) -> Vector3:
 	var basis := plane.global_transform.basis
 	var origin := plane.global_position
 	origin += basis.x * launch_lateral_offset
@@ -134,8 +134,6 @@ static func compute_aim_direction(
 	var relative_position := target.global_position - plane.global_position
 	var relative_velocity := target_velocity - plane_velocity
 	var raw_direction := _compute_intercept_direction(
-		plane.global_position,
-		target.global_position,
 		relative_position,
 		relative_velocity,
 		projectile_speed
@@ -144,8 +142,6 @@ static func compute_aim_direction(
 
 
 static func _compute_intercept_direction(
-	_plane_position: Vector3,
-	_target_position: Vector3,
 	relative_position: Vector3,
 	relative_velocity: Vector3,
 	projectile_speed: float
@@ -209,7 +205,14 @@ func _is_local_player(plane: Node3D) -> bool:
 	return plane.is_local_player
 
 
-func _find_projectile_net() -> Node:
+func _get_projectile_net() -> Node:
+	if _projectile_net != null and is_instance_valid(_projectile_net):
+		return _projectile_net
+	_projectile_net = _resolve_projectile_net()
+	return _projectile_net
+
+
+func _resolve_projectile_net() -> Node:
 	var world_nodes := get_tree().get_nodes_in_group("world_character_spawner")
 	if world_nodes.is_empty():
 		return null

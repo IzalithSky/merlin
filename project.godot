@@ -131,6 +131,7 @@ toggle_camera_view={
 [physics]
 
 3d/physics_engine="Jolt Physics"
+jolt_physics_3d/limits/max_linear_velocity=2000.0
 
 [rendering]
 
