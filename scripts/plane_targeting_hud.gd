@@ -195,6 +195,10 @@ func _get_candidates() -> Array[Node3D]:
 		if bool(node.get("is_shot_down")):
 			continue
 		result.append(node as Node3D)
+	for node in get_tree().get_nodes_in_group("missile"):
+		if not is_instance_valid(node):
+			continue
+		result.append(node as Node3D)
 	return result
 
 

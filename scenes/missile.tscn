@@ -1,8 +1,9 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/missile.gd" id="1_missile"]
 [ext_resource type="PackedScene" path="res://scenes/explosion.tscn" id="2_explosion"]
 [ext_resource type="AudioStream" path="res://sounds/underwater_or_space_engine.ogg" id="3_engine_sound"]
+[ext_resource type="Script" path="res://scripts/missile_lockable_target.gd" id="4_missile_lockable"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_missile"]
 size = Vector3(1.2, 4.0, 0.4)
@@ -41,3 +42,6 @@ pitch_scale = 8.0
 autoplay = true
 max_distance = 2000.0
 doppler_tracking = 2
+
+[node name="LockableTarget" type="Node" parent="."]
+script = ExtResource("4_missile_lockable")

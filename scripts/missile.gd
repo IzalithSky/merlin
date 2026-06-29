@@ -29,6 +29,9 @@ var host: RigidBody3D = null
 @onready var _engine_sound: AudioStreamPlayer3D = $EngineSound
 var _is_replica := false
 
+var missile_target_id: int = -1
+var _lockable_registered := false
+
 var _time_since_launch: float = 0.0
 var _time_since_target_lost: float = 0.0
 var _had_target: bool = false
@@ -168,7 +171,45 @@ func _die() -> void:
 	queue_free()
 
 
+func setup_as_lockable(id: int) -> void:
+	missile_target_id = id
+	var lockable := get_node_or_null("LockableTarget")
+	if lockable == null:
+		return
+	var registry := _find_target_registry()
+	if registry != null:
+		registry.register_target(lockable)
+		_lockable_registered = true
+
+
+func _unregister_lockable() -> void:
+	if not _lockable_registered:
+		return
+	_lockable_registered = false
+	var lockable := get_node_or_null("LockableTarget")
+	if lockable == null:
+		return
+	var registry := _find_target_registry()
+	if registry != null:
+		registry.unregister_target(lockable)
+
+
+func _find_target_registry() -> TargetRegistry:
+	if get_tree() == null:
+		return null
+	var spawner_nodes := get_tree().get_nodes_in_group("world_character_spawner")
+	if not spawner_nodes.is_empty():
+		var spawner = spawner_nodes[0]
+		if spawner != null and is_instance_valid(spawner):
+			return spawner.get_target_registry() as TargetRegistry
+	var current_scene := get_tree().current_scene
+	if current_scene == null:
+		return null
+	return current_scene.get_node_or_null("TargetRegistry") as TargetRegistry
+
+
 func _exit_tree() -> void:
+	_unregister_lockable()
 	if _engine_sound == null:
 		return
 	_engine_sound.stop()

@@ -61,22 +61,26 @@ func _physics_process(delta: float) -> void:
 
 
 func _on_projectile_entered(node: Node) -> void:
-	if multiplayer.multiplayer_peer == null or not multiplayer.is_server():
-		return
-
 	var missile := node as Missile
 	if missile == null:
+		return
+	# Clients receive missiles via cl_spawn_missile; only the authority assigns ids here.
+	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
 		return
 
 	var missile_id := _next_missile_id
 	_next_missile_id += 1
 	_active_missiles[missile_id] = missile
+	missile.setup_as_lockable(missile_id)
 	var velocity := missile.linear_velocity
 	var target_ref := _get_target_ref(missile.target)
 
 	missile.died.connect(
 		func(exploded: bool, pos: Vector3) -> void: _on_missile_died(missile_id, exploded, pos)
 	)
+
+	if multiplayer.multiplayer_peer == null:
+		return
 
 	for peer_id in multiplayer.get_peers():
 		if _spawner.is_peer_world_ready(peer_id):
@@ -265,6 +269,7 @@ func cl_spawn_missile(missile_id: int, transform_value: Transform3D, velocity: V
 	var missile := MISSILE_SCENE.instantiate() as Missile
 	_projectiles.add_child(missile)
 	missile.init_replica(transform_value, velocity, _resolve_remote_missile_target(target_kind, target_id))
+	missile.setup_as_lockable(missile_id)
 	_remote_missiles[missile_id] = missile
 
 
