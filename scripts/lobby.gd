@@ -259,7 +259,7 @@ func compose_world_scene(world_root: Node) -> void:
 		return
 
 	var match_systems := MATCH_SYSTEMS_SCENE.instantiate()
-	var controller := match_systems.get_node_or_null("MissionMobController")
+	var controller := match_systems.get_node_or_null("MissionController")
 	if controller != null and controller.has_method("set_mission_config_path"):
 		controller.call("set_mission_config_path", _resolve_mission_config_path())
 	world_root.add_child(match_systems, true)

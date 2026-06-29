@@ -1,5 +1,7 @@
 {
   "name": "default",
+  "required_score": 6,
+  "mission_time_limit_sec": 240,
   "areas": {
     "battlefield": {
       "center": [0, 0, 0],

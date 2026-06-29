@@ -1,8 +1,12 @@
-class_name MissionMobController
+class_name MissionController
 extends Node3D
 
 const DEFAULT_PLANE_SPEED := 100.0
 const DEFAULT_ZEPPELIN_SPEED := 30.0
+const SINGLE_PLAYER_MATCH_HUD_SCENE := preload("res://scenes/single_player_match_hud.tscn")
+const SINGLE_PLAYER_END_STATE_DELAY_SEC := 8.0
+const SINGLE_PLAYER_GAME_OVER_TITLE := "Game Over"
+const SINGLE_PLAYER_VICTORY_TITLE := "Victory"
 const TERRAIN_RAY_HEIGHT := 5000.0
 const GROUND_AA_SCENE := preload("res://scenes/ground_aa_unit.tscn")
 const GROUND_SAM_SCENE := preload("res://scenes/ground_sam_unit.tscn")
@@ -18,19 +22,34 @@ const AIR_MOB_SCENES := {
 }
 
 @export var mission_config_path := ""
+@export var required_score: int = 0
+@export var mission_time_limit_sec: float = 0.0
 
 var _spawner: WorldCharacterSpawner = null
 var _bootstrapped := false
 var _mission_config: Dictionary = {}
 var _rng := RandomNumberGenerator.new()
 var _spawned_nodes: Array[Node] = []
+var _single_player_match_hud
+var _single_player_end_state_timer: Timer = null
+var _pending_single_player_end_state_title := ""
+var _single_player_rules_active := false
+var _single_player_score := 0
+var _single_player_time_remaining_sec := 0.0
+var _single_player_tracked_hostiles: Dictionary = {}
 @onready var _mobs: Node3D = get_node_or_null("../mobs") as Node3D
+@onready var _systems_root: Node = get_parent()
+@onready var _game_menu: CanvasLayer = _systems_root.get_node_or_null("ui") as CanvasLayer
 
 
 func _ready() -> void:
-	add_to_group("mission_mob_controller")
+	add_to_group("mission_controller")
 	_rng.randomize()
 	call_deferred("_bootstrap_default_session")
+
+
+func _process(delta: float) -> void:
+	_update_single_player_timer(delta)
 
 
 func set_mission_config_path(path: String) -> void:
@@ -52,6 +71,8 @@ func load_mission_file(path: String) -> Error:
 
 func load_mission(config: Dictionary) -> void:
 	_mission_config = config.duplicate(true)
+	required_score = int(_mission_config.get("required_score", required_score))
+	mission_time_limit_sec = float(_mission_config.get("mission_time_limit_sec", mission_time_limit_sec))
 	if _mission_config.has("seed"):
 		_rng.seed = int(_mission_config["seed"])
 	else:
@@ -221,6 +242,9 @@ func _bootstrap_default_session() -> void:
 	_bootstrapped = true
 	_bootstrap_players()
 	_bootstrap_mobs()
+	if multiplayer.multiplayer_peer == null:
+		_ensure_single_player_match_hud()
+		_setup_single_player_rules()
 
 
 func _find_spawner() -> WorldCharacterSpawner:
@@ -473,6 +497,157 @@ func _apply_player_spec_to_character(peer_id: int, spec: Dictionary) -> void:
 		return
 	if spec.has("team") and _has_property(character, "team_id"):
 		character.set("team_id", int(spec.get("team", 1)))
+
+
+func _ensure_single_player_match_hud() -> void:
+	if _single_player_match_hud == null:
+		_single_player_match_hud = SINGLE_PLAYER_MATCH_HUD_SCENE.instantiate()
+		_systems_root.add_child(_single_player_match_hud)
+	if _single_player_match_hud.has_method("set_mission_controller"):
+		_single_player_match_hud.call("set_mission_controller", self)
+
+
+func _setup_single_player_rules() -> void:
+	if _spawner == null:
+		return
+	var local_character := _spawner.get_character(1)
+	if local_character == null:
+		return
+	_single_player_rules_active = true
+	_single_player_score = 0
+	_single_player_time_remaining_sec = maxf(mission_time_limit_sec, 0.0)
+	_single_player_tracked_hostiles.clear()
+	_pending_single_player_end_state_title = ""
+
+	var local_health := _get_health_component_for_node(local_character)
+	if local_health != null:
+		var player_shot_down_callback := Callable(self, "_on_single_player_local_shot_down")
+		if not local_health.shot_down.is_connected(player_shot_down_callback):
+			local_health.shot_down.connect(player_shot_down_callback)
+
+	for enemy in _collect_single_player_hostile_targets(local_character):
+		_single_player_tracked_hostiles[enemy.get_instance_id()] = enemy
+		var enemy_health := _get_health_component_for_node(enemy)
+		if enemy_health == null:
+			continue
+		var enemy_shot_down_callback := Callable(self, "_on_single_player_enemy_shot_down").bind(enemy)
+		if not enemy_health.shot_down.is_connected(enemy_shot_down_callback):
+			enemy_health.shot_down.connect(enemy_shot_down_callback)
+
+
+func _update_single_player_timer(delta: float) -> void:
+	if not _single_player_rules_active:
+		return
+	if not _pending_single_player_end_state_title.is_empty():
+		return
+	if mission_time_limit_sec <= 0.0:
+		return
+	_single_player_time_remaining_sec = maxf(_single_player_time_remaining_sec - delta, 0.0)
+	if _single_player_time_remaining_sec <= 0.0:
+		_schedule_single_player_end_state(SINGLE_PLAYER_GAME_OVER_TITLE)
+
+
+func _collect_single_player_hostile_targets(local_character: Node3D) -> Array[Node3D]:
+	var hostiles: Array[Node3D] = []
+	var current_scene := get_tree().current_scene
+	if current_scene == null:
+		return hostiles
+	_append_single_player_hostile_targets(current_scene, local_character, hostiles)
+	return hostiles
+
+
+func _append_single_player_hostile_targets(node: Node, local_character: Node3D, hostiles: Array[Node3D]) -> void:
+	var candidate := node as Node3D
+	if candidate != null and candidate != local_character and _is_single_player_hostile_target(candidate, local_character):
+		hostiles.append(candidate)
+	for child in node.get_children():
+		_append_single_player_hostile_targets(child, local_character, hostiles)
+
+
+func _is_single_player_hostile_target(candidate: Node3D, local_character: Node3D) -> bool:
+	if not _has_property(candidate, "team_id") or not _has_property(candidate, "is_shot_down"):
+		return false
+	if bool(candidate.get("is_shot_down")):
+		return false
+	var health := _get_health_component_for_node(candidate)
+	if health == null:
+		return false
+	var local_team_id := int(local_character.get("team_id"))
+	var candidate_team_id := int(candidate.get("team_id"))
+	if local_team_id > 0 and candidate_team_id > 0 and candidate_team_id == local_team_id:
+		return false
+	return true
+
+
+func _get_health_component_for_node(node: Node) -> Health:
+	if node == null:
+		return null
+	if node.has_method("get_health_component"):
+		return node.call("get_health_component") as Health
+	return node.get_node_or_null("Health") as Health
+
+
+func _on_single_player_local_shot_down() -> void:
+	_schedule_single_player_end_state(SINGLE_PLAYER_GAME_OVER_TITLE)
+
+
+func _on_single_player_enemy_shot_down(enemy: Node3D) -> void:
+	var enemy_id := enemy.get_instance_id()
+	if not _single_player_tracked_hostiles.has(enemy_id):
+		return
+	_single_player_tracked_hostiles.erase(enemy_id)
+	_single_player_score += 1
+	if _has_single_player_score_victory():
+		_schedule_single_player_end_state(SINGLE_PLAYER_VICTORY_TITLE)
+		return
+	if _single_player_tracked_hostiles.size() > 0:
+		return
+	_schedule_single_player_end_state(SINGLE_PLAYER_VICTORY_TITLE)
+
+
+func _has_single_player_score_victory() -> bool:
+	return required_score > 0 and _single_player_score >= required_score
+
+
+func _schedule_single_player_end_state(title: String) -> void:
+	if not _pending_single_player_end_state_title.is_empty():
+		return
+	_pending_single_player_end_state_title = title
+	if _single_player_end_state_timer == null:
+		_single_player_end_state_timer = Timer.new()
+		_single_player_end_state_timer.one_shot = true
+		_single_player_end_state_timer.process_mode = Node.PROCESS_MODE_ALWAYS
+		_single_player_end_state_timer.timeout.connect(_on_single_player_end_state_timeout)
+		add_child(_single_player_end_state_timer)
+	_single_player_end_state_timer.wait_time = SINGLE_PLAYER_END_STATE_DELAY_SEC
+	_single_player_end_state_timer.start()
+
+
+func _on_single_player_end_state_timeout() -> void:
+	if _pending_single_player_end_state_title.is_empty():
+		return
+	if _game_menu != null and _game_menu.has_method("show_end_state"):
+		_game_menu.call("show_end_state", _pending_single_player_end_state_title)
+
+
+func is_single_player_session() -> bool:
+	return _single_player_rules_active
+
+
+func get_single_player_score() -> int:
+	return _single_player_score
+
+
+func get_single_player_victory_score() -> int:
+	return max(required_score, 0)
+
+
+func has_single_player_time_limit() -> bool:
+	return _single_player_rules_active and mission_time_limit_sec > 0.0
+
+
+func get_single_player_time_remaining_sec() -> float:
+	return maxf(_single_player_time_remaining_sec, 0.0)
 
 
 func _has_property(node: Object, property_name: String) -> bool:
