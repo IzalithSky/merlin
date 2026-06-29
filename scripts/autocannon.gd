@@ -57,34 +57,33 @@ func try_fire() -> void:
 
 func _try_fire(plane: Node3D) -> void:
 	var desired_target: Node3D = null
-	var target_peer_id := -1
 	var weapon_lock = plane.get_weapon_lock_component()
 	if weapon_lock != null and is_instance_valid(weapon_lock):
 		desired_target = weapon_lock.get_desired_target()
-	if desired_target != null and is_instance_valid(desired_target):
-		if desired_target.is_in_group("plane_character"):
-			target_peer_id = desired_target.peer_id
+	var target_ref := _get_target_ref(desired_target)
+	var target_kind := target_ref.x
+	var target_id := target_ref.y
 
 	if multiplayer.multiplayer_peer != null and not multiplayer.is_server():
 		var projectile_net = _get_projectile_net()
 		if projectile_net != null:
 			var spawner = WorldCharacterSpawner.find_in_tree(self)
 			if spawner != null:
-				spawner.record_net_send("projectile", [multiplayer.get_unique_id(), target_peer_id])
-			projectile_net.sv_request_fire_autocannon.rpc_id(1, multiplayer.get_unique_id(), target_peer_id)
+				spawner.record_net_send("projectile", [multiplayer.get_unique_id(), target_kind, target_id])
+			projectile_net.sv_request_fire_autocannon.rpc_id(1, multiplayer.get_unique_id(), target_kind, target_id)
 		else:
 			_fire_local(plane, desired_target)
 	elif multiplayer.multiplayer_peer != null and multiplayer.is_server():
 		var projectile_net = _get_projectile_net()
 		var firing_peer_id = plane.peer_id
 		if projectile_net != null:
-			projectile_net.fire_autocannon(plane, firing_peer_id, target_peer_id)
+			projectile_net.fire_autocannon(plane, firing_peer_id, target_kind, target_id)
 		else:
 			_fire_local(plane, desired_target)
 	else:
 		var projectile_net = _get_projectile_net()
 		if projectile_net != null:
-			projectile_net.fire_autocannon(plane, plane.peer_id, target_peer_id)
+			projectile_net.fire_autocannon(plane, plane.peer_id, target_kind, target_id)
 		else:
 			_fire_local(plane, desired_target)
 
@@ -186,6 +185,15 @@ static func _clamp_direction_to_cone(
 	if axis.length_squared() <= 0.000001:
 		return normalized_nose
 	return normalized_nose.rotated(axis.normalized(), max_angle).normalized()
+
+
+static func _get_target_ref(target: Node3D) -> Vector2i:
+	if target == null or not is_instance_valid(target):
+		return Vector2i(-1, -1)
+	var lockable := target.get_node_or_null("LockableTarget") as LockableTarget
+	if lockable == null:
+		return Vector2i(-1, -1)
+	return Vector2i(lockable.get_target_kind(), lockable.get_target_id())
 
 
 static func _get_replication_aware_velocity(body: Node3D) -> Vector3:

@@ -37,8 +37,8 @@ func fire_missile(firing_plane: Node3D, locked_target: Node3D) -> void:
 	_server_fire_missile(firing_plane, locked_target)
 
 
-func fire_autocannon(plane: Node3D, firing_peer_id: int, target_peer_id: int = -1) -> void:
-	_server_fire_autocannon(plane, firing_peer_id, target_peer_id)
+func fire_autocannon(plane: Node3D, firing_peer_id: int, target_kind: int = -1, target_id: int = -1) -> void:
+	_server_fire_autocannon(plane, firing_peer_id, target_kind, target_id)
 
 
 func _physics_process(delta: float) -> void:
@@ -108,12 +108,12 @@ func _server_fire_missile(firing_plane: Node3D, locked_target: Node3D) -> void:
 	missile.add_collision_exception_with(firing_plane)
 
 
-func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_peer_id: int = -1) -> void:
+func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_kind: int = -1, target_id: int = -1) -> void:
 	var autocannon = plane.get_autocannon_component()
 	if autocannon == null or not is_instance_valid(autocannon):
 		return
 
-	var desired_target := _resolve_autocannon_target(plane, target_peer_id)
+	var desired_target := _resolve_autocannon_target(plane, target_kind, target_id)
 	var aim_direction := AUTOCANNON_SCRIPT.compute_aim_direction(
 		plane,
 		desired_target,
@@ -144,14 +144,22 @@ func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_peer_id:
 			cl_spawn_bullet.rpc_id(peer_id, bullet_id, firing_peer_id, bullet.global_position, bullet.linear_velocity)
 
 
-func _resolve_autocannon_target(plane: Node3D, target_peer_id: int) -> Node3D:
-	if target_peer_id < 0:
+func _resolve_autocannon_target(plane: Node3D, target_kind: int, target_id: int) -> Node3D:
+	if target_kind < 0 or target_id < 0:
 		return null
 
-	var target: Node3D = _spawner.get_character(target_peer_id)
-	if target == null or not is_instance_valid(target):
+	var registry = _spawner.get_target_registry()
+	if registry == null or not is_instance_valid(registry):
 		return null
-	if target.is_shot_down:
+
+	var lockable_target = registry.resolve_target(target_kind, target_id)
+	if lockable_target == null or not is_instance_valid(lockable_target):
+		return null
+	if not lockable_target.is_lockable():
+		return null
+
+	var target: Node3D = lockable_target.get_host_node()
+	if target == null or not is_instance_valid(target):
 		return null
 
 	var weapon_lock = plane.get_weapon_lock_component()
@@ -228,10 +236,10 @@ func sv_request_fire_missile(firing_peer_id: int, target_kind: int, target_id: i
 
 
 @rpc("any_peer", "reliable")
-func sv_request_fire_autocannon(firing_peer_id: int, target_peer_id: int) -> void:
+func sv_request_fire_autocannon(firing_peer_id: int, target_kind: int, target_id: int) -> void:
 	if not multiplayer.is_server():
 		return
-	_spawner.record_net_recv("projectile", [firing_peer_id, target_peer_id])
+	_spawner.record_net_recv("projectile", [firing_peer_id, target_kind, target_id])
 	if multiplayer.get_remote_sender_id() != firing_peer_id:
 		return
 
@@ -245,7 +253,7 @@ func sv_request_fire_autocannon(firing_peer_id: int, target_peer_id: int) -> voi
 	if cooldown > 0.0:
 		return
 
-	_server_fire_autocannon(plane, firing_peer_id, target_peer_id)
+	_server_fire_autocannon(plane, firing_peer_id, target_kind, target_id)
 
 
 @rpc("authority", "reliable")
