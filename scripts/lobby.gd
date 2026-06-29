@@ -32,6 +32,7 @@ const MISSION_MODE_LABELS := {
 const SINGLE_PLAYER_MISSION_DEFS: Array[Dictionary] = [
 	{"id": "default", "label": "Combined Arms", "path": "res://data/missions/default.json"},
 	{"id": "interceptor", "label": "Interceptor", "path": "res://data/missions/interceptor.json"},
+	{"id": "random_skirmish", "label": "Random Skirmish", "path": "res://data/missions/random_skirmish.json"},
 ]
 const COOP_MISSION_DEFS: Array[Dictionary] = [
 	{"id": "coop", "label": "Assault", "path": "res://data/missions/coop.json"},

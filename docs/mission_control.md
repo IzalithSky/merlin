@@ -42,6 +42,7 @@ picked from the lobby mission dropdown shown in co-op mode.
 - `seed`: optional RNG seed for area-based random spawns.
 - `terrain`: optional world-level terrain placement config.
 - `areas`: named spawn volumes.
+- `default_mob_area`: named area or inline area used to place mobs that omit `position`/`a`/`area`.
 - `players`: ordered player spawn specs.
 - `mobs`: mission mob specs.
 
@@ -116,23 +117,35 @@ Common fields:
 
 - `type`: mob type, required.
 - `team`: numeric team id.
-- `count`: spawn count, default `1`.
+- `count`: spawn count, default `1`. May be a `[min, max]` range rolled once per spec.
 - `position`: `[x, y, z]`
 - `area`: named area or inline area object
 - `overrides`: property overrides applied after spawn
+
+If a spec omits `position`, `a`, and `area`, the mob is placed at a random point in the
+mission `default_mob_area` (if set); otherwise the spec is skipped.
 
 ### `plane_bot`
 
 Extra fields:
 
-- `yaw`
-- `speed`
+- `yaw`: radians. Omit for a random heading.
+- `speed`: scalar, or a `[min, max]` range rolled per spawn.
 
 Example:
 
 ```json
 { "type": "plane_bot", "team": 2, "position": [500, 1500, -2000], "yaw": 3.1415927, "speed": 100 }
 ```
+
+## Randomization
+
+When mob params are omitted or given as ranges, `MissionController` rolls them on its
+seedable RNG (`seed` top-level param), so spawns vary per match but are reproducible with a
+fixed seed. Rolled/omitted params: `count` (`[min, max]`), `speed` (`[min, max]`), `yaw`
+(omitted → random heading), and position (omitted → random point in `default_mob_area`).
+Rolls happen on the spawn authority (single-player or MP server); spawned nodes replicate to
+clients, so peers stay consistent. See `data/missions/random_skirmish.json`.
 
 ### `zeppelin`
 

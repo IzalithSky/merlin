@@ -1,0 +1,31 @@
+{
+  "name": "random_skirmish",
+  "player_limit": 1,
+  "required_score": 5,
+  "mission_time_limit_sec": 240,
+  "terrain": {
+    "randomize": true,
+    "grid_size": 10000
+  },
+  "areas": {
+    "engagement": {
+      "center": [0, 1700, -1500],
+      "size": [5200, 1000, 4000]
+    }
+  },
+  "default_mob_area": "engagement",
+  "players": [
+    {
+      "position": [0, 1600, 3000],
+      "team": 1,
+      "yaw": 0.0,
+      "speed": 110
+    }
+  ],
+  "mobs": [
+    { "type": "plane_bot", "team": 2, "count": [3, 5], "speed": [100, 130] },
+    { "type": "zeppelin", "team": 2, "count": [1, 2] },
+    { "type": "ground_aa", "team": 2, "count": [2, 4] },
+    { "type": "ground_sam", "team": 2, "count": [1, 2] }
+  ]
+}

@@ -19,7 +19,7 @@ shadow_color = Color(0, 0, 0, 0.45)
 shadow_size = 18
 shadow_offset = Vector2(0, 8)
 
-[node name="MainMenu" type="Control" unique_id=371328810]
+[node name="MainMenu" type="Control"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -28,7 +28,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_7wdu1")
 
-[node name="Background" type="ColorRect" parent="." unique_id=209621042]
+[node name="Background" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -37,7 +37,7 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.004, 0.011, 0.016, 1)
 
-[node name="HorizonGlow" type="ColorRect" parent="." unique_id=115382875]
+[node name="HorizonGlow" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = -1
 anchor_top = 0.62
@@ -47,7 +47,7 @@ grow_horizontal = 2
 grow_vertical = 0
 color = Color(0.118, 0.302, 0.353, 0.38)
 
-[node name="CenterContainer" type="CenterContainer" parent="." unique_id=3028831]
+[node name="CenterContainer" type="CenterContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -55,104 +55,87 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="Panel" type="PanelContainer" parent="CenterContainer" unique_id=110436948]
+[node name="Panel" type="PanelContainer" parent="CenterContainer"]
 custom_minimum_size = Vector2(460, 560)
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
 
-[node name="Margin" type="MarginContainer" parent="CenterContainer/Panel" unique_id=1114745717]
+[node name="Margin" type="MarginContainer" parent="CenterContainer/Panel"]
 layout_mode = 2
 theme_override_constants/margin_left = 40
 theme_override_constants/margin_top = 34
 theme_override_constants/margin_right = 40
 theme_override_constants/margin_bottom = 34
 
-[node name="VBox" type="VBoxContainer" parent="CenterContainer/Panel/Margin" unique_id=576629428]
+[node name="VBox" type="VBoxContainer" parent="CenterContainer/Panel/Margin"]
 layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="Title" type="Label" parent="CenterContainer/Panel/Margin/VBox" unique_id=420623467]
+[node name="Title" type="Label" parent="CenterContainer/Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.835294, 0.968627, 1, 1)
 theme_override_font_sizes/font_size = 48
 text = "MERLIN"
 horizontal_alignment = 1
 
-[node name="Subtitle" type="Label" parent="CenterContainer/Panel/Margin/VBox" unique_id=232741570]
+[node name="Subtitle" type="Label" parent="CenterContainer/Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.545098, 0.721569, 0.760784, 1)
 theme_override_font_sizes/font_size = 15
 text = "terrain flight test"
 horizontal_alignment = 1
 
-[node name="Spacer" type="Control" parent="CenterContainer/Panel/Margin/VBox" unique_id=1767295276]
+[node name="Spacer" type="Control" parent="CenterContainer/Panel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
+
+[node name="SinglePlayerButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Single Player"
+
+[node name="MultiplayerButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Multiplayer"
+
+[node name="ExtrasButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Extras"
+
+[node name="Spacer2" type="Control" parent="CenterContainer/Panel/Margin/VBox"]
 custom_minimum_size = Vector2(0, 8)
 layout_mode = 2
 
-[node name="PresetRow" type="HBoxContainer" parent="CenterContainer/Panel/Margin/VBox" unique_id=1775126217]
-layout_mode = 2
-theme_override_constants/separation = 12
-
-[node name="PresetLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox/PresetRow" unique_id=1430983289]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 17
-text = "Plane Preset"
-
-[node name="PresetOption" type="OptionButton" parent="CenterContainer/Panel/Margin/VBox/PresetRow" unique_id=527778882]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(220, 0)
-layout_mode = 2
-
-[node name="NewGameButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=639683331]
+[node name="PlaneEditorButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
-text = "New Game (Solo)"
+text = "Plane Aero Editor"
 
-[node name="BotDuelButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=1927670255]
+[node name="OptionsButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
-text = "Bot Duel"
+text = "Options"
 
-[node name="BotChaseDebugButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=1782246337]
+[node name="ExitButton" type="Button" parent="CenterContainer/Panel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
-text = "Bot Chase Debug"
+text = "Exit"
 
-[node name="HostButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=774952694]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 52)
-layout_mode = 2
-theme_override_font_sizes/font_size = 20
-text = "Host Game"
-
-[node name="AddressLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox" unique_id=1582091441]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.545098, 0.721569, 0.760784, 1)
-theme_override_font_sizes/font_size = 14
-text = "Join address"
-
-[node name="AddressEdit" type="LineEdit" parent="CenterContainer/Panel/Margin/VBox" unique_id=1448857155]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 42)
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-placeholder_text = "127.0.0.1"
-
-[node name="JoinButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=1076325248]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 52)
-layout_mode = 2
-theme_override_font_sizes/font_size = 20
-text = "Join Game"
-
-[node name="StatusLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox" unique_id=210298916]
+[node name="StatusLabel" type="Label" parent="CenterContainer/Panel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 28)
 layout_mode = 2
@@ -160,78 +143,195 @@ theme_override_colors/font_color = Color(1, 0.623529, 0.356863, 1)
 theme_override_font_sizes/font_size = 14
 autowrap_mode = 3
 
-[node name="PlaneEditorButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=1644272816]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 52)
-layout_mode = 2
-theme_override_font_sizes/font_size = 20
-text = "Plane Aero Editor"
-
-[node name="OptionsButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=1587441110]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 52)
-layout_mode = 2
-theme_override_font_sizes/font_size = 20
-text = "Options"
-
-[node name="ExitButton" type="Button" parent="CenterContainer/Panel/Margin/VBox" unique_id=1071430461]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 52)
-layout_mode = 2
-theme_override_font_sizes/font_size = 20
-text = "Exit"
-
-[node name="MissionSelectPanel" type="PanelContainer" parent="CenterContainer"]
+[node name="SinglePlayerPanel" type="PanelContainer" parent="CenterContainer"]
 unique_name_in_owner = true
 visible = false
 custom_minimum_size = Vector2(460, 560)
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
 
-[node name="Margin" type="MarginContainer" parent="CenterContainer/MissionSelectPanel"]
+[node name="Margin" type="MarginContainer" parent="CenterContainer/SinglePlayerPanel"]
 layout_mode = 2
 theme_override_constants/margin_left = 40
 theme_override_constants/margin_top = 34
 theme_override_constants/margin_right = 40
 theme_override_constants/margin_bottom = 34
 
-[node name="VBox" type="VBoxContainer" parent="CenterContainer/MissionSelectPanel/Margin"]
+[node name="VBox" type="VBoxContainer" parent="CenterContainer/SinglePlayerPanel/Margin"]
 layout_mode = 2
 theme_override_constants/separation = 16
 
-[node name="Title" type="Label" parent="CenterContainer/MissionSelectPanel/Margin/VBox"]
+[node name="Title" type="Label" parent="CenterContainer/SinglePlayerPanel/Margin/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.835294, 0.968627, 1, 1)
 theme_override_font_sizes/font_size = 30
-text = "Select Mission"
+text = "Single Player"
 horizontal_alignment = 1
 
-[node name="MissionSelectHint" type="Label" parent="CenterContainer/MissionSelectPanel/Margin/VBox"]
+[node name="PresetRow" type="HBoxContainer" parent="CenterContainer/SinglePlayerPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PresetLabel" type="Label" parent="CenterContainer/SinglePlayerPanel/Margin/VBox/PresetRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "Plane Preset"
+
+[node name="PresetOption" type="OptionButton" parent="CenterContainer/SinglePlayerPanel/Margin/VBox/PresetRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 0)
+layout_mode = 2
+
+[node name="MissionsHint" type="Label" parent="CenterContainer/SinglePlayerPanel/Margin/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.545098, 0.721569, 0.760784, 1)
 theme_override_font_sizes/font_size = 14
-text = "Solo mission"
-horizontal_alignment = 1
+text = "Mission"
 
-[node name="MissionButtonList" type="VBoxContainer" parent="CenterContainer/MissionSelectPanel/Margin/VBox"]
+[node name="MissionButtonList" type="VBoxContainer" parent="CenterContainer/SinglePlayerPanel/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 12
 
-[node name="MissionBackButton" type="Button" parent="CenterContainer/MissionSelectPanel/Margin/VBox"]
+[node name="SinglePlayerBackButton" type="Button" parent="CenterContainer/SinglePlayerPanel/Margin/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 text = "Back"
 
-[node name="OptionsPanel" parent="CenterContainer" unique_id=571673206 instance=ExtResource("2_options_panel")]
+[node name="MultiplayerPanel" type="PanelContainer" parent="CenterContainer"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(460, 560)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
+
+[node name="Margin" type="MarginContainer" parent="CenterContainer/MultiplayerPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 40
+theme_override_constants/margin_top = 34
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 34
+
+[node name="VBox" type="VBoxContainer" parent="CenterContainer/MultiplayerPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Title" type="Label" parent="CenterContainer/MultiplayerPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.835294, 0.968627, 1, 1)
+theme_override_font_sizes/font_size = 30
+text = "Multiplayer"
+horizontal_alignment = 1
+
+[node name="HostButton" type="Button" parent="CenterContainer/MultiplayerPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Host Game"
+
+[node name="Spacer" type="Control" parent="CenterContainer/MultiplayerPanel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+
+[node name="AddressLabel" type="Label" parent="CenterContainer/MultiplayerPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.545098, 0.721569, 0.760784, 1)
+theme_override_font_sizes/font_size = 14
+text = "Join address"
+
+[node name="AddressEdit" type="LineEdit" parent="CenterContainer/MultiplayerPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+placeholder_text = "127.0.0.1"
+
+[node name="JoinButton" type="Button" parent="CenterContainer/MultiplayerPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Join Game"
+
+[node name="Spacer2" type="Control" parent="CenterContainer/MultiplayerPanel/Margin/VBox"]
+size_flags_vertical = 3
+layout_mode = 2
+
+[node name="MultiplayerBackButton" type="Button" parent="CenterContainer/MultiplayerPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Back"
+
+[node name="ExtrasPanel" type="PanelContainer" parent="CenterContainer"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(460, 560)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
+
+[node name="Margin" type="MarginContainer" parent="CenterContainer/ExtrasPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 40
+theme_override_constants/margin_top = 34
+theme_override_constants/margin_right = 40
+theme_override_constants/margin_bottom = 34
+
+[node name="VBox" type="VBoxContainer" parent="CenterContainer/ExtrasPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Title" type="Label" parent="CenterContainer/ExtrasPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.835294, 0.968627, 1, 1)
+theme_override_font_sizes/font_size = 30
+text = "Extras"
+horizontal_alignment = 1
+
+[node name="ExtrasHint" type="Label" parent="CenterContainer/ExtrasPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.545098, 0.721569, 0.760784, 1)
+theme_override_font_sizes/font_size = 14
+text = "Debug scenes"
+horizontal_alignment = 1
+
+[node name="BotDuelButton" type="Button" parent="CenterContainer/ExtrasPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Bot Duel"
+
+[node name="BotChaseDebugButton" type="Button" parent="CenterContainer/ExtrasPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Bot Chase Debug"
+
+[node name="Spacer" type="Control" parent="CenterContainer/ExtrasPanel/Margin/VBox"]
+size_flags_vertical = 3
+layout_mode = 2
+
+[node name="ExtrasBackButton" type="Button" parent="CenterContainer/ExtrasPanel/Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Back"
+
+[node name="OptionsPanel" parent="CenterContainer" instance=ExtResource("2_options_panel")]
 unique_name_in_owner = true
 visible = false
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_menu_panel")
 
-[node name="KeybindingsPanel" parent="." unique_id=1972562999 instance=ExtResource("3_kbmenu")]
+[node name="KeybindingsPanel" parent="." instance=ExtResource("3_kbmenu")]
 unique_name_in_owner = true
 visible = false

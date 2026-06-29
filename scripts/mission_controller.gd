@@ -3,6 +3,7 @@ extends Node3D
 
 const DEFAULT_PLANE_SPEED := 100.0
 const DEFAULT_ZEPPELIN_SPEED := 30.0
+const DEFAULT_MOB_AREA_KEY := "default_mob_area"
 const SINGLE_PLAYER_MATCH_HUD_SCENE := preload("res://scenes/single_player_match_hud.tscn")
 const SINGLE_PLAYER_END_STATE_DELAY_SEC := 8.0
 const SINGLE_PLAYER_GAME_OVER_TITLE := "Game Over"
@@ -212,7 +213,7 @@ func spawn_from_spec(spec: Dictionary) -> Array[Node]:
 		push_error("Mission mob spec is missing type.")
 		return nodes
 
-	var count := maxi(int(spec.get("count", 1)), 0)
+	var count := _resolve_spec_count(spec)
 	if count <= 0:
 		return nodes
 
@@ -237,8 +238,8 @@ func spawn_from_spec(spec: Dictionary) -> Array[Node]:
 			continue
 
 		if type_id == "plane_bot":
-			var yaw := float(spec.get("yaw", 0.0))
-			var speed := float(spec.get("speed", DEFAULT_PLANE_SPEED))
+			var yaw := _resolve_spec_yaw(spec)
+			var speed := _resolve_spec_speed(spec, DEFAULT_PLANE_SPEED)
 			var bot_node := spawn_plane_bot(int(spec.get("team", 0)), spawn_position as Vector3, yaw, speed, _get_spec_overrides(spec))
 			if bot_node != null:
 				nodes.append(bot_node)
@@ -416,6 +417,41 @@ func random_point_in_area(area: Variant) -> Vector3:
 	)
 
 
+# `count` may be a scalar or a `[min, max]` range that is rolled per spawn.
+func _resolve_spec_count(spec: Dictionary) -> int:
+	var raw: Variant = spec.get("count", 1)
+	if raw is Array:
+		var values: Array = raw
+		if values.size() >= 2:
+			var low := mini(int(values[0]), int(values[1]))
+			var high := maxi(int(values[0]), int(values[1]))
+			return maxi(_rng.randi_range(low, high), 0)
+		if values.size() == 1:
+			return maxi(int(values[0]), 0)
+		return 0
+	return maxi(int(raw), 0)
+
+
+# An omitted `yaw` gives the mob a random heading instead of always facing +0.
+func _resolve_spec_yaw(spec: Dictionary) -> float:
+	if spec.has("yaw"):
+		return float(spec.get("yaw"))
+	return _rng.randf_range(0.0, TAU)
+
+
+# `speed` may be a scalar or a `[min, max]` range rolled per spawn.
+func _resolve_spec_speed(spec: Dictionary, default_speed: float) -> float:
+	var raw: Variant = spec.get("speed", default_speed)
+	if raw is Array:
+		var values: Array = raw
+		if values.size() >= 2:
+			return _rng.randf_range(float(values[0]), float(values[1]))
+		if values.size() == 1:
+			return float(values[0])
+		return default_speed
+	return float(raw)
+
+
 func _read_json(path: String) -> Dictionary:
 	var config := read_mission_config_file(path)
 	if config.is_empty():
@@ -461,9 +497,14 @@ func _resolve_spec_position(spec: Dictionary) -> Variant:
 		return _parse_vector3(spec.get("position"))
 	if spec.has("a"):
 		return _parse_vector3(spec.get("a"))
+	var area: Variant = null
 	if spec.has("area"):
-		var area_position := random_point_in_area(spec.get("area"))
-		if area_position == Vector3.ZERO and _parse_area(spec.get("area")).is_empty():
+		area = spec.get("area")
+	elif _mission_config.has(DEFAULT_MOB_AREA_KEY):
+		area = _mission_config.get(DEFAULT_MOB_AREA_KEY)
+	if area != null:
+		var area_position := random_point_in_area(area)
+		if area_position == Vector3.ZERO and _parse_area(area).is_empty():
 			return null
 		return area_position
 	return null
@@ -594,7 +635,7 @@ func _spawn_air_mob(type_id: String, spec: Dictionary, spawn_position: Vector3) 
 	match type_id:
 		"zeppelin":
 			if not overrides.has("speed") and spec.has("speed"):
-				overrides["speed"] = float(spec.get("speed", DEFAULT_ZEPPELIN_SPEED))
+				overrides["speed"] = _resolve_spec_speed(spec, DEFAULT_ZEPPELIN_SPEED)
 			var point_a: Vector3 = spawn_position
 			if spec.has("a"):
 				var raw_point_a: Variant = _parse_vector3(spec.get("a"))
