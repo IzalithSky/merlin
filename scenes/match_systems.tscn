@@ -13,6 +13,8 @@
 
 [node name="projectiles" type="Node3D" parent="."]
 
+[node name="mobs" type="Node3D" parent="."]
+
 [node name="TargetRegistry" type="Node" parent="."]
 script = ExtResource("1_target_registry")
 

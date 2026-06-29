@@ -1,5 +1,11 @@
 {
   "name": "default",
-  "players": [],
+  "players": [
+    {
+      "position": [0, 1500, 480],
+      "yaw": 0.0,
+      "speed": 100
+    }
+  ],
   "mobs": []
 }

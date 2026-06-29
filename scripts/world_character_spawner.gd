@@ -82,20 +82,20 @@ func _ready() -> void:
 func begin_default_session() -> void:
 	if _session_started:
 		return
-	_session_started = true
-
 	if multiplayer.multiplayer_peer == null:
-		_begin_single_player_session()
+		begin_single_player_session_from_state(_build_radial_spawn_state(0, 1))
 		return
 	if multiplayer.is_server():
-		_begin_server_session()
+		begin_server_session_from_player_specs([])
 
 
-func _begin_single_player_session() -> void:
+func begin_single_player_session_from_state(spawn_state: Dictionary) -> void:
+	if _session_started:
+		return
+	_session_started = true
 	if bot_count < 1:
 		bot_count = 1
 
-	var spawn_state := _build_radial_spawn_state(0, 1)
 	_peer_spawn_states[1] = spawn_state
 	_spawn_character(
 		1,
@@ -109,8 +109,11 @@ func _begin_single_player_session() -> void:
 	_setup_single_player_end_state_tracking()
 
 
-func _begin_server_session() -> void:
-	_register_initial_peers()
+func begin_server_session_from_player_specs(player_specs: Array[Dictionary]) -> void:
+	if _session_started:
+		return
+	_session_started = true
+	_register_initial_peers(player_specs)
 	_spawn_registered_characters_locally()
 	_spawn_bots(true)
 
@@ -185,7 +188,7 @@ func _apply_lobby_bot_count_override() -> void:
 	bot_count = maxi(int(configured_bot_count), 0)
 
 
-func _register_initial_peers() -> void:
+func _register_initial_peers(player_specs: Array[Dictionary] = []) -> void:
 	var peer_ids := _get_lobby_peer_ids()
 	var server_peer_id := multiplayer.get_unique_id()
 	if not peer_ids.has(server_peer_id):
@@ -196,7 +199,15 @@ func _register_initial_peers() -> void:
 	for index in range(player_count):
 		var peer_id: int = peer_ids[index]
 		if not _peer_spawn_states.has(peer_id):
-			_peer_spawn_states[peer_id] = _build_radial_spawn_state(index, player_count)
+			if index < player_specs.size():
+				var spawn_spec: Dictionary = player_specs[index]
+				_peer_spawn_states[peer_id] = _make_spawn_state(
+					spawn_spec["position"],
+					float(spawn_spec.get("yaw", 0.0)),
+					float(spawn_spec.get("speed", _get_spawn_forward_speed()))
+				)
+			else:
+				_peer_spawn_states[peer_id] = _build_radial_spawn_state(index, player_count)
 
 
 func _register_peer(peer_id: int) -> bool:
