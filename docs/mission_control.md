@@ -121,6 +121,7 @@ Common fields:
 - `position`: `[x, y, z]`
 - `area`: named area or inline area object
 - `overrides`: property overrides applied after spawn
+- `pilot_overrides`: `PlaneBotPilot` property overrides for `plane_bot` mobs
 
 If a spec omits `position`, `a`, and `area`, the mob is placed at a random point in the
 mission `default_mob_area` (if set); otherwise the spec is skipped.
@@ -131,11 +132,27 @@ Extra fields:
 
 - `yaw`: radians. Omit for a random heading.
 - `speed`: scalar, or a `[min, max]` range rolled per spawn.
+- `pilot_overrides`: can tune `idle_checkpoint_interval_sec`, `idle_checkpoint_horizontal_separation`, `idle_checkpoint_altitude_separation`, `idle_checkpoint_reach_tolerance`, and `idle_checkpoint_min_terrain_clearance` per bot spec.
+
+Idle checkpoints stay inside the bot spec's `area`. If no explicit area is set, the controller uses `default_mob_area`, then the first valid named mission area.
 
 Example:
 
 ```json
-{ "type": "plane_bot", "team": 2, "position": [500, 1500, -2000], "yaw": 3.1415927, "speed": 100 }
+{
+  "type": "plane_bot",
+  "team": 2,
+  "position": [500, 1500, -2000],
+  "yaw": 3.1415927,
+  "speed": 100,
+  "pilot_overrides": {
+    "idle_checkpoint_interval_sec": 180.0,
+    "idle_checkpoint_horizontal_separation": 1200.0,
+    "idle_checkpoint_altitude_separation": 100.0,
+    "idle_checkpoint_reach_tolerance": 400.0,
+    "idle_checkpoint_min_terrain_clearance": 800.0
+  }
+}
 ```
 
 ## Randomization

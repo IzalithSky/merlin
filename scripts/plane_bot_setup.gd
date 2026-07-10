@@ -8,7 +8,6 @@ static func configure_plane(
 	bot_active: bool,
 	killzone_distance: float,
 	killzone_tolerance: float,
-	default_altitude: float = -1.0,
 	autocannon_fire_max_range: float = -1.0,
 	debug_bot_visuals_enabled: bool = true,
 	team_id_override: int = -1
@@ -24,9 +23,6 @@ static func configure_plane(
 	pilot.killzone_distance = killzone_distance
 	pilot.killzone_tolerance = killzone_tolerance
 	pilot.debug_bot_visuals_enabled = debug_bot_visuals_enabled
-	if default_altitude >= 0.0:
-		pilot.default_altitude = default_altitude
-		pilot.climb_to_altitude(default_altitude)
 	if autocannon_fire_max_range >= 0.0:
 		pilot.autocannon_fire_max_range = autocannon_fire_max_range
 	return pilot

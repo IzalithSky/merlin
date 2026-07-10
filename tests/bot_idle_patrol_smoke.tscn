@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tests/bot_idle_patrol_smoke.gd" id="1_script"]
+
+[node name="BotIdlePatrolSmoke" type="Node3D"]
+script = ExtResource("1_script")
+
+[node name="projectiles" type="Node3D" parent="."]

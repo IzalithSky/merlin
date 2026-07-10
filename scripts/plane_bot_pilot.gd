@@ -9,8 +9,6 @@ enum FlightState {
 	IDLE,
 	SPEED_RECOVERY,
 	SPEED_REDUCTION,
-	ALTITUDE_HOLD,
-	LEVEL_FLIGHT,
 	GROUND_AVOIDANCE,
 	COLLISION_AVOIDANCE,
 	FOLLOW_TARGET,
@@ -28,15 +26,12 @@ const SPEED_RECOVERY_WINGS_LEVEL_MIN_FORWARD_SPEED := 60.0
 const SPEED_RECOVERY_WINGS_LEVEL_MAX_DIVE_ANGLE_DEG := 20.0
 const HALF_THROTTLE_INPUT := 0.0
 const SPEED_REDUCTION_MIN_THROTTLE_INPUT := -1.0
-const SPEED_REDUCTION_PITCH_RESPONSE_RATE := 0.16
-const SPEED_REDUCTION_MAX_NOSE_UP_INPUT := 0.6
-const LEVEL_FLIGHT_PITCH_RESPONSE_RATE := 0.6
-const LEVEL_FLIGHT_VERTICAL_SPEED_GAIN := 0.012
-const ALTITUDE_CAPTURE_TOLERANCE := 10.0
-const ALTITUDE_HOLD_PITCH_RESPONSE_RATE := 0.45
-const ALTITUDE_HOLD_MAX_VERTICAL_SPEED := 20.0
-const ALTITUDE_HOLD_ALTITUDE_GAIN := 0.08
-const ALTITUDE_HOLD_VERTICAL_SPEED_GAIN := 0.025
+const SPEED_REDUCTION_PITCH_RESPONSE_RATE := 0.5
+const SPEED_REDUCTION_MAX_NOSE_UP_INPUT := 0.8
+const DIRECTION_PITCH_RESPONSE_RATE := 0.6
+const ALTITUDE_TRACK_MAX_VERTICAL_SPEED := 20.0
+const ALTITUDE_TRACK_ALTITUDE_GAIN := 0.08
+const ALTITUDE_TRACK_VERTICAL_SPEED_GAIN := 0.025
 const LEVEL_TURN_ROLL_RESPONSE_RATE := 0.9
 const LEVEL_TURN_YAW_RESPONSE_RATE := 0.5
 const LEVEL_TURN_ROLL_GAIN := 1.4
@@ -44,8 +39,9 @@ const WINGS_LEVEL_ROLL_GAIN := 1.2
 const ROLL_RATE_RESPONSE_GAIN := 0.75
 const ROLL_MAX_DESIRED_RATE := 1.8
 const ROLL_RATE_DEADBAND := 2.0 * PI / 180.0
-const CHECKPOINT_ORBIT_RADIAL_CORRECTION := 0.7
-const CHECKPOINT_ORBIT_RADIUS_DEADBAND := 0.05
+const IDLE_CHECKPOINT_GENERATION_ATTEMPTS := 64
+const IDLE_CHECKPOINT_TERRAIN_PROBE_MAX_HITS := 16
+const IDLE_CHECKPOINT_TERRAIN_PROBE_MARGIN := 5000.0
 const TURN_FULL_PULL_ANGLE_RAD := PI * 0.5
 const TURN_PITCH_ANGLE_TO_RATE_GAIN := 0.85
 const TURN_PITCH_RATE_RESPONSE_GAIN := 0.75
@@ -108,15 +104,19 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 @export var reserve_forward_speed: float = 70.0
 @export var max_acceptable_forward_speed: float = 150.0
 @export var speed_reduction_reserve_forward_speed: float = 130.0
-@export var default_altitude: float = 5000.0
 @export var min_ground_clearance: float = 300.0
 @export var ground_clearance_tolerance: float = 25.0
 @export var ground_avoidance_time_to_impact: float = 4.0
 @export var ground_avoidance_closure_rate_for_max_pull: float = 120.0
 @export var ground_avoidance_dive_angle_for_max_pull_deg: float = 35.0
 @export var ground_probe_distance: float = 1000.0
-@export var checkpoint_orbit_radius: float = 500.0
-@export var checkpoint_orbit_direction: float = 1.0
+@export var idle_checkpoint_interval_sec: float = 180.0
+@export var idle_checkpoint_horizontal_separation: float = 1200.0
+@export var idle_checkpoint_altitude_separation: float = 100.0
+@export var idle_checkpoint_reach_tolerance: float = 400.0
+@export var idle_checkpoint_min_terrain_clearance: float = 800.0
+@export var idle_patrol_fallback_center := Vector3(0.0, 1500.0, 0.0)
+@export var idle_patrol_fallback_size := Vector3(6000.0, 2000.0, 6000.0)
 @export var overshoot_closure_tolerance: float = 0.5
 @export var overshoot_throttle_gain: float = 0.08
 @export var killzone_distance: float = 250.0
@@ -131,13 +131,7 @@ const COLLISION_AVOIDANCE_MIN_CLOSING_SPEED := 40.0
 # Throttled logging of the bank-to-turn pitch/roll command vs. orientation, to
 # diagnose the "rolls lift vector on target then pitches down away from it" case.
 @export var debug_turn_logging := false
-@export var checkpoints: Array[Vector3] = [
-	Vector3(0.0, 1500.0, 0.0),
-]
-
 var _plane: PlaneCharacter
-var _altitude_target_active := false
-var _target_altitude := 0.0
 var _flight_state: int = FlightState.IDLE
 var _roll_input := 0.0
 var _pitch_input := 0.0
@@ -146,7 +140,13 @@ var _throttle_input := 0.0
 var _ground_clearance := INF
 var _terrain_ahead_distance := INF
 var _next_ground_probe_time := 0.0
-var _checkpoint_index := 0
+var _idle_patrol_area_min := Vector3.ZERO
+var _idle_patrol_area_max := Vector3.ZERO
+var _idle_patrol_area_configured := false
+var _idle_checkpoint := Vector3.ZERO
+var _idle_checkpoint_active := false
+var _idle_checkpoint_time_remaining := 0.0
+var _idle_rng := RandomNumberGenerator.new()
 var _turn_log_cooldown := 0.0
 var _debug_adapter
 var _engagement
@@ -167,9 +167,10 @@ func _ready() -> void:
 		return
 	_debug_adapter = PLANE_BOT_DEBUG_ADAPTER_SCRIPT.new(self)
 	_engagement = PLANE_BOT_ENGAGEMENT_MODEL_SCRIPT.new(self)
+	_idle_rng.randomize()
 
 	_update_frame_cache()
-	climb_to_altitude(default_altitude)
+	_resolve_idle_patrol_area()
 	_ensure_bot_debug_renderer()
 	_update_bot_debug_renderer_state()
 
@@ -180,6 +181,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_update_frame_cache()
 	_update_follow_target_velocity(delta)
+	_update_idle_checkpoint(delta)
 	_update_flight_controls(delta)
 	_update_weapon_targeting()
 	_update_bot_debug_visuals()
@@ -195,25 +197,6 @@ func _update_frame_cache() -> void:
 	_frame_forward_axis = -_frame_basis.z
 	_frame_forward_speed = _frame_velocity.dot(_frame_forward_axis)
 	_frame_local_angular_velocity = _frame_inverse_basis * _plane.angular_velocity
-
-
-func climb_to_altitude(target_altitude: float) -> void:
-	_target_altitude = target_altitude
-	_altitude_target_active = true
-
-
-func _is_climbing_to_altitude() -> bool:
-	if not _altitude_target_active or _plane == null:
-		return false
-
-	return absf(_target_altitude - _frame_position.y) > ALTITUDE_CAPTURE_TOLERANCE
-
-
-func _get_current_checkpoint() -> Vector3:
-	if not _has_checkpoint():
-		return Vector3.ZERO
-
-	return checkpoints[_get_clamped_checkpoint_index()]
 
 
 func set_follow_target(target: Node3D = null, use_killzone: bool = false) -> void:
@@ -238,10 +221,6 @@ func get_flight_state_name() -> String:
 			return "SPEED_RECOVERY"
 		FlightState.SPEED_REDUCTION:
 			return "SPEED_REDUCTION"
-		FlightState.ALTITUDE_HOLD:
-			return "ALTITUDE_HOLD"
-		FlightState.LEVEL_FLIGHT:
-			return "LEVEL_FLIGHT"
 		FlightState.GROUND_AVOIDANCE:
 			return "GROUND_AVOIDANCE"
 		FlightState.COLLISION_AVOIDANCE:
@@ -280,16 +259,13 @@ func _update_flight_controls(delta: float) -> void:
 			_update_speed_reduction_controls(delta, forward_speed)
 		FlightState.FOLLOW_TARGET:
 			_update_follow_target_controls(delta)
-		FlightState.ALTITUDE_HOLD:
-			_update_altitude_hold_controls(delta)
-		FlightState.LEVEL_FLIGHT:
-			_update_level_flight_controls(delta)
 		_:
 			_update_idle_controls(delta)
 
 
 func _select_flight_state(forward_speed: float) -> int:
 	_update_ground_clearance()
+	var has_follow_target := _has_follow_target()
 	if _should_avoid_ground(_ground_clearance):
 		return FlightState.GROUND_AVOIDANCE
 
@@ -305,19 +281,10 @@ func _select_flight_state(forward_speed: float) -> int:
 	if not _can_track_level(forward_speed):
 		return FlightState.IDLE
 
-	if _has_follow_target():
+	if has_follow_target:
 		return FlightState.FOLLOW_TARGET
 
-	if _altitude_target_active and _is_climbing_to_altitude():
-		return FlightState.ALTITUDE_HOLD
-
-	if _has_checkpoint():
-		return FlightState.IDLE
-
-	if _altitude_target_active:
-		return FlightState.ALTITUDE_HOLD
-
-	return FlightState.LEVEL_FLIGHT
+	return FlightState.IDLE
 
 
 func avoid_ground(delta: float) -> void:
@@ -386,24 +353,6 @@ func _update_speed_reduction_controls(delta: float, forward_speed: float) -> voi
 	)
 
 
-func _update_altitude_hold_controls(delta: float) -> void:
-	_apply_pitch_behavior(
-		delta,
-		_get_altitude_pitch_target(_target_altitude),
-		ALTITUDE_HOLD_PITCH_RESPONSE_RATE,
-		HALF_THROTTLE_INPUT
-	)
-
-
-func _update_level_flight_controls(delta: float) -> void:
-	_apply_pitch_behavior(
-		delta,
-		_get_level_flight_pitch_target(),
-		LEVEL_FLIGHT_PITCH_RESPONSE_RATE,
-		HALF_THROTTLE_INPUT
-	)
-
-
 func _update_follow_target_controls(delta: float) -> void:
 	if not _has_follow_target():
 		_update_idle_controls(delta)
@@ -432,21 +381,21 @@ func _update_follow_target_controls(delta: float) -> void:
 
 
 func _update_idle_controls(delta: float) -> void:
-	if _has_checkpoint():
-		level_turn(delta, _get_current_checkpoint())
+	if _idle_checkpoint_active:
+		turn_toward_direction(
+			delta,
+			_idle_checkpoint - _frame_position,
+			_idle_checkpoint.y,
+			SPEED_RECOVERY_FULL_THROTTLE_INPUT
+		)
 		return
 
 	_apply_pitch_behavior(
 		delta,
 		0.0,
-		LEVEL_FLIGHT_PITCH_RESPONSE_RATE,
-		HALF_THROTTLE_INPUT
+		DIRECTION_PITCH_RESPONSE_RATE,
+		SPEED_RECOVERY_FULL_THROTTLE_INPUT
 	)
-
-
-func level_turn(delta: float, turn_center: Vector3) -> void:
-	var desired_direction := _get_checkpoint_orbit_direction(turn_center)
-	turn_toward_direction(delta, desired_direction, turn_center.y)
 
 
 func turn_toward_direction(
@@ -463,7 +412,7 @@ func turn_toward_direction(
 		_apply_pitch_behavior(
 			delta,
 			_get_turn_altitude_pitch_target(target_altitude),
-			LEVEL_FLIGHT_PITCH_RESPONSE_RATE,
+			DIRECTION_PITCH_RESPONSE_RATE,
 			throttle_target
 		)
 		return
@@ -800,20 +749,15 @@ func _can_track_level(forward_speed: float) -> bool:
 	return forward_speed >= maxf(min_acceptable_forward_speed, 0.0)
 
 
-func _get_level_flight_pitch_target() -> float:
-	var vertical_speed := _frame_velocity.y
-	return vertical_speed * LEVEL_FLIGHT_VERTICAL_SPEED_GAIN
-
-
 func _get_altitude_pitch_target(target_altitude: float) -> float:
 	var altitude_error := target_altitude - _frame_position.y
 	var desired_vertical_speed := clampf(
-		altitude_error * ALTITUDE_HOLD_ALTITUDE_GAIN,
-		-ALTITUDE_HOLD_MAX_VERTICAL_SPEED,
-		ALTITUDE_HOLD_MAX_VERTICAL_SPEED
+		altitude_error * ALTITUDE_TRACK_ALTITUDE_GAIN,
+		-ALTITUDE_TRACK_MAX_VERTICAL_SPEED,
+		ALTITUDE_TRACK_MAX_VERTICAL_SPEED
 	)
 	var vertical_speed_error := desired_vertical_speed - _frame_velocity.y
-	return -vertical_speed_error * ALTITUDE_HOLD_VERTICAL_SPEED_GAIN
+	return -vertical_speed_error * ALTITUDE_TRACK_VERTICAL_SPEED_GAIN
 
 
 func _get_recovery_exit_speed() -> float:
@@ -1038,52 +982,207 @@ func _get_turn_altitude_pitch_target(target_altitude: float) -> float:
 	)
 
 
-func _has_checkpoint() -> bool:
-	return not checkpoints.is_empty()
-
-
-func _get_clamped_checkpoint_index() -> int:
-	if checkpoints.is_empty():
-		return 0
-
-	_checkpoint_index = clampi(_checkpoint_index, 0, checkpoints.size() - 1)
-	return _checkpoint_index
-
-
-func _get_checkpoint_orbit_direction(turn_center: Vector3) -> Vector3:
-	var plane_position := _frame_position
-	var radial_from_center := Vector3(
-		plane_position.x - turn_center.x,
-		0.0,
-		plane_position.z - turn_center.z
+func configure_idle_patrol_area(bounds: Dictionary) -> void:
+	var area_min: Variant = bounds.get("min")
+	var area_max: Variant = bounds.get("max")
+	if not area_min is Vector3 or not area_max is Vector3:
+		return
+	_idle_patrol_area_min = Vector3(
+		minf((area_min as Vector3).x, (area_max as Vector3).x),
+		minf((area_min as Vector3).y, (area_max as Vector3).y),
+		minf((area_min as Vector3).z, (area_max as Vector3).z)
 	)
+	_idle_patrol_area_max = Vector3(
+		maxf((area_min as Vector3).x, (area_max as Vector3).x),
+		maxf((area_min as Vector3).y, (area_max as Vector3).y),
+		maxf((area_min as Vector3).z, (area_max as Vector3).z)
+	)
+	_idle_patrol_area_configured = true
+	_idle_checkpoint_active = false
+	_idle_checkpoint_time_remaining = 0.0
 
-	if radial_from_center.length_squared() <= 0.000001:
-		radial_from_center = _get_horizontal_forward_axis()
+
+func set_idle_checkpoint_random_seed(seed_value: int) -> void:
+	_idle_rng.seed = seed_value
+
+
+func get_idle_checkpoint() -> Vector3:
+	return _idle_checkpoint
+
+
+func _resolve_idle_patrol_area() -> void:
+	if _has_idle_patrol_area() or get_tree() == null:
+		return
+	var controllers := get_tree().get_nodes_in_group("mission_controller")
+	if controllers.is_empty():
+		_configure_fallback_idle_patrol_area()
+		return
+	var controller: Node = controllers[0]
+	if not controller.has_method("get_control_area_bounds"):
+		return
+	var bounds: Variant = controller.call("get_control_area_bounds")
+	if bounds is Dictionary and not (bounds as Dictionary).is_empty():
+		configure_idle_patrol_area(bounds as Dictionary)
 	else:
-		radial_from_center = radial_from_center.normalized()
+		_configure_fallback_idle_patrol_area()
 
-	var orbit_sign := 1.0 if checkpoint_orbit_direction >= 0.0 else -1.0
-	var tangent := Vector3.UP.cross(radial_from_center).normalized() * orbit_sign
-	var horizontal_distance := Vector2(
-		plane_position.x - turn_center.x,
-		plane_position.z - turn_center.z
-	).length()
-	var radius := maxf(checkpoint_orbit_radius, 1.0)
-	var radial_error := clampf(
-		(horizontal_distance - radius) / radius,
-		-1.0,
+
+func _configure_fallback_idle_patrol_area() -> void:
+	var half_size := Vector3(
+		absf(idle_patrol_fallback_size.x),
+		absf(idle_patrol_fallback_size.y),
+		absf(idle_patrol_fallback_size.z)
+	) * 0.5
+	configure_idle_patrol_area({
+		"min": idle_patrol_fallback_center - half_size,
+		"max": idle_patrol_fallback_center + half_size,
+	})
+
+
+func _has_idle_patrol_area() -> bool:
+	return _idle_patrol_area_configured
+
+
+func _update_idle_checkpoint(delta: float) -> void:
+	if _has_follow_target():
+		_idle_checkpoint_active = false
+		_idle_checkpoint_time_remaining = 0.0
+		return
+	if not _has_idle_patrol_area():
+		_resolve_idle_patrol_area()
+		if not _has_idle_patrol_area():
+			return
+
+	if not _idle_checkpoint_active:
+		_idle_checkpoint = _generate_idle_checkpoint(_frame_position)
+		_idle_checkpoint_active = true
+		_idle_checkpoint_time_remaining = maxf(idle_checkpoint_interval_sec, 0.01)
+		return
+	if _has_reached_idle_checkpoint(delta):
+		_idle_checkpoint = _generate_idle_checkpoint(_idle_checkpoint)
+		_idle_checkpoint_time_remaining = maxf(idle_checkpoint_interval_sec, 0.01)
+		return
+
+	_idle_checkpoint_time_remaining -= delta
+	if _idle_checkpoint_time_remaining > 0.0:
+		return
+	_idle_checkpoint = _generate_idle_checkpoint(_idle_checkpoint)
+	_idle_checkpoint_time_remaining = maxf(idle_checkpoint_interval_sec, 0.01)
+
+
+func _has_reached_idle_checkpoint(delta: float) -> bool:
+	var tolerance := maxf(idle_checkpoint_reach_tolerance, 0.0)
+	if _frame_position.distance_squared_to(_idle_checkpoint) <= tolerance * tolerance:
+		return true
+
+	var previous_position := _frame_position - _frame_velocity * maxf(delta, 0.0)
+	var movement_segment := _frame_position - previous_position
+	var segment_length_squared := movement_segment.length_squared()
+	if segment_length_squared <= MIN_DIRECTION_LENGTH_SQUARED:
+		return false
+
+	var projection := clampf(
+		(_idle_checkpoint - previous_position).dot(movement_segment) / segment_length_squared,
+		0.0,
 		1.0
 	)
-	if absf(radial_error) <= CHECKPOINT_ORBIT_RADIUS_DEADBAND:
-		radial_error = 0.0
+	var closest_point := previous_position + movement_segment * projection
+	return closest_point.distance_squared_to(_idle_checkpoint) <= tolerance * tolerance
 
-	var radial_correction := -radial_from_center * radial_error * CHECKPOINT_ORBIT_RADIAL_CORRECTION
-	var desired_direction := tangent + radial_correction
-	if desired_direction.length_squared() <= 0.000001:
-		return tangent
 
-	return desired_direction.normalized()
+func _generate_idle_checkpoint(from_point: Vector3) -> Vector3:
+	var horizontal_separation := maxf(idle_checkpoint_horizontal_separation, 0.0)
+	var altitude_separation := maxf(idle_checkpoint_altitude_separation, 0.0)
+	var best_candidate := from_point
+	var best_score := -INF
+
+	for _attempt in range(IDLE_CHECKPOINT_GENERATION_ATTEMPTS):
+		var candidate := _random_point_in_idle_patrol_area()
+		if not _is_idle_checkpoint_path_clear(from_point, candidate):
+			continue
+		var horizontal_distance := Vector2(candidate.x - from_point.x, candidate.z - from_point.z).length()
+		var altitude_distance := absf(candidate.y - from_point.y)
+		if horizontal_distance >= horizontal_separation and altitude_distance >= altitude_separation:
+			return candidate
+
+		var horizontal_score := 1.0 if horizontal_separation <= 0.0 else minf(horizontal_distance / horizontal_separation, 1.0)
+		var altitude_score := 1.0 if altitude_separation <= 0.0 else minf(altitude_distance / altitude_separation, 1.0)
+		var score := horizontal_score + altitude_score
+		if score > best_score:
+			best_score = score
+			best_candidate = candidate
+
+	if is_finite(best_score):
+		return best_candidate
+
+	var fallback := Vector3(
+		clampf(from_point.x, _idle_patrol_area_min.x, _idle_patrol_area_max.x),
+		maxf(from_point.y, _idle_patrol_area_max.y),
+		clampf(from_point.z, _idle_patrol_area_min.z, _idle_patrol_area_max.z)
+	)
+	return _raise_idle_checkpoint_above_terrain(fallback)
+
+
+func _is_idle_checkpoint_path_clear(from_point: Vector3, to_point: Vector3) -> bool:
+	return _intersect_terrain_ray(from_point, to_point).is_empty()
+
+
+func _intersect_terrain_ray(from_point: Vector3, to_point: Vector3) -> Dictionary:
+	if _plane == null or not _plane.is_inside_tree():
+		return {}
+	var world_ref := _plane.get_world_3d()
+	if world_ref == null:
+		return {}
+
+	var exclusions: Array[RID] = _get_ground_probe_exclusions().duplicate()
+	for _hit_index in range(IDLE_CHECKPOINT_TERRAIN_PROBE_MAX_HITS):
+		var query := PhysicsRayQueryParameters3D.create(from_point, to_point)
+		query.exclude = exclusions
+		query.collide_with_areas = false
+		var hit := world_ref.direct_space_state.intersect_ray(query)
+		if hit.is_empty():
+			return {}
+
+		var collider: Object = hit.get("collider")
+		if collider is Node and (collider as Node).is_in_group("terrain"):
+			return hit
+
+		var hit_rid: RID = hit.get("rid", RID())
+		if not hit_rid.is_valid():
+			return {}
+		exclusions.append(hit_rid)
+
+	return {}
+
+
+func _random_point_in_idle_patrol_area() -> Vector3:
+	var candidate := Vector3(
+		_idle_rng.randf_range(_idle_patrol_area_min.x, _idle_patrol_area_max.x),
+		_idle_rng.randf_range(_idle_patrol_area_min.y, _idle_patrol_area_max.y),
+		_idle_rng.randf_range(_idle_patrol_area_min.z, _idle_patrol_area_max.z)
+	)
+	return _raise_idle_checkpoint_above_terrain(candidate)
+
+
+func _raise_idle_checkpoint_above_terrain(candidate: Vector3) -> Vector3:
+	var ray_top := maxf(candidate.y, _idle_patrol_area_max.y) + IDLE_CHECKPOINT_TERRAIN_PROBE_MARGIN
+	var ray_bottom := minf(candidate.y, _idle_patrol_area_min.y) - IDLE_CHECKPOINT_TERRAIN_PROBE_MARGIN
+	var from_point := Vector3(candidate.x, ray_top, candidate.z)
+	var to_point := Vector3(candidate.x, ray_bottom, candidate.z)
+	var hit := _intersect_terrain_ray(from_point, to_point)
+	if hit.is_empty():
+		return candidate
+
+	var hit_position: Vector3 = hit.get("position", to_point)
+	var required_clearance := maxf(
+		maxf(min_ground_clearance, 0.0),
+		maxf(idle_checkpoint_min_terrain_clearance, 0.0)
+	)
+	return Vector3(
+		candidate.x,
+		maxf(candidate.y, hit_position.y + required_clearance),
+		candidate.z
+	)
 
 
 func _get_horizontal_forward_axis() -> Vector3:

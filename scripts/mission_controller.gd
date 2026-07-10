@@ -37,6 +37,8 @@ const AIR_MOB_SCENES := {
 @export var mission_config_path := ""
 @export var required_score: int = 0
 @export var mission_time_limit_sec: float = 0.0
+@export var fallback_control_area_center := Vector3(0.0, 1500.0, 0.0)
+@export var fallback_control_area_size := Vector3(6000.0, 2000.0, 6000.0)
 
 var _spawner: WorldCharacterSpawner = null
 var _bootstrapped := false
@@ -242,6 +244,7 @@ func spawn_from_spec(spec: Dictionary) -> Array[Node]:
 			var speed := _resolve_spec_speed(spec, DEFAULT_PLANE_SPEED)
 			var bot_node := spawn_plane_bot(int(spec.get("team", 0)), spawn_position as Vector3, yaw, speed, _get_spec_overrides(spec))
 			if bot_node != null:
+				_configure_plane_bot_pilot(bot_node, spec)
 				nodes.append(bot_node)
 			continue
 
@@ -415,6 +418,35 @@ func random_point_in_area(area: Variant) -> Vector3:
 		_rng.randf_range(area_min.y, area_max.y),
 		_rng.randf_range(area_min.z, area_max.z)
 	)
+
+
+func get_control_area_bounds(preferred_area: Variant = null) -> Dictionary:
+	if preferred_area != null:
+		var preferred_bounds := _parse_area(preferred_area)
+		if not preferred_bounds.is_empty():
+			return preferred_bounds
+
+	if _mission_config.has(DEFAULT_MOB_AREA_KEY):
+		var default_bounds := _parse_area(_mission_config.get(DEFAULT_MOB_AREA_KEY))
+		if not default_bounds.is_empty():
+			return default_bounds
+
+	var raw_areas: Variant = _mission_config.get("areas", {})
+	if raw_areas is Dictionary:
+		for area_value in (raw_areas as Dictionary).values():
+			var area_bounds := _parse_area(area_value)
+			if not area_bounds.is_empty():
+				return area_bounds
+
+	var half_size := Vector3(
+		absf(fallback_control_area_size.x),
+		absf(fallback_control_area_size.y),
+		absf(fallback_control_area_size.z)
+	) * 0.5
+	return {
+		"min": fallback_control_area_center - half_size,
+		"max": fallback_control_area_center + half_size,
+	}
 
 
 # `count` may be a scalar or a `[min, max]` range that is rolled per spawn.
@@ -627,6 +659,24 @@ func _get_spec_overrides(spec: Dictionary) -> Dictionary:
 	if overrides is Dictionary:
 		return (overrides as Dictionary).duplicate(true)
 	return {}
+
+
+func _configure_plane_bot_pilot(bot_node: Node, spec: Dictionary) -> void:
+	if not bot_node.has_method("get_bot_pilot"):
+		return
+	var pilot: Node = bot_node.call("get_bot_pilot")
+	if pilot == null:
+		return
+
+	var preferred_area: Variant = spec.get("area", null)
+	var control_bounds := get_control_area_bounds(preferred_area)
+	if not control_bounds.is_empty() and pilot.has_method("configure_idle_patrol_area"):
+		pilot.call("configure_idle_patrol_area", control_bounds)
+
+	var raw_overrides: Variant = spec.get("pilot_overrides", {})
+	if not raw_overrides is Dictionary:
+		return
+	_apply_overrides(pilot, raw_overrides as Dictionary)
 
 
 func _spawn_air_mob(type_id: String, spec: Dictionary, spawn_position: Vector3) -> Node:

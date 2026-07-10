@@ -73,9 +73,7 @@ Each physics tick follows a fixed priority order.
 4. Avoid a closing mid-air collision if one is predicted.
 5. Recover speed if forward speed is below the acceptable band.
 6. Follow the current target when one exists.
-7. Hold requested altitude when no target exists.
-8. Orbit a configured checkpoint when idle.
-9. Fly level as a final fallback.
+7. Fly directly between procedurally generated checkpoints when idle.
 
 Safety and energy management intentionally override mission behavior. The bot should not keep chasing a target while below safe speed or too close to terrain.
 
@@ -174,16 +172,23 @@ Throttle during target follow:
 The bot still steers toward the killzone altitude through pitch. Throttle is not held back just because altitude is not matched.
 
 ## Explicit Targets And Checkpoints
-If a scene explicitly sets a follow target on the pilot, that manual target is still used until an auto-acquired hostile takes over. Without a hostile or manual target, the current idle behavior orbits configured checkpoint positions.
+If a scene explicitly sets a follow target on the pilot, that manual target is still used until an auto-acquired hostile takes over. Without a hostile or manual target, the bot flies directly between generated idle checkpoints.
 
-Checkpoint orbit is a steering behavior:
+Idle checkpoint patrol:
 
-- compute a horizontal radial vector from the checkpoint
-- compute a tangent direction around that radial vector
-- add radial correction toward the orbit radius
-- turn toward the resulting desired direction
+- resolves control bounds from the mission controller
+- generates one checkpoint inside those bounds
+- aims directly at it at full throttle
+- replaces it after reaching the configured tolerance radius or when the time interval expires
+- starts a fresh checkpoint after losing a target
 
-It is intentionally simple and does not model a full autopilot orbit hold.
+Successive checkpoints try to satisfy configured minimum horizontal and altitude separation. If the mission area is too small, the generator selects the candidate that best approaches both constraints. The navigation intent is a polyline rather than an orbit.
+
+Every candidate is vertically raycast against the actual terrain collision mesh. If it is lower than `terrain surface + idle_checkpoint_min_terrain_clearance`, its altitude is raised before the checkpoint is accepted.
+
+The direct segment from the previous checkpoint (or current bot position for the first point) is also raycast against terrain. Occluded candidates are rejected, preventing idle routes from being placed through mountains.
+
+Checkpoint generation is enabled by default. Without a resolved mission controller area, the pilot uses a fallback box centered at `(0, 1500, 0)` with size `(6000, 2000, 6000)`.
 
 ## Turning
 The bot turns by pointing its lift vector toward the desired direction and then pulling.
@@ -220,12 +225,17 @@ As a practical baseline, set `min_acceptable_forward_speed` near the plane's min
 All `@export` fields on `PlaneBotPilot` are set by `PlaneBotSetup` or the bot scene and can be overridden per-bot without touching the script.
 
 ### Altitude and idle
+While idle, the bot commands full throttle unless speed recovery, overspeed reduction, collision avoidance, or ground avoidance takes priority.
+
 | Export | Default | Unit | Role |
 |---|---|---|---|
-| `default_altitude` | 5000 | m | Altitude climbed to at spawn; altitude maintained when no target exists. |
-| `checkpoints` | `[(0, 1500, 0)]` | Array[Vector3] | World positions the bot orbits when idle with no follow target. |
-| `checkpoint_orbit_radius` | 500 | m | Target orbital radius around each checkpoint. |
-| `checkpoint_orbit_direction` | 1.0 | ±1 | Orbit direction: positive = counterclockwise seen from above. |
+| `idle_checkpoint_interval_sec` | 180 | s | Time between generated idle checkpoints. |
+| `idle_checkpoint_horizontal_separation` | 1200 | m | Requested minimum horizontal distance between successive checkpoints. |
+| `idle_checkpoint_altitude_separation` | 100 | m | Requested minimum altitude difference between successive checkpoints. |
+| `idle_checkpoint_reach_tolerance` | 400 | m | Radius at which a checkpoint advances immediately; the swept movement segment is checked so fast bots cannot skip it between ticks. |
+| `idle_checkpoint_min_terrain_clearance` | 800 | m | Minimum checkpoint altitude above the probed terrain mesh. |
+| `idle_patrol_fallback_center` | `(0, 1500, 0)` | m | Center of the fallback patrol box used without a mission area. |
+| `idle_patrol_fallback_size` | `(6000, 2000, 6000)` | m | Size of the fallback patrol box. |
 
 ### Speed recovery and turn limiting
 | Export | Default | Unit | Role |

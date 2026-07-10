@@ -7,6 +7,7 @@ const MIN_ARROW_HEAD_LENGTH := 1.5
 @export var forward_axis_length: float = 90.0
 @export var up_axis_length: float = 60.0
 @export var killzone_marker_radius: float = 28.0
+@export var checkpoint_marker_radius: float = 36.0
 @export var label_min_height: float = 18.0
 @export var label_max_height: float = 90.0
 @export var label_offset_far_range: float = 1000.0
@@ -36,6 +37,8 @@ func update_visuals(
 	killzone_position: Vector3,
 	has_source_target: bool,
 	source_target_position: Vector3,
+	has_idle_checkpoint: bool,
+	idle_checkpoint_position: Vector3,
 	mode_text: String
 ) -> void:
 	if not visible:
@@ -59,6 +62,11 @@ func update_visuals(
 		_append_cross(killzone_position, killzone_marker_radius, Color(1.0, 0.42, 0.05, 1.0))
 		if has_source_target:
 			_append_line(source_target_position, killzone_position, Color(1.0, 0.42, 0.05, 0.9))
+
+	if has_idle_checkpoint:
+		var checkpoint_color := Color(0.95, 0.25, 1.0, 1.0)
+		_append_line(bot_position, idle_checkpoint_position, checkpoint_color)
+		_append_cross(idle_checkpoint_position, checkpoint_marker_radius, checkpoint_color)
 
 	_immediate_mesh.surface_end()
 

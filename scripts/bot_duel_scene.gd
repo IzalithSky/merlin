@@ -9,7 +9,6 @@ const DISPLAY_SETTINGS_APPLIER := preload("res://scripts/display_settings_applie
 @export var spawn_altitude: float = 500.0
 @export var bot_separation: float = 1500.0
 @export var initial_forward_speed: float = 160.0
-@export var bot_default_altitude: float = 2500.0
 @export var bot_killzone_distance: float = 250.0
 @export var bot_killzone_tolerance: float = 150.0
 @export var bot_autocannon_fire_max_range: float = 650.0
@@ -64,7 +63,6 @@ func _configure_bot_pilot(plane: RigidBody3D) -> Node:
 		true,
 		bot_killzone_distance,
 		bot_killzone_tolerance,
-		bot_default_altitude,
 		bot_autocannon_fire_max_range,
 		DisplaySettings.bot_debug_enabled if _has_display_settings() else true,
 		0

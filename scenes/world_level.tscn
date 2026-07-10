@@ -73,7 +73,7 @@ fog_depth_end = 10000.0
 
 [node name="level" type="Node3D" parent="."]
 
-[node name="StaticBody3D" type="StaticBody3D" parent="level"]
+[node name="StaticBody3D" type="StaticBody3D" parent="level" groups=["terrain"]]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4000, 0, 4000)
 
 [node name="Cube_001" type="MeshInstance3D" parent="level/StaticBody3D"]
@@ -92,4 +92,3 @@ environment = SubResource("Environment_7oua0")
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="env"]
 transform = Transform3D(0.803192, 0.303667, -0.512513, 0, 0.860324, 0.509747, 0.59572, -0.409425, 0.691005, 0, 0, 0)
 shadow_enabled = true
-
