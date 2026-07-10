@@ -257,7 +257,7 @@ While idle, the bot commands full throttle unless speed recovery, overspeed redu
 | Export | Default | Unit | Role |
 |---|---|---|---|
 | `hostile_aggro_radius` | 2000 | m | Radius inside which hostile planes build aggro score. |
-| `hostile_aggro_threshold` | 1.0 | score | Score required before the bot auto-selects a hostile target. |
+| `hostile_aggro_threshold` | 10.0 | score | Score required before the bot auto-selects a hostile target; with the default gain this takes 10 seconds. |
 | `hostile_aggro_gain_per_second` | 1.0 | score/s | Aggro growth rate while a hostile remains inside the radius. |
 | `hostile_aggro_decay_per_second` | 1.0 | score/s | Aggro decay rate after a hostile leaves the radius. |
 | `killzone_distance` | 250 | m | Distance behind the target where the bot aims to fly. |
