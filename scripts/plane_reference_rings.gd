@@ -16,12 +16,12 @@ extends MeshInstance3D
 
 const MIN_DIRECTION_LENGTH_SQUARED := 0.000001
 
-var _plane: RigidBody3D
+var _plane: PlaneCharacter
 var _immediate_mesh := ImmediateMesh.new()
 
 
 func _ready() -> void:
-	_plane = get_parent() as RigidBody3D
+	_plane = get_parent() as PlaneCharacter
 	mesh = _immediate_mesh
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	gi_mode = GeometryInstance3D.GI_MODE_DISABLED

@@ -17,7 +17,7 @@ func apply_thrust() -> void:
 	if thrust_force.length_squared() <= 0.0:
 		return
 
-	_plane.apply_central_force(thrust_force)
+	_plane.add_central_force(thrust_force)
 	_plane.set_debug_thrust_force_world(thrust_force)
 	_plane._push_debug_force(_plane.global_position, thrust_force, _plane.DEBUG_COLOR_THRUST)
 
@@ -39,7 +39,7 @@ func apply_plane_torque() -> void:
 	if control_torque_world.length_squared() <= 0.000001 or not control_torque_world.is_finite():
 		return
 
-	_plane.apply_torque(control_torque_world)
+	_plane.add_torque(control_torque_world)
 	_plane._push_debug_torque(_plane.global_position, pitch_yaw_torque_world, _plane.DEBUG_COLOR_PITCH_YAW_FORCE)
 	_plane._push_debug_torque(_plane.global_position, roll_torque_world, _plane.DEBUG_COLOR_ROLL_FORCE)
 
@@ -83,7 +83,7 @@ func apply_aerodynamic_forces() -> void:
 	_plane.set_debug_side_force_world(side_force)
 
 	if aerodynamic_force.is_finite():
-		_plane.apply_central_force(aerodynamic_force)
+		_plane.add_central_force(aerodynamic_force)
 		_plane._push_debug_force(_plane.global_position, lift_force, _plane.DEBUG_COLOR_LIFT)
 		_plane._push_debug_force(_plane.global_position, drag_force, _plane.DEBUG_COLOR_DRAG)
 
@@ -134,18 +134,18 @@ func apply_directional_alignment() -> void:
 
 	if stabilization_torque.length_squared() <= 0.0 or not stabilization_torque.is_finite():
 		return
-	_plane.apply_torque(stabilization_torque)
+	_plane.add_torque(stabilization_torque)
 	_plane._push_debug_torque(_plane.global_position, stabilization_torque, _plane.DEBUG_COLOR_ALIGNMENT_TORQUE)
 
 
 func apply_extra_drag_forces() -> void:
 	var extra_linear_drag_force := _get_extra_linear_drag_force_world()
 	if extra_linear_drag_force.length_squared() > 0.0 and extra_linear_drag_force.is_finite():
-		_plane.apply_central_force(extra_linear_drag_force)
+		_plane.add_central_force(extra_linear_drag_force)
 
 	var angular_drag_torque := _get_extra_angular_drag_torque_world()
 	if angular_drag_torque.length_squared() > 0.0 and angular_drag_torque.is_finite():
-		_plane.apply_torque(angular_drag_torque)
+		_plane.add_torque(angular_drag_torque)
 		_plane._push_debug_torque(_plane.global_position, angular_drag_torque, _plane.DEBUG_COLOR_DAMPING)
 
 	var damping_force := _get_engine_damping_force_world() + extra_linear_drag_force

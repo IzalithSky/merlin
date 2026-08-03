@@ -26,7 +26,7 @@ const KILLZONE_MARKER_SEGMENTS := 32
 @onready var _killzone_marker: Node3D = %KillzoneMarker
 @onready var _score_label: Label = %ScoreLabel
 
-var _bot: RigidBody3D
+var _bot: PlaneCharacter
 var _target_direction := Vector3.FORWARD
 var _score := 0.0
 var _score_rate := 0.0
@@ -49,7 +49,9 @@ var _killzone_marker_mesh_instance: MeshInstance3D
 
 func _ready() -> void:
 	if _has_display_settings():
-		DisplaySettings.settings_changed.connect(_on_display_settings_changed)
+		var display_settings := get_node_or_null("/root/DisplaySettings")
+		if display_settings != null:
+			display_settings.settings_changed.connect(_on_display_settings_changed)
 	_parse_benchmark_args()
 	_spawn_level_and_env()
 	_setup_killzone_marker()
@@ -170,8 +172,8 @@ func _get_bot_spawn_position() -> Vector3:
 	return _dummy_target.global_position + behind_offset + lateral_offset
 
 
-func _spawn_bot(spawn_point: Vector3) -> RigidBody3D:
-	var plane := PLANE_CHARACTER_SCENE.instantiate() as RigidBody3D
+func _spawn_bot(spawn_point: Vector3) -> PlaneCharacter:
+	var plane := PLANE_CHARACTER_SCENE.instantiate() as PlaneCharacter
 	plane.name = "ChaseBot"
 	plane.position = spawn_point
 	if plane.has_method("configure"):
@@ -181,7 +183,7 @@ func _spawn_bot(spawn_point: Vector3) -> RigidBody3D:
 	return plane
 
 
-func _configure_bot_pilot(plane: RigidBody3D) -> Node:
+func _configure_bot_pilot(plane: PlaneCharacter) -> Node:
 	return PLANE_BOT_SETUP.configure_plane(
 		plane,
 		true,
@@ -189,7 +191,7 @@ func _configure_bot_pilot(plane: RigidBody3D) -> Node:
 		bot_killzone_distance,
 		bot_killzone_tolerance,
 		bot_autocannon_fire_max_range,
-		DisplaySettings.bot_debug_enabled if _has_display_settings() else true,
+		_get_bot_debug_enabled(),
 		0
 	)
 
@@ -460,7 +462,7 @@ func _yaw_towards(from_point: Vector3, to_point: Vector3) -> float:
 	return atan2(-direction.x, -direction.z)
 
 
-func _seed_forward_speed(plane: RigidBody3D) -> void:
+func _seed_forward_speed(plane: PlaneCharacter) -> void:
 	var forward_axis := -plane.global_transform.basis.z.normalized()
 	plane.linear_velocity = forward_axis * maxf(initial_bot_forward_speed, 0.0)
 	plane.angular_velocity = Vector3.ZERO
@@ -505,3 +507,8 @@ func _on_display_settings_changed() -> void:
 
 func _has_display_settings() -> bool:
 	return Engine.has_singleton("DisplaySettings") or get_node_or_null("/root/DisplaySettings") != null
+
+
+func _get_bot_debug_enabled() -> bool:
+	var display_settings := get_node_or_null("/root/DisplaySettings")
+	return bool(display_settings.get("bot_debug_enabled")) if display_settings != null else true

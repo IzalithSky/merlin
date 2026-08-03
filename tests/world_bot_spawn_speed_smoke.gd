@@ -17,8 +17,9 @@ func _ready() -> void:
 
 	var bot_speeds: Array[float] = []
 	for child in characters.get_children():
-		if child is RigidBody3D and bool(child.get("is_bot_controlled")):
-			bot_speeds.append((child as RigidBody3D).linear_velocity.length())
+		var plane := child as PlaneCharacter
+		if plane != null and bool(plane.get("is_bot_controlled")):
+			bot_speeds.append(plane.linear_velocity.length())
 
 	_assert(not bot_speeds.is_empty(), "expected spawned bots")
 	for speed in bot_speeds:

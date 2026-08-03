@@ -26,6 +26,8 @@ run_scene "res://tests/world_level_randomizer_smoke.tscn"
 run_scene "res://tests/missile_hardpoint_smoke.tscn"
 run_script "res://tests/test_camera_detach.gd"
 run_script "res://tests/net_wire_smoke.gd"
+run_script "res://tests/plane_net_adapter_smoke.gd"
+run_script "res://tests/plane_motion_smoke.gd"
 
 rm -f "$HOST_LOG" "$CLIENT_LOG"
 (

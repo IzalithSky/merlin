@@ -1,5 +1,5 @@
 class_name PlaneCharacter
-extends RigidBody3D
+extends CharacterBody3D
 
 signal local_input_produced(peer_id: int, input: PackedByteArray)
 
@@ -10,6 +10,7 @@ const PLANE_CRASH_DAMAGE_MODEL_SCRIPT := preload("res://scripts/plane_crash_dama
 const PLANE_FLIGHT_MODEL_SCRIPT := preload("res://scripts/plane_flight_model.gd")
 const PLANE_FORCE_DEBUG_ADAPTER_SCRIPT := preload("res://scripts/plane_force_debug_adapter.gd")
 const PLANE_INPUT_COLLECTOR_SCRIPT := preload("res://scripts/plane_input_collector.gd")
+const PLANE_MOTION_STATE_SCRIPT := preload("res://scripts/plane_motion_state.gd")
 const PLANE_NET_ADAPTER_SCRIPT := preload("res://scripts/plane_net_adapter.gd")
 const SUSTAINED_AOA_CACHE := preload("res://scripts/sustained_aoa_cache.gd")
 
@@ -146,11 +147,21 @@ const SUSTAIN_AOA_TABLE_GAMMA_SAMPLES := 35
 @export var ground_impact_fatal_speed_threshold: float = 50.0
 @export var ground_impact_fatal_surface_angle_deg: float = 25.0
 @export var ground_impact_max_damage: float = 80.0
+@export var mass: float = 3000.0
+@export var gravity_scale: float = 1.0
+@export var linear_damp: float = 0.0
+@export var angular_damp: float = 0.0
+@export var angular_inertia: Vector3 = Vector3(25250.0, 50000.0, 25250.0)
+@export var max_collision_bumps: int = 5
+@export var collision_overclip: float = 1.001
 
 const TABLE_SORT_EPSILON := 0.0001
 const MIN_AERODYNAMIC_SPEED_SQUARED := 0.0001
 const MIN_DIRECTION_VECTOR_LENGTH_SQUARED := 0.000001
 const MIN_ANGULAR_SPEED_SQUARED := 0.000001
+const MIN_MASS := 0.001
+const MIN_INERTIA := 0.001
+const COLLISION_STOP_EPSILON := 0.0001
 const GROUND_IMPACT_COOLDOWN_SECONDS := 0.16
 const DEBUG_COLOR_THRUST := Color(1.0, 0.58, 0.12, 1.0)
 const DEBUG_COLOR_LIFT := Color(0.2, 0.9, 0.2, 1.0)
@@ -172,6 +183,11 @@ var peer_id := 1
 var is_local_player := false
 var is_bot_controlled := false
 var is_shot_down := false
+var linear_velocity := Vector3.ZERO:
+	set(value):
+		linear_velocity = value
+		velocity = value
+var angular_velocity := Vector3.ZERO
 
 var roll_input := 0.0
 var pitch_input := 0.0
@@ -233,6 +249,9 @@ var _force_debug
 var _net
 var _flight_model
 var _preserve_remote_wreck_velocities := false
+var _force_accumulator_world := Vector3.ZERO
+var _torque_accumulator_world := Vector3.ZERO
+var _motion_state
 
 
 func _ready() -> void:
@@ -323,9 +342,11 @@ func _physics_process(delta: float) -> void:
 
 	if is_shot_down:
 		_clear_force_debug_frame()
+		integrate_motion_step(delta)
 		return
 
 	_begin_force_debug_frame()
+	clear_motion_accumulators()
 	_update_physics_frame_cache()
 
 	if is_bot_controlled:
@@ -334,13 +355,14 @@ func _physics_process(delta: float) -> void:
 		_net.apply_inputs_to_plane()
 	else:
 		_input_collector.collect_inputs(delta)
-		_emit_local_input()
+		_emit_local_input(delta)
 	compute_control_state(delta)
 	apply_thrust()
 	apply_plane_torque()
 	apply_aerodynamic_forces()
 	apply_extra_drag_forces()
 	apply_directional_alignment()
+	integrate_motion_step(delta)
 	_end_force_debug_frame()
 
 
@@ -349,11 +371,6 @@ func _process(delta: float) -> void:
 		return
 
 	_net.update_remote_interpolation(delta)
-
-
-func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
-	_last_total_linear_damp = maxf(state.total_linear_damp, 0.0)
-	_handle_ground_impact_contacts(state)
 
 
 func _is_simulated_locally() -> bool:
@@ -407,6 +424,141 @@ func _update_physics_frame_cache() -> void:
 	_frame_dynamic_pressure = 0.5 * air_density * _frame_air_speed_squared
 
 
+func get_motion_state():
+	return PLANE_MOTION_STATE_SCRIPT.from_plane(self)
+
+
+func restore_motion_state(state) -> void:
+	if state == null:
+		return
+	state.apply_to_plane(self)
+	_sync_character_velocity()
+
+
+func clear_motion_accumulators() -> void:
+	_force_accumulator_world = Vector3.ZERO
+	_torque_accumulator_world = Vector3.ZERO
+
+
+func add_central_force(force_world: Vector3) -> void:
+	if force_world.is_finite():
+		_force_accumulator_world += force_world
+
+
+func add_torque(torque_world: Vector3) -> void:
+	if torque_world.is_finite():
+		_torque_accumulator_world += torque_world
+
+
+func apply_central_force(force_world: Vector3) -> void:
+	add_central_force(force_world)
+
+
+func apply_torque(torque_world: Vector3) -> void:
+	add_torque(torque_world)
+
+
+func integrate_motion_step(delta: float) -> void:
+	if delta <= 0.0:
+		clear_motion_accumulators()
+		return
+
+	_last_total_linear_damp = maxf(linear_damp, 0.0)
+	var safe_mass := maxf(mass, MIN_MASS)
+	var acceleration := _force_accumulator_world / safe_mass + _get_gravity_acceleration_world()
+	linear_velocity += acceleration * delta
+	if _last_total_linear_damp > 0.0:
+		linear_velocity *= maxf(0.0, 1.0 - _last_total_linear_damp * delta)
+
+	angular_velocity += _get_angular_acceleration_world() * delta
+	if angular_damp > 0.0:
+		angular_velocity *= maxf(0.0, 1.0 - angular_damp * delta)
+
+	_integrate_rotation(delta)
+	_move_with_collision_clipping(delta)
+	_sync_character_velocity()
+	clear_motion_accumulators()
+	_motion_state = get_motion_state()
+
+
+func _get_gravity_acceleration_world() -> Vector3:
+	var gravity_direction: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector")
+	var gravity_magnitude: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+	return gravity_direction * gravity_magnitude * gravity_scale
+
+
+func _get_angular_acceleration_world() -> Vector3:
+	if _torque_accumulator_world.length_squared() <= 0.0:
+		return Vector3.ZERO
+
+	var body_basis := global_transform.basis.orthonormalized()
+	var local_torque := body_basis.transposed() * _torque_accumulator_world
+	var local_acceleration := Vector3(
+		local_torque.x / maxf(angular_inertia.x, MIN_INERTIA),
+		local_torque.y / maxf(angular_inertia.y, MIN_INERTIA),
+		local_torque.z / maxf(angular_inertia.z, MIN_INERTIA)
+	)
+	return body_basis * local_acceleration
+
+
+func _integrate_rotation(delta: float) -> void:
+	if angular_velocity.length_squared() <= MIN_ANGULAR_SPEED_SQUARED:
+		return
+
+	var angular_speed := angular_velocity.length()
+	var delta_rotation := Quaternion(angular_velocity / angular_speed, angular_speed * delta)
+	global_basis = (Basis(delta_rotation) * global_transform.basis).orthonormalized()
+
+
+func _move_with_collision_clipping(delta: float) -> void:
+	var remaining_time := delta
+	var bumps := maxi(max_collision_bumps, 1)
+	for _bump_index in range(bumps):
+		if remaining_time <= 0.0 or linear_velocity.length_squared() <= COLLISION_STOP_EPSILON:
+			break
+
+		var motion := linear_velocity * remaining_time
+		var requested_distance := motion.length()
+		if requested_distance <= COLLISION_STOP_EPSILON:
+			break
+
+		var collision := move_and_collide(motion)
+		if collision == null:
+			break
+
+		var pre_clip_velocity := linear_velocity
+		_handle_ground_impact_collision(collision, pre_clip_velocity)
+		var normal := collision.get_normal()
+		linear_velocity = _clip_velocity(linear_velocity, normal)
+
+		var traveled_distance := collision.get_travel().length()
+		var used_fraction := clampf(traveled_distance / requested_distance, 0.0, 1.0)
+		remaining_time *= 1.0 - used_fraction
+
+
+func _clip_velocity(input_velocity: Vector3, normal: Vector3) -> Vector3:
+	if normal.length_squared() <= MIN_DIRECTION_VECTOR_LENGTH_SQUARED:
+		return input_velocity
+
+	var normalized_normal := normal.normalized()
+	var backoff := input_velocity.dot(normalized_normal)
+	if absf(backoff) <= COLLISION_STOP_EPSILON:
+		return input_velocity
+
+	var clipped := input_velocity - normalized_normal * backoff * collision_overclip
+	if absf(clipped.x) < COLLISION_STOP_EPSILON:
+		clipped.x = 0.0
+	if absf(clipped.y) < COLLISION_STOP_EPSILON:
+		clipped.y = 0.0
+	if absf(clipped.z) < COLLISION_STOP_EPSILON:
+		clipped.z = 0.0
+	return clipped
+
+
+func _sync_character_velocity() -> void:
+	velocity = linear_velocity
+
+
 func _apply_spawn_control_defaults() -> void:
 	roll_input = 0.0
 	pitch_input = 0.0
@@ -423,7 +575,7 @@ func _apply_spawn_control_defaults() -> void:
 	_net_sustain_turn_mode_active = false
 	_net_effective_pitch_input = 0.0
 	if is_local_player:
-		var ds := DisplaySettings
+		var ds := get_node_or_null("/root/DisplaySettings")
 		_pitch_assist_enabled = ds.pitch_assist_enabled if ds != null else true
 		_stabilization_assist_enabled = ds.stabilization_assist_enabled if ds != null else true
 		_input_decay_enabled = ds.input_decay_enabled if ds != null else true
@@ -437,8 +589,8 @@ func apply_net_control_input(input: Dictionary) -> void:
 	_net.apply_net_control_input(input)
 
 
-func _emit_local_input() -> void:
-	var input: PackedByteArray = _net.build_local_input_payload()
+func _emit_local_input(delta: float) -> void:
+	var input: PackedByteArray = _net.build_local_input_payload(delta)
 	if input.is_empty():
 		return
 	local_input_produced.emit(peer_id, input)
@@ -494,12 +646,8 @@ func get_server_net_tick_hz() -> float:
 
 
 func _apply_local_player_mode() -> void:
-	freeze = not _is_simulated_locally()
-
 	if _is_simulated_locally():
 		_preserve_remote_wreck_velocities = false
-		sleeping = false
-		can_sleep = false
 		_net.clear_remote_snapshots()
 	else:
 		roll_input = 0.0
@@ -510,8 +658,8 @@ func _apply_local_player_mode() -> void:
 	_update_force_debug_renderer_state()
 
 
-func _handle_ground_impact_contacts(state: PhysicsDirectBodyState3D) -> void:
-	_crash_damage.handle_ground_impact_contacts(state)
+func _handle_ground_impact_collision(collision: KinematicCollision3D, movement_velocity_world: Vector3) -> void:
+	_crash_damage.handle_ground_impact_collision(collision, movement_velocity_world)
 
 
 func apply_ground_impact_damage(impact_speed: float, impact_angle_deg: float) -> void:
@@ -662,6 +810,14 @@ func get_replicated_velocity() -> Vector3:
 	return _net.get_replicated_velocity()
 
 
+func get_remote_interpolation_debug_state() -> Dictionary:
+	return _net.get_remote_interpolation_debug_state()
+
+
+func get_input_debug_state() -> Dictionary:
+	return _net.get_input_debug_state()
+
+
 func _ensure_force_debug_renderer() -> void:
 	_force_debug.ensure_renderer()
 
@@ -735,9 +891,7 @@ func get_debug_force_balance_terms() -> Dictionary:
 
 
 func _get_gravity_force_world() -> Vector3:
-	var gravity_direction: Vector3 = ProjectSettings.get_setting("physics/3d/default_gravity_vector")
-	var gravity_magnitude: float = ProjectSettings.get_setting("physics/3d/default_gravity")
-	return gravity_direction * gravity_magnitude * gravity_scale * mass
+	return _get_gravity_acceleration_world() * mass
 
 
 func get_force_balance_snapshot() -> Dictionary:

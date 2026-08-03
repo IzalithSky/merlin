@@ -8,11 +8,11 @@ var _failed := false
 func _init() -> void:
 	var input := {
 		"seq": 17,
+		"msec": 16,
 		"roll": 0.25,
 		"pitch": -0.5,
 		"yaw": 0.75,
 		"throttle": -0.125,
-		"effective_pitch": -0.375,
 		"pitch_control_active": true,
 		"yaw_control_active": false,
 		"direct_roll_control_active": true,
@@ -21,15 +21,21 @@ func _init() -> void:
 		"stabilization_assist_enabled": false,
 		"sustain_turn_mode_active": true,
 	}
-	var input_packet := NET_WIRE.encode_input(input)
-	var decoded_input := NET_WIRE.decode_input(input_packet)
+	var second_input := input.duplicate()
+	second_input["seq"] = 18
+	second_input["msec"] = 17
+	second_input["roll"] = -0.5
+	var input_packet := NET_WIRE.encode_input_batch([input, second_input])
+	var decoded_inputs := NET_WIRE.decode_input_batch(input_packet)
+	_assert(decoded_inputs.size() == 2, "decoded input batch count failed")
+	var decoded_input: Dictionary = decoded_inputs[0]
 	_assert(not decoded_input.is_empty(), "decoded input should not be empty")
 	_assert(int(decoded_input.get("seq", -1)) == 17, "seq round-trip failed")
+	_assert(int(decoded_input.get("msec", -1)) == 16, "msec round-trip failed")
 	_assert(_approx(float(decoded_input.get("roll", 0.0)), 0.25), "roll round-trip failed")
 	_assert(_approx(float(decoded_input.get("pitch", 0.0)), -0.5), "pitch round-trip failed")
 	_assert(_approx(float(decoded_input.get("yaw", 0.0)), 0.75), "yaw round-trip failed")
 	_assert(_approx(float(decoded_input.get("throttle", 0.0)), -0.125), "throttle round-trip failed")
-	_assert(_approx(float(decoded_input.get("effective_pitch", 0.0)), -0.375), "effective_pitch round-trip failed")
 	_assert(bool(decoded_input.get("pitch_control_active", false)), "pitch_control_active round-trip failed")
 	_assert(not bool(decoded_input.get("yaw_control_active", true)), "yaw_control_active round-trip failed")
 	_assert(bool(decoded_input.get("direct_roll_control_active", false)), "direct_roll_control_active round-trip failed")
@@ -37,6 +43,10 @@ func _init() -> void:
 	_assert(bool(decoded_input.get("pitch_assist_enabled", false)), "pitch_assist_enabled round-trip failed")
 	_assert(not bool(decoded_input.get("stabilization_assist_enabled", true)), "stabilization_assist_enabled round-trip failed")
 	_assert(bool(decoded_input.get("sustain_turn_mode_active", false)), "sustain_turn_mode_active round-trip failed")
+	var decoded_second: Dictionary = decoded_inputs[1]
+	_assert(int(decoded_second.get("seq", -1)) == 18, "second seq round-trip failed")
+	_assert(int(decoded_second.get("msec", -1)) == 17, "second msec round-trip failed")
+	_assert(_approx(float(decoded_second.get("roll", 0.0)), -0.5), "second roll round-trip failed")
 
 	var planes: Array[Dictionary] = [
 		{

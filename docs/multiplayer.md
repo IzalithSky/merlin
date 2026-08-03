@@ -165,16 +165,38 @@ angular_velocity
 ack_seq
 ```
 
+Remote aircraft presentation:
+
+- Non-local planes are frozen physics bodies on pure clients.
+- Remote pose is driven only from authoritative server snapshots.
+- Two snapshots are required for tick-based interpolation.
+- With only one available snapshot, the client holds the latest authoritative
+  pose instead of extrapolating from local packet receipt time.
+- `PlaneCharacter.get_remote_interpolation_debug_state()` exposes buffer length,
+  render tick, latest server tick, display mode, extrapolation duration, and pose
+  correction distance for jitter diagnosis.
+
 Current high-rate wire contract:
 
 - `sv_submit_input(data: PackedByteArray)` on channel `1`, `unreliable_ordered`
 - `apply_world_snapshot(data: PackedByteArray)` on channel `2`, `unreliable_ordered`
-- Every packed payload starts with one format-version byte (`1` currently).
+- Every packed payload starts with one format-version byte (`3` currently).
 - Input payload layout:
   - `u8 version`
-  - `i32 seq`
-  - `f32 roll, pitch, yaw, throttle, effective_pitch`
-  - `u8 flags`
+  - `u8 input_count`
+  - repeated for each input frame:
+    - `i32 seq`
+    - `u16 msec`
+    - `f32 roll, pitch, yaw, throttle`
+    - `u8 flags`
+- Clients resend a bounded batch of recent input frames in each input packet so
+  packet loss does not erase command history.
+- Servers queue new input frames in sequence order, reject duplicate/old frames,
+  validate bounded command duration, and apply one queued frame per physics tick.
+- Clients do not send derived limiter output. The server computes effective pitch
+  from raw pitch, replicated assist/mode flags, and authoritative flight state.
+- Snapshot `ack_seq` identifies the latest input frame integrated into that
+  authoritative plane state.
 - Input flags bitmask:
   - bit `0`: `pitch_control_active`
   - bit `1`: `yaw_control_active`
@@ -182,7 +204,7 @@ Current high-rate wire contract:
   - bit `3`: `relative_roll_target_active`
   - bit `4`: `pitch_assist_enabled`
   - bit `5`: `stabilization_assist_enabled`
-  - bit `6`: `limiter_override_active`
+  - bit `6`: `sustain_turn_mode_active`
 - World snapshot payload layout:
   - `u8 version`
   - `u32 server_tick`

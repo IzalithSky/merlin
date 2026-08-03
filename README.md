@@ -2,7 +2,7 @@
 
 Merlin is a Godot 4 project that models a simplified aerial combat physics simulation.
 
-Built and validated with Godot 4.6.1.
+Built and validated with Godot 4.7.1.
 
 The project focuses on playable aircraft physics, multiplayer spawning/control ownership, telemetry HUDs, force debugging, and bot pilots that can fly, recover speed, avoid terrain, and follow or orbit targets.
 

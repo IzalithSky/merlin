@@ -8,7 +8,7 @@ func _init(plane: PlaneCharacter) -> void:
 	_plane = plane
 
 
-func handle_ground_impact_contacts(state: PhysicsDirectBodyState3D) -> void:
+func handle_ground_impact_collision(collision: KinematicCollision3D, movement_velocity_world: Vector3) -> void:
 	if _plane.is_shot_down or not _plane._is_simulated_locally():
 		return
 
@@ -16,25 +16,18 @@ func handle_ground_impact_contacts(state: PhysicsDirectBodyState3D) -> void:
 	if now_seconds - _plane.get_last_ground_impact_time() < _plane.GROUND_IMPACT_COOLDOWN_SECONDS:
 		return
 
-	var impact_speed := _plane.linear_velocity.length()
+	var impact_speed := movement_velocity_world.length()
 	if impact_speed <= _plane.ground_impact_damage_speed_threshold:
 		return
 
-	var contact_count := state.get_contact_count()
-	if contact_count <= 0:
+	if collision == null:
 		return
 
-	var impact_angle_deg := -1.0
-	for contact_index in range(contact_count):
-		var collider := state.get_contact_collider_object(contact_index)
-		if not is_instance_valid(collider) or not _is_ground_body(collider):
-			continue
+	var collider := collision.get_collider() as Node
+	if not is_instance_valid(collider) or not _is_ground_body(collider):
+		return
 
-		var surface_normal_world := state.get_contact_local_normal(contact_index)
-		impact_angle_deg = get_surface_impact_angle_deg(surface_normal_world, _plane.linear_velocity)
-		if impact_angle_deg >= 0.0:
-			break
-
+	var impact_angle_deg := get_surface_impact_angle_deg(collision.get_normal(), movement_velocity_world)
 	if impact_angle_deg < 0.0:
 		return
 

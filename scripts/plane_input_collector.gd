@@ -35,14 +35,15 @@ func collect_inputs(delta: float) -> void:
 
 	_collect_roll_input(delta, rotation_rate, rotation_decay)
 
-	var pitch_analog := KeybindingsSettings.get_analog_value("pitch_axis")
-	var pitch_analog_bound := KeybindingsSettings.is_analog_axis_bound("pitch_axis")
+	var keybindings_settings := _get_keybindings_settings()
+	var pitch_analog := _get_analog_value(keybindings_settings, "pitch_axis")
+	var pitch_analog_bound := _is_analog_axis_bound(keybindings_settings, "pitch_axis")
 	var keyboard_pitch := 0.0
 	keyboard_pitch += Input.get_action_strength("pitch_up")
 	keyboard_pitch -= Input.get_action_strength("pitch_down")
 
-	var yaw_analog := KeybindingsSettings.get_analog_value("yaw_axis")
-	var yaw_analog_bound := KeybindingsSettings.is_analog_axis_bound("yaw_axis")
+	var yaw_analog := _get_analog_value(keybindings_settings, "yaw_axis")
+	var yaw_analog_bound := _is_analog_axis_bound(keybindings_settings, "yaw_axis")
 	var keyboard_yaw := 0.0
 	keyboard_yaw += Input.get_action_strength("yaw_left")
 	keyboard_yaw -= Input.get_action_strength("yaw_right")
@@ -79,14 +80,14 @@ func collect_inputs(delta: float) -> void:
 	_plane.throttle_percent = ((_plane.throttle_input + 1.0) * 0.5) * 100.0
 
 
-func build_local_input_payload(seq: int) -> PackedByteArray:
-	return NET_WIRE.encode_input({
+func build_local_input_frame(seq: int, msec: int) -> Dictionary:
+	return {
 		"seq": seq,
+		"msec": msec,
 		"roll": _plane.roll_input,
 		"pitch": _plane.pitch_input,
 		"yaw": _plane.yaw_input,
 		"throttle": _plane.throttle_input,
-		"effective_pitch": _plane._get_turn_limited_pitch_input(_plane.pitch_input),
 		"pitch_control_active": _plane._player_pitch_control_active,
 		"yaw_control_active": _plane._player_yaw_control_active,
 		"direct_roll_control_active": _plane._player_direct_roll_control_active,
@@ -94,17 +95,22 @@ func build_local_input_payload(seq: int) -> PackedByteArray:
 		"pitch_assist_enabled": _plane._pitch_assist_enabled,
 		"stabilization_assist_enabled": _plane._stabilization_assist_enabled,
 		"sustain_turn_mode_active": _is_sustain_turn_mode_active(),
-	})
+	}
 
 
 # Sustain-turn mode binding: hold to engage (or, when inverted, hold to disengage).
 func _is_sustain_turn_mode_active() -> bool:
-	return Input.is_action_pressed("sustain_turn_mode") != KeybindingsSettings.sustain_turn_mode_inverted
+	var keybindings_settings := _get_keybindings_settings()
+	var inverted := false
+	if keybindings_settings != null:
+		inverted = bool(keybindings_settings.get("sustain_turn_mode_inverted"))
+	return Input.is_action_pressed("sustain_turn_mode") != inverted
 
 
 func _collect_roll_input(delta: float, rotation_rate: float, rotation_decay: float) -> void:
-	var roll_analog := KeybindingsSettings.get_analog_value("roll_axis")
-	var roll_analog_bound := KeybindingsSettings.is_analog_axis_bound("roll_axis")
+	var keybindings_settings := _get_keybindings_settings()
+	var roll_analog := _get_analog_value(keybindings_settings, "roll_axis")
+	var roll_analog_bound := _is_analog_axis_bound(keybindings_settings, "roll_axis")
 	var direct_roll_direction := _get_direct_roll_direction(roll_analog)
 	var relative_roll_direction := _get_relative_roll_direction()
 	_plane._player_direct_roll_control_active = absf(direct_roll_direction) > 0.001
@@ -217,7 +223,7 @@ func _is_relative_roll_settled() -> bool:
 func _handle_assist_toggle_inputs() -> void:
 	if not _plane.is_local_player:
 		return
-	var ds := DisplaySettings
+	var ds := _get_display_settings()
 	if Input.is_action_just_pressed("toggle_pitch_assist"):
 		_plane._pitch_assist_enabled = not _plane._pitch_assist_enabled
 		if ds != null:
@@ -230,3 +236,30 @@ func _handle_assist_toggle_inputs() -> void:
 		_plane._input_decay_enabled = not _plane._input_decay_enabled
 		if ds != null:
 			ds.set_input_decay_enabled(_plane._input_decay_enabled)
+
+
+func _get_keybindings_settings() -> Node:
+	return _get_autoload("KeybindingsSettings")
+
+
+func _get_display_settings() -> Node:
+	return _get_autoload("DisplaySettings")
+
+
+func _get_autoload(autoload_name: String) -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return null
+	return tree.root.get_node_or_null(autoload_name)
+
+
+func _get_analog_value(keybindings_settings: Node, action_name: String) -> float:
+	if keybindings_settings == null:
+		return 0.0
+	return float(keybindings_settings.call("get_analog_value", action_name))
+
+
+func _is_analog_axis_bound(keybindings_settings: Node, action_name: String) -> bool:
+	if keybindings_settings == null:
+		return false
+	return bool(keybindings_settings.call("is_analog_axis_bound", action_name))

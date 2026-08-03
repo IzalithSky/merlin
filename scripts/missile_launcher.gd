@@ -20,10 +20,12 @@ func _ready() -> void:
 		if _projectiles_container != null:
 			return
 
-	_projectiles_container = get_tree().current_scene.find_child("projectiles", true, false)
+	var scene_root := get_tree().current_scene
+	if scene_root != null:
+		_projectiles_container = scene_root.find_child("projectiles", true, false)
 	if _projectiles_container == null:
 		push_warning("MissileLauncher: no 'projectiles' node found in scene root; missiles will be added to scene root")
-		_projectiles_container = get_tree().current_scene
+		_projectiles_container = scene_root if scene_root != null else get_tree().root
 
 
 func _process(delta: float) -> void:
@@ -93,7 +95,10 @@ func _fire(plane: Node3D, locked_target: Node3D) -> void:
 	missile.global_transform = get_and_advance_launch_transform(plane)
 	missile.target = locked_target
 	missile.host = plane
-	if plane is RigidBody3D:
+	var plane_character := plane as PlaneCharacter
+	if plane_character != null:
+		missile.linear_velocity = plane_character.get_replicated_velocity()
+	elif plane is RigidBody3D:
 		missile.linear_velocity = (plane as RigidBody3D).linear_velocity
 	_projectiles_container.add_child(missile)
 

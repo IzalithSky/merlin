@@ -23,10 +23,12 @@ func _ready() -> void:
 		if _projectiles_container != null:
 			return
 
-	_projectiles_container = get_tree().current_scene.find_child("projectiles", true, false)
+	var scene_root := get_tree().current_scene
+	if scene_root != null:
+		_projectiles_container = scene_root.find_child("projectiles", true, false)
 	if _projectiles_container == null:
 		push_warning("Autocannon: no 'projectiles' node found in scene root; bullets will be added to scene root")
-		_projectiles_container = get_tree().current_scene
+		_projectiles_container = scene_root if scene_root != null else get_tree().root
 
 
 func _process(delta: float) -> void:
@@ -102,7 +104,10 @@ func _fire_local(plane: Node3D, desired_target: Node3D) -> void:
 	bullet.damage = damage
 	_projectiles_container.add_child(bullet)
 	var inherited_velocity := Vector3.ZERO
-	if plane is RigidBody3D:
+	var plane_character := plane as PlaneCharacter
+	if plane_character != null:
+		inherited_velocity = plane_character.get_replicated_velocity()
+	elif plane is RigidBody3D:
 		inherited_velocity = (plane as RigidBody3D).linear_velocity
 	var launch_velocity := aim_direction * bullet_speed + inherited_velocity
 	bullet.initialize_launch(get_launch_position(plane), launch_velocity)

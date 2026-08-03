@@ -55,7 +55,7 @@ func update_follow_target_velocity(delta: float) -> void:
 		return
 
 	var target_position := _follow_target.global_position
-	if _follow_target is RigidBody3D:
+	if _follow_target is PlaneCharacter or _follow_target is RigidBody3D:
 		_follow_target_velocity = _get_node_velocity(_follow_target)
 	elif _has_follow_target_sample and delta > 0.0:
 		_follow_target_velocity = (target_position - _last_follow_target_position) / delta

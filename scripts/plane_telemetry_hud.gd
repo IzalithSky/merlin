@@ -48,7 +48,9 @@ func _ready() -> void:
 	_create_net_metrics_label()
 	_assign_global_direction_indicator_textures()
 	_collect_advanced_hud_nodes()
-	DisplaySettings.settings_changed.connect(_apply_display_settings)
+	var display_settings := get_node_or_null("/root/DisplaySettings")
+	if display_settings != null:
+		display_settings.settings_changed.connect(_apply_display_settings)
 	_apply_display_settings()
 	_reset_labels()
 	_reset_global_direction_indicators()
@@ -278,9 +280,10 @@ func _collect_advanced_hud_nodes() -> void:
 
 
 func _apply_display_settings() -> void:
-	_advanced_hud_enabled = DisplaySettings.advanced_hud_enabled
-	_relative_roll_clock_enabled = DisplaySettings.relative_roll_clock_enabled
-	_global_direction_markers_enabled = DisplaySettings.global_direction_markers_enabled
+	var display_settings := get_node_or_null("/root/DisplaySettings")
+	_advanced_hud_enabled = bool(display_settings.get("advanced_hud_enabled")) if display_settings != null else true
+	_relative_roll_clock_enabled = bool(display_settings.get("relative_roll_clock_enabled")) if display_settings != null else true
+	_global_direction_markers_enabled = bool(display_settings.get("global_direction_markers_enabled")) if display_settings != null else true
 	for hud_node in _advanced_hud_nodes:
 		hud_node.visible = _advanced_hud_enabled
 

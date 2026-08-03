@@ -1,8 +1,12 @@
 class_name PlaneNetAdapter
 extends RefCounted
 
+const NET_WIRE := preload("res://scripts/net_wire.gd")
+
 const REMOTE_INTERPOLATION_DELAY := 0.1
 const REMOTE_MAX_SNAPSHOTS := 4
+const INPUT_BATCH_HISTORY_MAX := 8
+const SERVER_INPUT_QUEUE_MAX := 32
 const PREDICTION_HISTORY_MAX := 180
 const RECONCILE_VELOCITY_TOLERANCE := 15.0
 const RECONCILE_ANGULAR_VELOCITY_TOLERANCE_DEG := 20.0
@@ -11,15 +15,20 @@ const RECONCILE_ROTATION_TOLERANCE_DEG := 10.0
 var _plane
 var _remote_snapshots: Array[Dictionary] = []
 var _net_input_seq := 0
-var _net_pending_input: Dictionary = {}
+var _net_input_send_history: Array[Dictionary] = []
+var _net_input_queue: Array[Dictionary] = []
 var _net_last_applied_input_seq := -1
 var _net_ack_seq := -1
+var _net_last_applied_input_msec := 0
 var _prediction_history: Array[Dictionary] = []
 var _correction_position := Vector3.ZERO
 var _latest_server_tick := -1
 var _render_tick_continuous := 0.0
 var _render_tick_initialized := false
 var _awaiting_first_shot_down_snapshot := false
+var _remote_display_mode := "empty"
+var _remote_extrapolation_duration := 0.0
+var _remote_pose_correction_distance := 0.0
 
 
 func _init(plane) -> void:
@@ -41,39 +50,48 @@ func apply_inputs_to_plane() -> void:
 		_plane._pitch_assist_enabled = bool(input.get("pitch_assist_enabled", true))
 		_plane._stabilization_assist_enabled = bool(input.get("stabilization_assist_enabled", true))
 		_plane._net_sustain_turn_mode_active = bool(input.get("sustain_turn_mode_active", false))
-		_plane._net_effective_pitch_input = clampf(float(input.get("effective_pitch", _plane.pitch_input)), -1.0, 1.0)
+		_plane._net_effective_pitch_input = _plane._get_turn_limited_pitch_input(_plane.pitch_input)
 	_plane.throttle_percent = ((_plane.throttle_input + 1.0) * 0.5) * 100.0
 
 
 func apply_net_control_input(input: Dictionary) -> void:
 	var input_seq := int(input.get("seq", -1))
-	var newest_known := maxi(int(_net_pending_input.get("seq", -1)), _net_last_applied_input_seq)
+	var newest_queued := _net_last_applied_input_seq
+	if not _net_input_queue.is_empty():
+		newest_queued = int(_net_input_queue.back().get("seq", newest_queued))
+	var newest_known := maxi(newest_queued, _net_last_applied_input_seq)
 	if input_seq <= newest_known:
 		return
-	_net_pending_input = input
+	_net_input_queue.append(input)
+	while _net_input_queue.size() > SERVER_INPUT_QUEUE_MAX:
+		_net_input_queue.pop_front()
 
 
 func consume_pending_input() -> Dictionary:
-	# Latch the ack before consuming a newer input: the body state this tick was
-	# integrated from the previously applied seq.
 	_net_ack_seq = _net_last_applied_input_seq
-	if _net_pending_input.is_empty():
+	if _net_input_queue.is_empty():
 		return {}
 
-	var input: Dictionary = _net_pending_input
-	_net_pending_input = {}
+	var input: Dictionary = _net_input_queue.pop_front()
 	var input_seq := int(input.get("seq", -1))
 	if input_seq <= _net_last_applied_input_seq:
 		return {}
 
 	_net_last_applied_input_seq = input_seq
+	_net_last_applied_input_msec = int(input.get("msec", 0))
+	_net_ack_seq = _net_last_applied_input_seq
 	return input
 
 
-func build_local_input_payload() -> PackedByteArray:
+func build_local_input_payload(delta: float) -> PackedByteArray:
 	if not _plane._is_predicting_client():
 		return PackedByteArray()
-	return _plane._input_collector.build_local_input_payload(next_input_seq())
+	var input_msec := clampi(roundi(delta * 1000.0), NET_WIRE.INPUT_MIN_MSEC, NET_WIRE.INPUT_MAX_MSEC)
+	var input_frame: Dictionary = _plane._input_collector.build_local_input_frame(next_input_seq(), input_msec)
+	_net_input_send_history.append(input_frame)
+	while _net_input_send_history.size() > INPUT_BATCH_HISTORY_MAX:
+		_net_input_send_history.pop_front()
+	return NET_WIRE.encode_input_batch(_net_input_send_history)
 
 
 func next_input_seq() -> int:
@@ -135,6 +153,8 @@ func apply_authoritative_state(snapshot: Dictionary) -> void:
 
 func update_remote_interpolation(delta: float) -> void:
 	if _remote_snapshots.is_empty():
+		_remote_display_mode = "empty"
+		_remote_extrapolation_duration = 0.0
 		return
 
 	var tick_hz := maxf(_plane.get_server_net_tick_hz(), 0.001)
@@ -148,7 +168,6 @@ func update_remote_interpolation(delta: float) -> void:
 		if _render_tick_continuous > target_render_tick:
 			_render_tick_continuous = target_render_tick
 
-	var now := Time.get_ticks_usec() * 0.000001
 	while (
 		_remote_snapshots.size() >= 2 and
 		float(_remote_snapshots[1].get("tick", -1)) <= _render_tick_continuous
@@ -167,16 +186,18 @@ func update_remote_interpolation(delta: float) -> void:
 			Vector3(from_snapshot["position"]).lerp(Vector3(to_snapshot["position"]), alpha),
 			Quaternion(from_snapshot["rotation"]).slerp(Quaternion(to_snapshot["rotation"]), alpha)
 		)
+		_remote_display_mode = "interpolate"
+		_remote_extrapolation_duration = 0.0
 		return
 
 	var latest_snapshot := _remote_snapshots[0]
 	var latest_position := Vector3(latest_snapshot["position"])
-	var latest_velocity := Vector3(latest_snapshot["linear_velocity"])
-	var extrapolation := maxf(now - float(latest_snapshot["received_at"]), 0.0)
 	_plane._apply_remote_pose(
-		latest_position + latest_velocity * extrapolation,
+		latest_position,
 		Quaternion(latest_snapshot["rotation"])
 	)
+	_remote_display_mode = "hold"
+	_remote_extrapolation_duration = 0.0
 
 
 func apply_spawn_state(character_position: Vector3, yaw: float) -> void:
@@ -189,13 +210,18 @@ func clear_state_for_spawn() -> void:
 	_remote_snapshots.clear()
 	_prediction_history.clear()
 	_correction_position = Vector3.ZERO
-	_net_pending_input = {}
+	_net_input_send_history.clear()
+	_net_input_queue.clear()
 	_net_last_applied_input_seq = -1
 	_net_ack_seq = -1
+	_net_last_applied_input_msec = 0
 	_latest_server_tick = -1
 	_render_tick_continuous = 0.0
 	_render_tick_initialized = false
 	_awaiting_first_shot_down_snapshot = false
+	_remote_display_mode = "empty"
+	_remote_extrapolation_duration = 0.0
+	_remote_pose_correction_distance = 0.0
 
 
 func clear_remote_snapshots() -> void:
@@ -204,6 +230,9 @@ func clear_remote_snapshots() -> void:
 	_render_tick_continuous = 0.0
 	_render_tick_initialized = false
 	_awaiting_first_shot_down_snapshot = false
+	_remote_display_mode = "empty"
+	_remote_extrapolation_duration = 0.0
+	_remote_pose_correction_distance = 0.0
 
 
 func clear_prediction_correction() -> void:
@@ -224,6 +253,28 @@ func get_replicated_velocity() -> Vector3:
 	if not _remote_snapshots.is_empty():
 		return Vector3(_remote_snapshots.back().get("linear_velocity", Vector3.ZERO))
 	return _plane.linear_velocity
+
+
+func get_remote_interpolation_debug_state() -> Dictionary:
+	return {
+		"buffer_length": _remote_snapshots.size(),
+		"render_tick": _render_tick_continuous,
+		"latest_server_tick": _latest_server_tick,
+		"display_mode": _remote_display_mode,
+		"extrapolation_duration": _remote_extrapolation_duration,
+		"pose_correction_distance": _remote_pose_correction_distance,
+	}
+
+
+func get_input_debug_state() -> Dictionary:
+	return {
+		"send_history_length": _net_input_send_history.size(),
+		"queue_length": _net_input_queue.size(),
+		"last_sent_seq": _net_input_seq,
+		"last_applied_seq": _net_last_applied_input_seq,
+		"last_applied_msec": _net_last_applied_input_msec,
+		"ack_seq": _net_ack_seq,
+	}
 
 
 func build_state_for_batch(world_tick: int) -> Dictionary:
@@ -248,14 +299,14 @@ func _store_interpolation_snapshot(snapshot: Dictionary) -> void:
 	if tick >= 0:
 		_latest_server_tick = tick
 
-	var received_at := Time.get_ticks_usec() * 0.000001
+	var snapshot_position := Vector3(snapshot.get("position", _plane.global_position))
 	var stored_snapshot := {
 		"tick": tick,
-		"position": snapshot.get("position", _plane.global_position),
+		"position": snapshot_position,
 		"rotation": snapshot.get("rotation", _plane.global_transform.basis.get_rotation_quaternion()),
 		"linear_velocity": snapshot.get("linear_velocity", Vector3.ZERO),
-		"received_at": received_at,
 	}
+	_remote_pose_correction_distance = _plane.global_position.distance_to(snapshot_position)
 	_remote_snapshots.append(stored_snapshot)
 	if not _render_tick_initialized and tick >= 0:
 		var tick_hz := maxf(_plane.get_server_net_tick_hz(), 0.001)
@@ -295,6 +346,7 @@ func _reconcile_with_server_state(snapshot: Dictionary) -> void:
 	var ack_seq := int(snapshot.get("ack_seq", -1))
 	if ack_seq < 0:
 		return
+	_drop_acked_input_frames(ack_seq)
 
 	var entry := _take_prediction_entry(ack_seq)
 	if entry.is_empty():
@@ -349,3 +401,11 @@ func _take_prediction_entry(ack_seq: int) -> Dictionary:
 			return entry
 		break
 	return {}
+
+
+func _drop_acked_input_frames(ack_seq: int) -> void:
+	while not _net_input_send_history.is_empty():
+		var input: Dictionary = _net_input_send_history.front()
+		if int(input.get("seq", -1)) > ack_seq:
+			break
+		_net_input_send_history.pop_front()

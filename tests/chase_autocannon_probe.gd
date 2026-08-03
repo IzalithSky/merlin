@@ -33,7 +33,7 @@ func _process(delta: float) -> void:
 
 func _emit_sample() -> void:
 	var chase := $Chase
-	var bot := chase.get("_bot") as RigidBody3D
+	var bot := chase.get("_bot") as PlaneCharacter
 	var dummy := chase.get_node_or_null("DummyTarget") as Node3D
 	if bot == null or dummy == null:
 		print("probe missing bot_or_dummy")

@@ -25,7 +25,7 @@ const TRAIL_SCENE := preload("res://scenes/wing_trail.tscn")
 signal died(exploded: bool, hit_position: Vector3)
 
 var target: Node3D = null
-var host: RigidBody3D = null
+var host: Node3D = null
 @onready var _engine_sound: AudioStreamPlayer3D = $EngineSound
 var _is_replica := false
 

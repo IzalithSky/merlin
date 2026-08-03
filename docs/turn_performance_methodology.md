@@ -33,13 +33,13 @@ outside the tabulated range. Call this operator `samp(table, x)`.
 | `c_q` — extra quadratic drag | preset `extra_linear_drag_quadratic` | 0.16 |
 | `a_lin` — pitch angular drag (linear) | model `extra_angular_drag_linear_coefficients.x` | 20000 |
 | `a_quad` — pitch angular drag (quad) | model `extra_angular_drag_quadratic_coefficients.x` | 2500 |
-| `m` — mass | RigidBody3D (scene `.tscn`) | 3000 kg |
-| `gravity_scale` | RigidBody3D | 1.0 |
+| `m` — mass | `PlaneCharacter` export (scene `.tscn`) | 3000 kg |
+| `gravity_scale` | `PlaneCharacter` export | 1.0 |
 | `ρ` — air density | model constant | 1.225 kg/m³ |
 | `g` — gravity | 9.81 m/s² | 9.81 |
 
 > **Note:** `m` and `gravity_scale` are **not** in the preset — they live on the
-> RigidBody3D node in the scene. Every result below scales with mass, so they must
+> `PlaneCharacter` node in the scene. Every result below scales with mass, so they must
 > be read from there.
 
 ### 1.3 Derived constants
@@ -261,4 +261,4 @@ strongly because gravity enters the drag budget.
 A `get_turn_performance(gamma_deg := 0.0)` helper on the flight model can return,
 in one pass over a speed sweep, the four scalars (max/ min of rate/radius for each
 regime) plus the optimum speeds — recomputed live from the current preset and the
-RigidBody3D mass, so HUD and AI can read them instead of hardcoding.
+`PlaneCharacter` mass, so HUD and AI can read them instead of hardcoding.

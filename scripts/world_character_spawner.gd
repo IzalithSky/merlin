@@ -55,7 +55,9 @@ func _ready() -> void:
 	_projectile_net.configure(self, _projectiles)
 	_health_net.configure(self)
 	_apply_lobby_bot_count_override()
-	DisplaySettings.settings_changed.connect(_on_display_settings_changed)
+	var display_settings := get_node_or_null("/root/DisplaySettings")
+	if display_settings != null:
+		display_settings.settings_changed.connect(_on_display_settings_changed)
 
 	if multiplayer.multiplayer_peer != null and multiplayer.is_server():
 		multiplayer.peer_disconnected.connect(_on_peer_disconnected)
@@ -278,16 +280,13 @@ func _spawn_character(
 	character.rotation.y = yaw
 	_configure_character_identity(character, peer_id, local_player)
 	_characters.add_child(character, true)
-	var spawn_velocity := Vector3.ZERO
-	if character is RigidBody3D:
-		spawn_velocity = -(character as RigidBody3D).basis.z * maxf(forward_speed, 0.0)
+	var spawn_velocity := -character.basis.z * maxf(forward_speed, 0.0)
 
 	_configure_spawned_character(character, peer_id, local_player)
 
-	if character is RigidBody3D:
-		var body := character as RigidBody3D
-		body.linear_velocity = spawn_velocity
-		body.sleeping = false
+	var plane_body := character as PlaneCharacter
+	if plane_body != null:
+		plane_body.linear_velocity = spawn_velocity
 	return character
 
 
@@ -431,8 +430,8 @@ func sv_submit_input(input: PackedByteArray) -> void:
 		return
 
 	record_net_recv("input", input)
-	var decoded_input := NET_WIRE.decode_input(input)
-	if decoded_input.is_empty():
+	var decoded_inputs := NET_WIRE.decode_input_batch(input)
+	if decoded_inputs.is_empty():
 		return
 	var sender_id := multiplayer.get_remote_sender_id()
 	var plane_character := _characters.get_node_or_null(_character_name(sender_id)) as PlaneCharacter
@@ -440,15 +439,24 @@ func sv_submit_input(input: PackedByteArray) -> void:
 		return
 	if plane_character.is_shot_down:
 		return
-	if not _is_valid_input_packet(decoded_input):
-		return
-	plane_character.apply_net_control_input(decoded_input)
+	var previous_seq := -1
+	for decoded_input in decoded_inputs:
+		if not _is_valid_input_frame(decoded_input, previous_seq):
+			return
+		plane_character.apply_net_control_input(decoded_input)
+		previous_seq = int(decoded_input.get("seq", -1))
 
 
-func _is_valid_input_packet(input: Dictionary) -> bool:
-	if int(input.get("seq", -1)) < 0:
+func _is_valid_input_frame(input: Dictionary, previous_seq: int = -1) -> bool:
+	var input_seq := int(input.get("seq", -1))
+	if input_seq < 0:
 		return false
-	for axis_key in ["roll", "pitch", "yaw", "throttle", "effective_pitch"]:
+	if previous_seq >= 0 and input_seq <= previous_seq:
+		return false
+	var input_msec := int(input.get("msec", 0))
+	if input_msec < NET_WIRE.INPUT_MIN_MSEC or input_msec > NET_WIRE.INPUT_MAX_MSEC:
+		return false
+	for axis_key in ["roll", "pitch", "yaw", "throttle"]:
 		var value: Variant = input.get(axis_key)
 		if not (value is float or value is int):
 			return false

@@ -5,7 +5,7 @@ const BOT_PILOT_SCRIPT := preload("res://scripts/plane_bot_pilot.gd")
 
 
 func _ready() -> void:
-	var bot_plane := PLANE_SCENE.instantiate() as RigidBody3D
+	var bot_plane := PLANE_SCENE.instantiate() as PlaneCharacter
 	bot_plane.name = "BotPlane"
 	add_child(bot_plane)
 	bot_plane.configure(1000000, false)
@@ -13,7 +13,7 @@ func _ready() -> void:
 	bot_plane.global_position = Vector3.ZERO
 	bot_plane.linear_velocity = Vector3.ZERO
 
-	var target_plane := PLANE_SCENE.instantiate() as RigidBody3D
+	var target_plane := PLANE_SCENE.instantiate() as PlaneCharacter
 	target_plane.name = "TargetPlane"
 	add_child(target_plane)
 	target_plane.configure(2, false)

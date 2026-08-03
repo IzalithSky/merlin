@@ -25,15 +25,10 @@ roughness = 0.7
 material = SubResource("StandardMaterial3D_plane_body")
 size = Vector3(10, 10, 0.6)
 
-[node name="PlaneCharacter" type="RigidBody3D" unique_id=721828023]
-mass = 3000.0
-continuous_cd = true
-contact_monitor = true
-max_contacts_reported = 4
-linear_damp_mode = 1
-angular_damp_mode = 1
+[node name="PlaneCharacter" type="CharacterBody3D" unique_id=721828023]
 script = ExtResource("1_plane")
 flame_trail_scene = ExtResource("7_flame_trail")
+mass = 3000.0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=251207333]
 shape = SubResource("BoxShape3D_plane_collision")

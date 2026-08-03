@@ -1,7 +1,7 @@
 class_name NetWire
 extends RefCounted
 
-const FORMAT_VERSION := 1
+const FORMAT_VERSION := 3
 
 const INPUT_FLAG_PITCH_CONTROL_ACTIVE := 1 << 0
 const INPUT_FLAG_YAW_CONTROL_ACTIVE := 1 << 1
@@ -13,7 +13,11 @@ const INPUT_FLAG_SUSTAIN_TURN_MODE_ACTIVE := 1 << 6
 
 const WORLD_HEADER_BYTES := 1 + 4 + 2
 const WORLD_PLANE_BYTES := 4 + (9 * 4) + (4 * 4) + 4
-const INPUT_BYTES := 1 + 4 + (5 * 4) + 1
+const INPUT_MAX_FRAMES := 8
+const INPUT_MIN_MSEC := 1
+const INPUT_MAX_MSEC := 200
+const INPUT_HEADER_BYTES := 1 + 1
+const INPUT_FRAME_BYTES := 4 + 2 + (4 * 4) + 1
 
 
 static func encode_world_snapshot(world_tick: int, planes: Array[Dictionary]) -> PackedByteArray:
@@ -78,54 +82,37 @@ static func decode_world_snapshot(data: PackedByteArray) -> Dictionary:
 	}
 
 
-static func encode_input(input: Dictionary) -> PackedByteArray:
+static func encode_input_batch(inputs: Array[Dictionary]) -> PackedByteArray:
 	var peer := StreamPeerBuffer.new()
 	peer.clear()
 	peer.put_u8(FORMAT_VERSION)
-	peer.put_32(int(input.get("seq", -1)))
-	peer.put_float(float(input.get("roll", 0.0)))
-	peer.put_float(float(input.get("pitch", 0.0)))
-	peer.put_float(float(input.get("yaw", 0.0)))
-	peer.put_float(float(input.get("throttle", -1.0)))
-	peer.put_float(float(input.get("effective_pitch", 0.0)))
-	peer.put_u8(_encode_input_flags(input))
+	var input_count := mini(inputs.size(), INPUT_MAX_FRAMES)
+	peer.put_u8(input_count)
+	for index in range(input_count):
+		_put_input_frame(peer, inputs[index])
 	return peer.data_array
 
 
-static func decode_input(data: PackedByteArray) -> Dictionary:
-	if data.size() < INPUT_BYTES:
-		return {}
+static func decode_input_batch(data: PackedByteArray) -> Array[Dictionary]:
+	if data.size() < INPUT_HEADER_BYTES:
+		return []
 
 	var peer := StreamPeerBuffer.new()
 	peer.data_array = data
 	var version := peer.get_u8()
 	if version != FORMAT_VERSION:
-		return {}
-	if peer.get_available_bytes() < INPUT_BYTES - 1:
-		return {}
+		return []
 
-	var seq := int(peer.get_32())
-	var roll := peer.get_float()
-	var pitch := peer.get_float()
-	var yaw := peer.get_float()
-	var throttle := peer.get_float()
-	var effective_pitch := peer.get_float()
-	var flags := peer.get_u8()
-	return {
-		"seq": seq,
-		"roll": roll,
-		"pitch": pitch,
-		"yaw": yaw,
-		"throttle": throttle,
-		"effective_pitch": effective_pitch,
-		"pitch_control_active": bool(flags & INPUT_FLAG_PITCH_CONTROL_ACTIVE),
-		"yaw_control_active": bool(flags & INPUT_FLAG_YAW_CONTROL_ACTIVE),
-		"direct_roll_control_active": bool(flags & INPUT_FLAG_DIRECT_ROLL_CONTROL_ACTIVE),
-		"relative_roll_target_active": bool(flags & INPUT_FLAG_RELATIVE_ROLL_TARGET_ACTIVE),
-		"pitch_assist_enabled": bool(flags & INPUT_FLAG_PITCH_ASSIST_ENABLED),
-		"stabilization_assist_enabled": bool(flags & INPUT_FLAG_STABILIZATION_ASSIST_ENABLED),
-		"sustain_turn_mode_active": bool(flags & INPUT_FLAG_SUSTAIN_TURN_MODE_ACTIVE),
-	}
+	var input_count := int(peer.get_u8())
+	if input_count < 1 or input_count > INPUT_MAX_FRAMES:
+		return []
+	if peer.get_available_bytes() < input_count * INPUT_FRAME_BYTES:
+		return []
+
+	var inputs: Array[Dictionary] = []
+	for _index in range(input_count):
+		inputs.append(_get_input_frame(peer))
+	return inputs
 
 
 static func _encode_input_flags(input: Dictionary) -> int:
@@ -145,6 +132,41 @@ static func _encode_input_flags(input: Dictionary) -> int:
 	if bool(input.get("sustain_turn_mode_active", false)):
 		flags |= INPUT_FLAG_SUSTAIN_TURN_MODE_ACTIVE
 	return flags
+
+
+static func _put_input_frame(peer: StreamPeerBuffer, input: Dictionary) -> void:
+	peer.put_32(int(input.get("seq", -1)))
+	peer.put_u16(int(input.get("msec", 0)))
+	peer.put_float(float(input.get("roll", 0.0)))
+	peer.put_float(float(input.get("pitch", 0.0)))
+	peer.put_float(float(input.get("yaw", 0.0)))
+	peer.put_float(float(input.get("throttle", -1.0)))
+	peer.put_u8(_encode_input_flags(input))
+
+
+static func _get_input_frame(peer: StreamPeerBuffer) -> Dictionary:
+	var seq := int(peer.get_32())
+	var msec := int(peer.get_u16())
+	var roll := peer.get_float()
+	var pitch := peer.get_float()
+	var yaw := peer.get_float()
+	var throttle := peer.get_float()
+	var flags := peer.get_u8()
+	return {
+		"seq": seq,
+		"msec": msec,
+		"roll": roll,
+		"pitch": pitch,
+		"yaw": yaw,
+		"throttle": throttle,
+		"pitch_control_active": bool(flags & INPUT_FLAG_PITCH_CONTROL_ACTIVE),
+		"yaw_control_active": bool(flags & INPUT_FLAG_YAW_CONTROL_ACTIVE),
+		"direct_roll_control_active": bool(flags & INPUT_FLAG_DIRECT_ROLL_CONTROL_ACTIVE),
+		"relative_roll_target_active": bool(flags & INPUT_FLAG_RELATIVE_ROLL_TARGET_ACTIVE),
+		"pitch_assist_enabled": bool(flags & INPUT_FLAG_PITCH_ASSIST_ENABLED),
+		"stabilization_assist_enabled": bool(flags & INPUT_FLAG_STABILIZATION_ASSIST_ENABLED),
+		"sustain_turn_mode_active": bool(flags & INPUT_FLAG_SUSTAIN_TURN_MODE_ACTIVE),
+	}
 
 
 static func _put_vector3(peer: StreamPeerBuffer, value: Vector3) -> void:

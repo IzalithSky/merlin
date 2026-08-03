@@ -9,10 +9,10 @@ Relevant implementation files:
 - `res://scenes/plane_character.tscn`
 - `res://scripts/plane_aero_tables_store.gd`
 
-The model is intentionally simplified. It is not a full rigid-airframe, per-wing, per-control-surface aerodynamic simulation. It uses a single `RigidBody3D`, central aerodynamic forces, direct control torques, and editable coefficient curves.
+The model is intentionally simplified. It is not a full rigid-airframe, per-wing, per-control-surface aerodynamic simulation. It uses a single `CharacterBody3D`, explicit central force and torque accumulators, and editable coefficient curves.
 
 ## Core Model
-The plane is a Godot `RigidBody3D`. Godot/Jolt integrates the body transform, velocity, angular velocity, collisions, and gravity. The controller script computes and applies the forces and torques that represent flight behavior.
+The plane is a Godot `CharacterBody3D`. The controller owns the transform, linear velocity, angular velocity, gravity, damping, collision clipping, and accumulated force/torque integration.
 
 The controller applies:
 
@@ -28,7 +28,7 @@ The controller applies:
 The scene's numeric tuning, such as mass, thrust, drag, torque, and limiter thresholds, is treated as editable balancing data. The principles below describe how those values are used, not what their current values happen to be.
 
 ## Axis Conventions
-The aircraft axes come from the rigid body's transform:
+The aircraft axes come from the character body's transform:
 
 ```text
 forward_axis = -global_transform.basis.z
@@ -74,16 +74,17 @@ For a locally simulated plane, each physics tick follows this sequence:
 7. Apply table-driven aerodynamic lift, drag, and optional side force.
 8. Apply extra linear drag and angular drag.
 9. Apply directional stability torque.
-10. Emit a network state snapshot when the sync interval elapses.
+10. Integrate accumulated force/torque, gravity, damping, rotation, and swept collision motion.
+11. Emit a network state snapshot when the sync interval elapses.
 
 The controller caches quantities that are reused later in the tick so the same velocity, basis, speed, and dynamic-pressure values are not recomputed throughout the force model.
 
-If the plane is already shot down, the active flight-force block is skipped. The body still falls under passive rigid-body physics and continues emitting snapshots so other peers see the wreck move.
+If the plane is already shot down, the active flight-force block is skipped. The controller still integrates gravity, damping, angular velocity, and swept collision motion so other peers see the wreck move.
 
 ## Ground Impact Damage
-Ground impact damage is evaluated from physics contact data, not from aircraft attitude alone.
+Ground impact damage is evaluated from swept collision data, not from aircraft attitude alone.
 
-For locally simulated planes, the controller inspects rigid-body contacts during `_integrate_forces()`. When the plane contacts ground geometry, it reads the contact surface normal and compares it against the plane's movement direction.
+For locally simulated planes, the controller inspects `move_and_collide()` results while integrating the `CharacterBody3D`. When the plane contacts ground geometry, it reads the collision normal and compares it against the pre-clip movement velocity.
 
 The impact angle is computed as:
 
@@ -189,7 +190,7 @@ yaw_torque = yaw_input * control_torque_scale * yaw_axis_multiplier
 roll_torque = roll_input * control_torque_scale * roll_axis_multiplier
 ```
 
-The torque vector is transformed from local aircraft axes into world space and applied directly at the rigid body's center of mass with `apply_torque()`.
+The torque vector is transformed from local aircraft axes into world space and accumulated for explicit angular integration.
 
 Current design choice: control torques are not modeled as offset force couples at wings or tail. That avoids unnecessary complexity while keeping pitch, yaw, and roll behavior explicit and tunable.
 
@@ -300,9 +301,9 @@ axis_torque = -sign(axis_rate) * (
 )
 ```
 
-The resulting local torque is transformed back into world space and applied with `apply_torque()`.
+The resulting local torque is transformed back into world space and accumulated for explicit angular integration.
 
-This is separate from Godot's built-in rigid body angular damping. The explicit model is preferred because it is visible, tunable per axis, and can be represented in debug force/torque output.
+This is separate from Godot's built-in `CharacterBody3D` movement. The explicit model is preferred because it is visible, tunable per axis, and can be represented in debug force/torque output.
 
 ## Directional Stability
 Directional stability is a stabilization assist that uses yaw to align the nose with airflow, and damps uncontrolled pitch/roll rotation.
@@ -426,7 +427,7 @@ The entire control and thrust block is skipped when `is_shot_down` is true. Spec
 - `apply_extra_drag_forces`
 - `apply_directional_alignment`
 
-Passive physics — gravity, linear damping, and the Jolt integrator — continue to act on the `RigidBody3D`. The plane tumbles and falls under its own momentum without any active stabilisation.
+Passive motion — gravity, linear damping, and code-owned angular integration — continues to act on the `CharacterBody3D`. The plane tumbles and falls under its own momentum without any active stabilisation.
 
 At the moment of shot-down:
 

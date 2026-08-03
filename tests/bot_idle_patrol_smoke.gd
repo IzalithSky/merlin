@@ -31,7 +31,7 @@ func _ready() -> void:
 	_assert(bounds.get("min") == AREA_MIN, "expected explicit patrol area minimum")
 	_assert(bounds.get("max") == AREA_MAX, "expected explicit patrol area maximum")
 
-	var bot_plane := PLANE_SCENE.instantiate() as RigidBody3D
+	var bot_plane := PLANE_SCENE.instantiate() as PlaneCharacter
 	bot_plane.name = "BotPlane"
 	bot_plane.position = Vector3(0.0, 1000.0, 0.0)
 	add_child(bot_plane)
@@ -96,7 +96,7 @@ func _assert_default_fallback_patrol() -> void:
 	terrain.add_child(terrain_shape)
 	add_child(terrain)
 
-	var bot_plane := PLANE_SCENE.instantiate() as RigidBody3D
+	var bot_plane := PLANE_SCENE.instantiate() as PlaneCharacter
 	bot_plane.name = "FallbackBotPlane"
 	bot_plane.position = Vector3(0.0, 1000.0, 0.0)
 	add_child(bot_plane)
