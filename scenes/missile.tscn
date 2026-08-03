@@ -19,13 +19,8 @@ emission_energy_multiplier = 0.4
 material = SubResource("StandardMaterial3D_missile")
 size = Vector3(1.2, 4.0, 0.4)
 
-[node name="Missile" type="RigidBody3D"]
-mass = 80.0
-continuous_cd = true
-contact_monitor = true
-max_contacts_reported = 4
-linear_damp_mode = 1
-angular_damp_mode = 1
+[node name="Missile" type="Area3D"]
+collision_layer = 2
 script = ExtResource("1_missile")
 explosion_scene = ExtResource("2_explosion")
 

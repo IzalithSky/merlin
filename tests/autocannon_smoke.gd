@@ -23,7 +23,7 @@ func _ready() -> void:
 	var bullets := get_tree().get_nodes_in_group("bullet")
 	_assert(bullets.size() == 1, "expected one live bullet, got %d" % bullets.size())
 
-	var bullet := bullets[0] as RigidBody3D
+	var bullet := bullets[0] as Bullet
 	_assert(bullet != null, "missing bullet body")
 	_assert(bullet.linear_velocity.length_squared() > 0.000001, "bullet velocity is zero")
 

@@ -102,8 +102,6 @@ func _fire(plane: Node3D, locked_target: Node3D) -> void:
 		missile.linear_velocity = (plane as RigidBody3D).linear_velocity
 	_projectiles_container.add_child(missile)
 
-	missile.add_collision_exception_with(plane)
-
 
 func get_and_advance_launch_transform(plane: Node3D) -> Transform3D:
 	var side_sign := -1.0 if _next_hardpoint_index % 2 == 0 else 1.0

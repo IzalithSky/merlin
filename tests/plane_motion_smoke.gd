@@ -2,6 +2,8 @@ extends SceneTree
 
 const PLANE_SCENE := preload("res://scenes/plane_character.tscn")
 const PLANE_MOTION_STATE := preload("res://scripts/plane_motion_state.gd")
+const BULLET_SCENE := preload("res://scenes/bullet.tscn")
+const MISSILE_SCENE := preload("res://scenes/missile.tscn")
 
 var _failed := false
 var _test_root: Node3D
@@ -17,6 +19,8 @@ func _run() -> void:
 	await _test_force_gravity_and_damping()
 	await _test_torque_integration()
 	await _test_wall_collision_clips_velocity()
+	await _test_projectiles_do_not_block_plane_motion()
+	await _test_projectile_hits_damage_without_moving_plane()
 
 	if not _failed:
 		print("plane_motion_smoke_ok")
@@ -114,6 +118,78 @@ func _test_wall_collision_clips_velocity() -> void:
 	_assert(plane.global_position.x <= -5.49, "wall collision should not penetrate")
 	plane.free()
 	wall.free()
+
+
+func _test_projectiles_do_not_block_plane_motion() -> void:
+	var projectile_body := RigidBody3D.new()
+	var projectile_shape := CollisionShape3D.new()
+	var projectile_sphere := SphereShape3D.new()
+	projectile_sphere.radius = 2.0
+	projectile_shape.shape = projectile_sphere
+	projectile_body.add_child(projectile_shape)
+	projectile_body.collision_layer = 2
+	projectile_body.collision_mask = 1
+	projectile_body.freeze = true
+	_test_root.add_child(projectile_body)
+	projectile_body.global_position = Vector3.ZERO
+
+	var plane := await _spawn_test_plane()
+	plane.gravity_scale = 0.0
+	plane.global_position = Vector3(-8.0, 0.0, 0.0)
+	plane.linear_velocity = Vector3(20.0, 0.0, 0.0)
+	await physics_frame
+	plane.integrate_motion_step(0.5)
+
+	_assert(_approx_vec3(plane.linear_velocity, Vector3(20.0, 0.0, 0.0)), "projectile body should not clip plane velocity")
+	_assert(plane.global_position.x > 1.9, "projectile body should not block plane sweep")
+	plane.free()
+	projectile_body.free()
+
+
+func _test_projectile_hits_damage_without_moving_plane() -> void:
+	var bullet_result := await _run_projectile_hit_probe(BULLET_SCENE, Vector3(1000.0, 0.0, 0.0), 10)
+	_assert(_approx(float(bullet_result["hp_after"]), 75.0), "bullet hit should apply direct damage")
+	_assert(_approx_vec3(Vector3(bullet_result["plane_velocity"]), Vector3.ZERO), "bullet hit should not move plane")
+
+	var missile_result := await _run_projectile_hit_probe(MISSILE_SCENE, Vector3(250.0, 0.0, 0.0), 20)
+	_assert(float(missile_result["hp_after"]) < 100.0, "missile hit should apply explosion damage")
+	_assert(_approx_vec3(Vector3(missile_result["plane_velocity"]), Vector3.ZERO), "missile hit should not move plane")
+
+
+func _run_projectile_hit_probe(projectile_scene: PackedScene, launch_velocity: Vector3, frame_count: int) -> Dictionary:
+	var plane := await _spawn_test_plane()
+	plane.gravity_scale = 0.0
+	plane.global_position = Vector3.ZERO
+	plane.linear_velocity = Vector3.ZERO
+	plane.angular_velocity = Vector3.ZERO
+	var health = plane.get_health_component()
+	var projectile = projectile_scene.instantiate()
+	if projectile is Bullet:
+		projectile.shooter = null
+		projectile.damage = 25.0
+	elif projectile is Missile:
+		projectile.host = null
+		projectile.target = null
+		projectile.thrust = 0.0
+		projectile.explosion_scene = null
+	_test_root.add_child(projectile)
+	if projectile.has_method("initialize_launch"):
+		projectile.call("initialize_launch", Vector3(-30.0, 0.0, 0.0), launch_velocity)
+	else:
+		projectile.global_position = Vector3(-30.0, 0.0, 0.0)
+		projectile.linear_velocity = launch_velocity
+
+	for _frame_index in range(frame_count):
+		await physics_frame
+
+	var result := {
+		"hp_after": float(health.current_hp),
+		"plane_velocity": plane.linear_velocity,
+	}
+	if is_instance_valid(projectile):
+		projectile.queue_free()
+	plane.free()
+	return result
 
 
 func _spawn_test_plane() -> PlaneCharacter:

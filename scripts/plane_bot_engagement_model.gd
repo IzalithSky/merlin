@@ -260,7 +260,9 @@ func _find_collision_threat() -> float:
 			if not is_instance_valid(missile):
 				continue
 			var missile_vel := Vector3.ZERO
-			if missile is RigidBody3D:
+			if missile is Missile:
+				missile_vel = (missile as Missile).linear_velocity
+			elif missile is RigidBody3D:
 				missile_vel = (missile as RigidBody3D).linear_velocity
 
 			var threat := _get_collision_threat(missile, missile_vel, best_tca)
@@ -310,6 +312,9 @@ func _get_node_velocity(body: Node3D) -> Vector3:
 		return plane.get_replicated_velocity()
 	if body is RigidBody3D:
 		return (body as RigidBody3D).linear_velocity
+	var missile := body as Missile
+	if missile != null:
+		return missile.linear_velocity
 	return Vector3.ZERO
 
 

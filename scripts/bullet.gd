@@ -1,5 +1,5 @@
 class_name Bullet
-extends RigidBody3D
+extends Area3D
 
 const TRAIL_SCENE := preload("res://scenes/wing_trail.tscn")
 
@@ -12,6 +12,7 @@ const TRAIL_SCENE := preload("res://scenes/wing_trail.tscn")
 signal died(hit: bool, hit_position: Vector3)
 
 var shooter: Node3D = null
+var linear_velocity := Vector3.ZERO
 var _is_replica := false
 
 var _origin: Vector3 = Vector3.ZERO
@@ -27,8 +28,6 @@ func init_replica(spawn_position: Vector3, launch_velocity: Vector3) -> void:
 	linear_velocity = launch_velocity
 	collision_layer = 0
 	collision_mask = 0
-	contact_monitor = false
-	max_contacts_reported = 0
 	if launch_velocity.length_squared() > 0.000001:
 			look_at(global_position + launch_velocity.normalized(), Vector3.UP)
 
@@ -36,12 +35,6 @@ func init_replica(spawn_position: Vector3, launch_velocity: Vector3) -> void:
 func _ready() -> void:
 	add_to_group("bullet")
 	_origin = global_position
-	if not _is_replica:
-		body_entered.connect(_on_body_entered)
-	continuous_cd = true
-	lock_rotation = true
-	if not _is_replica and shooter != null and is_instance_valid(shooter):
-		add_collision_exception_with(shooter)
 	_spawn_trail()
 
 
@@ -55,7 +48,17 @@ func initialize_launch(spawn_position: Vector3, launch_velocity: Vector3) -> voi
 		_trail.global_position = spawn_position
 
 
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
+	if not _is_replica and not _dead:
+		var hit := _sweep_for_hit(global_position, global_position + linear_velocity * delta)
+		if not hit.is_empty():
+			global_position = Vector3(hit["position"])
+			_deal_damage(hit["collider"] as Node)
+			_despawn(true)
+			return
+
+	global_position += linear_velocity * delta
+
 	if global_position.distance_to(_origin) > max_range:
 		if _is_replica:
 			return
@@ -66,13 +69,23 @@ func _physics_process(_delta: float) -> void:
 		_trail.global_position = global_position
 
 
-func _on_body_entered(body: Node) -> void:
-	if _is_replica:
-		return
-	if body == shooter:
-		return
-	_deal_damage(body)
-	_despawn(true)
+func _sweep_for_hit(from_position: Vector3, to_position: Vector3) -> Dictionary:
+	if from_position.distance_squared_to(to_position) <= 0.000001:
+		return {}
+
+	var query := PhysicsRayQueryParameters3D.create(from_position, to_position, collision_mask)
+	query.collide_with_bodies = true
+	query.collide_with_areas = false
+	if shooter != null and is_instance_valid(shooter) and shooter is CollisionObject3D:
+		query.exclude = [(shooter as CollisionObject3D).get_rid()]
+
+	var result := get_world_3d().direct_space_state.intersect_ray(query)
+	if result.is_empty():
+		return {}
+	var collider := result.get("collider") as Node
+	if collider == null or collider == shooter:
+		return {}
+	return result
 
 
 func _deal_damage(body: Node) -> void:

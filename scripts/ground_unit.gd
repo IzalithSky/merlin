@@ -151,8 +151,8 @@ func _fire_sam() -> void:
 	var missile := MISSILE_SCENE.instantiate()
 	missile.global_transform = launch_tr
 	missile.target = _target
+	missile.host = self
 	_projectiles.add_child(missile)
-	missile.add_collision_exception_with(self)
 
 
 func _get_launch_transform(launch_pos: Vector3, target_pos: Vector3) -> Transform3D:

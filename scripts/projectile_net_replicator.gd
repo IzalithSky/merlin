@@ -109,7 +109,6 @@ func _server_fire_missile(firing_plane: Node3D, locked_target: Node3D) -> void:
 	missile.host = firing_plane
 	missile.linear_velocity = firing_plane.linear_velocity
 	_projectiles.add_child(missile)
-	missile.add_collision_exception_with(firing_plane)
 
 
 func _server_fire_autocannon(plane: Node3D, firing_peer_id: int, target_kind: int = -1, target_id: int = -1) -> void:

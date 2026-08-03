@@ -62,12 +62,12 @@ that already includes shooter speed.
 
 ## 3. Projectile simulation
 
-The real projectile is `Bullet`, a `RigidBody3D` that:
+The real projectile is `Bullet`, an `Area3D` with code-owned swept movement that:
 
 - stores its launch origin
 - travels in a straight line at constant velocity
 - despawns after `max_range`
-- deals damage on direct body contact
+- ray-sweeps each physics tick for direct body hits
 - ignores collision with the shooter
 
 The bullet also spawns a short trail for visibility.
@@ -256,18 +256,18 @@ This function exists to ensure:
 - the range check uses the real launch point
 - the initial orientation matches the true launch velocity
 
-### `_physics_process(_delta)`
+### `_physics_process(delta)`
 
-- keeps the bullet facing along its velocity
+- advances the bullet by `linear_velocity * delta`
+- ray-sweeps from previous to next position to avoid tunneling
 - despawns when `distance_to(_origin) > max_range`
 - updates trail position
 
-### `_on_body_entered(body)`
+### `_sweep_for_hit(from_position, to_position)`
 
 - ignores the shooter
-- tries to find a node exposing `take_damage`
-- deals damage
-- despawns with `hit=true`
+- checks physics bodies on the bullet collision mask
+- returns the first authoritative hit for damage/despawn
 
 ### `_find_damage_receiver(node)`
 
@@ -288,22 +288,14 @@ Creates the short pink bullet trail.
 
 ## `scenes/bullet.tscn`
 
-This scene sets the real projectile physics model.
+This scene sets the real projectile collision query shape and visuals.
 
 ## Physics properties
 
 | Property | Value | Meaning |
 |---|---|---|
-| `mass` | `0.02` | Lightweight projectile body. |
-| `continuous_cd` | `true` | Enables continuous collision detection to reduce tunneling. |
-| `gravity_scale` | `0.0` | Disables gravity so the bullet matches the straight-line lead solver. |
-| `linear_damp_mode` | `1` | Replace/default-off damping mode. |
-| `linear_damp` | `0.0` | Prevents unwanted speed loss from damping. |
-| `angular_damp_mode` | `1` | Replace/default-off damping mode. |
-| `angular_damp` | `0.0` | Prevents angular damping side effects. |
-| `lock_rotation` | `true` | Bullet orientation is driven by script, not by collisions. |
-| `contact_monitor` | `true` | Enables hit detection callbacks. |
-| `max_contacts_reported` | `1` | One direct contact is enough to despawn the round. |
+| `collision_layer` | `2` | Projectile layer; planes do not sweep-collide against it. |
+| `collision_mask` | default layer 1 | Bodies the bullet ray-sweep can hit. |
 
 ## Collision shape
 

@@ -99,8 +99,9 @@ from the local plane's `PlaneWeaponLock` each frame:
 
 ## Missile Flight — `missile.gd` / `missile.tscn`
 
-The missile is a `RigidBody3D` that inherits the firing plane's velocity at
-launch, then applies constant thrust and guidance. It uses a proportional
+The missile is an `Area3D` with code-owned velocity, swept impact checks, thrust,
+drag, and guidance. It inherits the firing plane's velocity at launch, then applies
+constant thrust and guidance. It uses a proportional
 navigation variant: the steering direction is `(deviation + Δdeviation).normalized()`,
 where `deviation` is the vector to the target and `Δdeviation` is the
 frame-over-frame change (a crude lead term). This causes the missile to naturally

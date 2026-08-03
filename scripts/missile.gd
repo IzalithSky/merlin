@@ -1,6 +1,7 @@
 class_name Missile
-extends RigidBody3D
+extends Area3D
 
+@export var mass: float = 80.0
 @export var thrust: float = 12_000.0
 @export var drag_coeff: float = 0.1
 @export var lateral_force: float = 60_000.0
@@ -28,6 +29,8 @@ var target: Node3D = null
 var host: Node3D = null
 @onready var _engine_sound: AudioStreamPlayer3D = $EngineSound
 var _is_replica := false
+var linear_velocity := Vector3.ZERO
+var angular_velocity := Vector3.ZERO
 
 var missile_target_id: int = -1
 var _lockable_registered := false
@@ -38,6 +41,8 @@ var _had_target: bool = false
 var _exploded: bool = false
 var _previous_deviation: Vector3 = Vector3.ZERO
 var _trail: VisualTrail3D = null
+var _force_accumulator := Vector3.ZERO
+var _torque_accumulator := Vector3.ZERO
 
 
 func init_replica(transform_value: Transform3D, velocity: Vector3, target_node: Node3D = null) -> void:
@@ -49,51 +54,66 @@ func init_replica(transform_value: Transform3D, velocity: Vector3, target_node: 
 	angular_velocity = Vector3.ZERO
 	collision_layer = 0
 	collision_mask = 0
-	contact_monitor = false
-	max_contacts_reported = 0
-	continuous_cd = false
 
 
 func _ready() -> void:
 	add_to_group("missile")
 	_had_target = target != null and is_instance_valid(target)
-	if not _is_replica:
-		body_entered.connect(_on_body_entered)
 	_spawn_trail()
 
 
 func _physics_process(delta: float) -> void:
 	_time_since_launch += delta
 
-	apply_central_force(-global_transform.basis.z * thrust)
+	_clear_accumulators()
+	add_central_force(-global_transform.basis.z * thrust)
 	_apply_drag()
 	_apply_stabilisation()
 	_apply_guidance(delta)
 
 	if _time_since_launch >= max_lifetime:
-		if _is_replica:
+		if not _is_replica:
+			if explode_on_timeout:
+				_spawn_explosion()
+			_die()
 			return
-		if explode_on_timeout:
-			_spawn_explosion()
-		_die()
-		return
 
 	var max_av := deg_to_rad(max_ang_vel_deg)
 	if angular_velocity.length_squared() > max_av * max_av:
 		angular_velocity = angular_velocity.normalized() * max_av
 
+	_integrate_motion(delta)
+
 	if _trail != null and is_instance_valid(_trail):
 		_trail.global_position = global_position
 
 
+func add_central_force(force: Vector3) -> void:
+	if force.is_finite():
+		_force_accumulator += force
+
+
+func apply_central_force(force: Vector3) -> void:
+	add_central_force(force)
+
+
+func add_torque(torque: Vector3) -> void:
+	if torque.is_finite():
+		_torque_accumulator += torque
+
+
+func apply_torque(torque: Vector3) -> void:
+	add_torque(torque)
+
+
 func _apply_drag() -> void:
-	apply_central_force(-linear_velocity * drag_coeff * linear_velocity.length())
+	add_central_force(-linear_velocity * drag_coeff * linear_velocity.length())
 
 
 func _apply_stabilisation() -> void:
 	var av_len := angular_velocity.length()
 	if av_len > 1e-4:
-		apply_torque(-angular_velocity.normalized() * minf(av_len, torque_strength))
+		add_torque(-angular_velocity.normalized() * minf(av_len, torque_strength))
 
 
 func _apply_guidance(delta: float) -> void:
@@ -142,7 +162,7 @@ func _apply_guidance(delta: float) -> void:
 	var vel_dir := linear_velocity.normalized()
 	var lateral := steer_dir - vel_dir * vel_dir.dot(steer_dir)
 	if lateral.length_squared() > 1e-8:
-		apply_central_force(lateral * lateral_force)
+		add_central_force(lateral * lateral_force)
 
 	var angle := fwd.angle_to(steer_dir)
 
@@ -152,16 +172,62 @@ func _apply_guidance(delta: float) -> void:
 			axis = axis.normalized()
 			var max_turn := deg_to_rad(max_ang_vel_deg) * delta
 			var turn_angle := minf(angle, max_turn)
-			apply_torque(axis * torque_strength * (turn_angle / maxf(delta, 1e-4)))
+			add_torque(axis * torque_strength * (turn_angle / maxf(delta, 1e-4)))
 
 
-func _on_body_entered(body: Node) -> void:
-	if _is_replica:
+func _integrate_motion(delta: float) -> void:
+	if delta <= 0.0:
 		return
-	if body == host:
+
+	linear_velocity += (_force_accumulator / maxf(mass, 0.001)) * delta
+	angular_velocity += (_torque_accumulator / maxf(mass, 0.001)) * delta
+	_integrate_rotation(delta)
+
+	var from_position := global_position
+	var to_position := global_position + linear_velocity * delta
+	if not _is_replica:
+		var hit := _sweep_for_hit(from_position, to_position)
+		if not hit.is_empty():
+			global_position = Vector3(hit["position"])
+			_spawn_explosion()
+			_die()
+			return
+
+	global_position = to_position
+	if linear_velocity.length_squared() > 0.000001:
+		look_at(global_position + linear_velocity.normalized(), Vector3.UP)
+
+
+func _integrate_rotation(delta: float) -> void:
+	if angular_velocity.length_squared() <= 0.000001:
 		return
-	_spawn_explosion()
-	_die()
+	var angular_speed := angular_velocity.length()
+	var delta_rotation := Quaternion(angular_velocity / angular_speed, angular_speed * delta)
+	global_basis = (Basis(delta_rotation) * global_transform.basis).orthonormalized()
+
+
+func _sweep_for_hit(from_position: Vector3, to_position: Vector3) -> Dictionary:
+	if from_position.distance_squared_to(to_position) <= 0.000001:
+		return {}
+
+	var query := PhysicsRayQueryParameters3D.create(from_position, to_position, collision_mask)
+	query.collide_with_bodies = true
+	query.collide_with_areas = false
+	if host != null and is_instance_valid(host) and host is CollisionObject3D:
+		query.exclude = [(host as CollisionObject3D).get_rid()]
+
+	var result := get_world_3d().direct_space_state.intersect_ray(query)
+	if result.is_empty():
+		return {}
+	var collider := result.get("collider") as Node
+	if collider == null or collider == host:
+		return {}
+	return result
+
+
+func _clear_accumulators() -> void:
+	_force_accumulator = Vector3.ZERO
+	_torque_accumulator = Vector3.ZERO
 
 
 func _die() -> void:
